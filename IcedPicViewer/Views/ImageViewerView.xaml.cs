@@ -34,14 +34,6 @@ public sealed partial class ImageViewerView : Page
         DataContext = App.GetService<ImageViewModel>();
         Loaded += (_, _) =>
         {
-            try
-            {
-                Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
-            }
-            catch
-            {
-            }
-
             if (DataContext is ImageViewModel vm)
             {
                 vm.DisplayImageChanged += (_, _) => UpdateMinimapDeferred();
@@ -49,45 +41,6 @@ public sealed partial class ImageViewerView : Page
                 vm.NavigateNextCommand.NotifyCanExecuteChanged();
             }
         };
-
-        Unloaded += (_, _) =>
-        {
-            try
-            {
-                Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
-            }
-            catch
-            {
-            }
-        };
-    }
-
-    private void CoreWindow_KeyDown(Windows.UI.Core.CoreWindow sender, Windows.UI.Core.KeyEventArgs args)
-    {
-        if (DataContext is not ImageViewModel vm) return;
-
-        switch (args.VirtualKey)
-        {
-            case Windows.System.VirtualKey.Left:
-                if (vm.NavigatePreviousCommand.CanExecute(null))
-                    vm.NavigatePreviousCommand.Execute(null);
-                args.Handled = true;
-                break;
-            case Windows.System.VirtualKey.Right:
-                if (vm.NavigateNextCommand.CanExecute(null))
-                    vm.NavigateNextCommand.Execute(null);
-                args.Handled = true;
-                break;
-            case Windows.System.VirtualKey.Delete:
-                if (vm.DeleteCommand.CanExecute(null))
-                    vm.DeleteCommand.Execute(null);
-                args.Handled = true;
-                break;
-            case Windows.System.VirtualKey.Escape:
-                vm.CloseCommand.Execute(null);
-                args.Handled = true;
-                break;
-        }
     }
 
     private async void UpdateMinimapDeferred()

@@ -1,5 +1,7 @@
+using IcedPicViewer.ViewModels;
 using IcedPicViewer.Views;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using System.IO;
 
 namespace IcedPicViewer;
@@ -22,6 +24,37 @@ public sealed partial class MainWindow : Window
         RootFrame.Navigate(typeof(GalleryView));
 
         AppWindow.Closing += AppWindow_Closing;
+
+        RootFrame.KeyDown += RootFrame_KeyDown;
+    }
+
+    private void RootFrame_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (RootFrame.Content is ImageViewerView viewer && viewer.DataContext is ImageViewModel vm)
+        {
+            switch (e.Key)
+            {
+                case Windows.System.VirtualKey.Left:
+                    if (vm.NavigatePreviousCommand.CanExecute(null))
+                        vm.NavigatePreviousCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Windows.System.VirtualKey.Right:
+                    if (vm.NavigateNextCommand.CanExecute(null))
+                        vm.NavigateNextCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Windows.System.VirtualKey.Delete:
+                    if (vm.DeleteCommand.CanExecute(null))
+                        vm.DeleteCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Windows.System.VirtualKey.Escape:
+                    vm.CloseCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+            }
+        }
     }
 
     private void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
