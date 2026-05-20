@@ -92,6 +92,7 @@ public partial class ImageViewModel : ObservableObject
     partial void OnCurrentIndexChanged(int value)
     {
         DisplayIndex = value + 1;
+        _galleryViewModel.LastViewedIndex = value;
         NavigatePreviousCommand.NotifyCanExecuteChanged();
         NavigateNextCommand.NotifyCanExecuteChanged();
     }
