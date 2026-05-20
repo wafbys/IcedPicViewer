@@ -22,10 +22,11 @@
             </StackPanel>
         </Grid>
 
-        <ScrollViewer Grid.Row="1"
+        <ScrollViewer x:Name="MainScrollViewer"
+                      Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl ItemsSource="{Binding Images}">
+            <ItemsControl x:Name="MainItemsControl" ItemsSource="{Binding Images}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <controls:MasonryPanel ItemWidth="220" ItemSpacing="8"/>

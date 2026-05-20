@@ -3,6 +3,7 @@ using IcedPicViewer.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 
 namespace IcedPicViewer.Views;
 
@@ -19,6 +20,23 @@ public sealed partial class GalleryView : Page
 
         ViewModel = App.GetService<GalleryViewModel>();
         DataContext = ViewModel;
+    }
+
+    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+
+        if (ViewModel.LastViewedIndex >= 0 && ViewModel.LastViewedIndex < ViewModel.Images.Count)
+        {
+            var index = ViewModel.LastViewedIndex;
+            var container = MainItemsControl.ItemContainerGenerator.ContainerFromIndex(index);
+            if (container is FrameworkElement fe)
+            {
+                var transform = fe.TransformToVisual(MainScrollViewer);
+                var bounds = transform.TransformBounds(new Windows.Foundation.Rect(0, 0, fe.ActualWidth, fe.ActualHeight));
+                MainScrollViewer.ChangeView(null, bounds.Y, null, true);
+            }
+        }
     }
 
     private void ImageItem_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)

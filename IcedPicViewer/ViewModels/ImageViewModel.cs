@@ -197,6 +197,7 @@ public partial class ImageViewModel : ObservableObject
 
         CurrentImage = item;
         CurrentIndex = Images.IndexOf(item);
+        _galleryViewModel.LastViewedIndex = CurrentIndex;
         TotalCount = Images.Count;
         ZoomLevel = 1.0;
 
