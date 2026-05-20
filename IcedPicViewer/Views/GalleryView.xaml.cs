@@ -29,14 +29,26 @@ public sealed partial class GalleryView : Page
         if (ViewModel.LastViewedIndex >= 0 && ViewModel.LastViewedIndex < ViewModel.Images.Count)
         {
             var index = ViewModel.LastViewedIndex;
-            var container = MainItemsControl.ItemContainerGenerator.ContainerFromIndex(index);
-            if (container is FrameworkElement fe)
+            var panel = FindMasonryPanel(MainItemsControl);
+            if (panel != null)
             {
-                var transform = fe.TransformToVisual(MainScrollViewer);
-                var bounds = transform.TransformBounds(new Windows.Foundation.Rect(0, 0, fe.ActualWidth, fe.ActualHeight));
-                MainScrollViewer.ChangeView(null, bounds.Y, null, true);
+                var y = panel.GetItemYPosition(index);
+                MainScrollViewer.ChangeView(null, y, null, true);
             }
         }
+    }
+
+    private static Controls.MasonryPanel? FindMasonryPanel(DependencyObject parent)
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Controls.MasonryPanel panel)
+                return panel;
+            var result = FindMasonryPanel(child);
+            if (result != null) return result;
+        }
+        return null;
     }
 
     private void ImageItem_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)

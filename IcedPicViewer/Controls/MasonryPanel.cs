@@ -20,6 +20,8 @@ public class MasonryPanel : Panel
         DependencyProperty.Register(nameof(ItemWidth), typeof(double), typeof(MasonryPanel),
             new PropertyMetadata(200.0, OnLayoutPropertyChanged));
 
+    private readonly Dictionary<UIElement, double> _itemYPositions = new();
+
     public int ColumnCount
     {
         get => (int)GetValue(ColumnCountProperty);
@@ -112,13 +114,17 @@ public class MasonryPanel : Panel
         }
 
         var columnHeights = new double[columnCount];
+        _itemYPositions.Clear();
 
+        int index = 0;
         foreach (var child in Children)
         {
             var shortestColumn = FindShortestColumn(columnHeights);
 
             var x = columnPositions[shortestColumn];
             var y = columnHeights[shortestColumn];
+
+            _itemYPositions[child] = y;
 
             var itemHeight = child.DesiredSize.Height;
             if (double.IsNaN(itemHeight) || itemHeight <= 0 || double.IsInfinity(itemHeight))
@@ -129,8 +135,16 @@ public class MasonryPanel : Panel
             child.Arrange(new Rect(x, y, actualItemWidth, itemHeight));
 
             columnHeights[shortestColumn] += itemHeight + spacing;
+            index++;
         }
 
         return finalSize;
+    }
+
+    public double GetItemYPosition(int index)
+    {
+        if (index < 0 || index >= Children.Count) return 0;
+        var child = Children[index];
+        return _itemYPositions.TryGetValue(child, out var y) ? y : 0;
     }
 }
