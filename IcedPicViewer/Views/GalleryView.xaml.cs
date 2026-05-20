@@ -26,9 +26,14 @@ public sealed partial class GalleryView : Page
     {
         base.OnNavigatedTo(e);
 
-        if (ViewModel.LastViewedYOffset > 0)
+        var offset = ViewModel.LastViewedYOffset;
+        if (offset > 0)
         {
-            MainScrollViewer.ScrollToVerticalOffset(ViewModel.LastViewedYOffset);
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                MainScrollViewer.UpdateLayout();
+                MainScrollViewer.ChangeView(null, offset, null, true);
+            });
         }
     }
 
