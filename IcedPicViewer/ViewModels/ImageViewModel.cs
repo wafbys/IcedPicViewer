@@ -81,28 +81,39 @@ public partial class ImageViewModel : ObservableObject
     {
         _galleryViewModel = galleryViewModel;
         _imageLoader = imageLoader;
-        Images.CollectionChanged += (_, _) => TotalCount = Images.Count;
+        Images.CollectionChanged += (_, _) =>
+        {
+            TotalCount = Images.Count;
+            NavigatePreviousCommand.NotifyCanExecuteChanged();
+            NavigateNextCommand.NotifyCanExecuteChanged();
+        };
     }
 
     partial void OnCurrentIndexChanged(int value)
     {
         DisplayIndex = value + 1;
+        NavigatePreviousCommand.NotifyCanExecuteChanged();
+        NavigateNextCommand.NotifyCanExecuteChanged();
     }
 
-    [RelayCommand]
+    private bool CanNavigatePrevious() => Images.Count > 0 && CurrentIndex > 0;
+
+    private bool CanNavigateNext() => Images.Count > 0 && CurrentIndex < Images.Count - 1;
+
+    [RelayCommand(CanExecute = nameof(CanNavigatePrevious))]
     private async Task NavigatePreviousAsync()
     {
-        if (Images.Count > 0 && CurrentIndex > 0 && CurrentIndex < Images.Count)
+        if (CanNavigatePrevious())
         {
             CurrentIndex--;
             await ShowCurrentImageAsync();
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanNavigateNext))]
     private async Task NavigateNextAsync()
     {
-        if (Images.Count > 0 && CurrentIndex >= 0 && CurrentIndex < Images.Count - 1)
+        if (CanNavigateNext())
         {
             CurrentIndex++;
             await ShowCurrentImageAsync();
