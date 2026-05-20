@@ -46,8 +46,36 @@ public sealed partial class ImageViewerView : Page
                 vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
                 vm.NavigateNextCommand.NotifyCanExecuteChanged();
             }
-            this.Focus(FocusState.Programmatic);
         };
+    }
+
+    private void Page_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (DataContext is ImageViewModel vm)
+        {
+            switch (e.Key)
+            {
+                case Windows.System.VirtualKey.Left:
+                    if (vm.NavigatePreviousCommand.CanExecute(null))
+                        vm.NavigatePreviousCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Windows.System.VirtualKey.Right:
+                    if (vm.NavigateNextCommand.CanExecute(null))
+                        vm.NavigateNextCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Windows.System.VirtualKey.Delete:
+                    if (vm.DeleteCommand.CanExecute(null))
+                        vm.DeleteCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Windows.System.VirtualKey.Escape:
+                    vm.CloseCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+            }
+        }
     }
 
     private async void UpdateMinimapDeferred()
