@@ -26,6 +26,7 @@ public partial class ImageViewModel : ObservableObject
     private BitmapImage? _displayImage;
 
     public event EventHandler? DisplayImageChanged;
+    public event EventHandler? NavigationChanged;
 
     private int _actualWidth;
     public int ActualWidth => _actualWidth > 0 ? _actualWidth : CurrentImage?.OriginalWidth ?? 0;
@@ -95,6 +96,7 @@ public partial class ImageViewModel : ObservableObject
         _galleryViewModel.LastViewedIndex = value;
         NavigatePreviousCommand.NotifyCanExecuteChanged();
         NavigateNextCommand.NotifyCanExecuteChanged();
+        NavigationChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private bool CanNavigatePrevious() => Images.Count > 0 && CurrentIndex > 0;

@@ -13,6 +13,7 @@ public sealed partial class GalleryView : Page
 
     private ImageItem? _selectedItemForDelete;
     private int _isNavigatingToViewer;
+    private ImageViewModel? _currentImageViewModel;
 
     public GalleryView()
     {
@@ -25,6 +26,12 @@ public sealed partial class GalleryView : Page
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+
+        if (_currentImageViewModel != null)
+        {
+            _currentImageViewModel.NavigationChanged -= OnImageViewModelNavigationChanged;
+            _currentImageViewModel = null;
+        }
 
         var offset = ViewModel.LastViewedYOffset;
         if (offset > 0)
@@ -124,8 +131,9 @@ public sealed partial class GalleryView : Page
                 ViewModel.LastViewedYOffset = panel.GetItemYPosition(index);
             }
 
-            var imageViewModel = App.GetService<ImageViewModel>();
-            await imageViewModel.ShowImageAsync(item);
+            _currentImageViewModel = App.GetService<ImageViewModel>();
+            _currentImageViewModel.NavigationChanged += OnImageViewModelNavigationChanged;
+            await _currentImageViewModel.ShowImageAsync(item);
 
             var frame = FindFrame();
             if (frame != null)
@@ -136,6 +144,16 @@ public sealed partial class GalleryView : Page
         finally
         {
             System.Threading.Interlocked.Exchange(ref _isNavigatingToViewer, 0);
+        }
+    }
+
+    private void OnImageViewModelNavigationChanged(object? sender, EventArgs e)
+    {
+        if (_currentImageViewModel == null) return;
+        var panel = FindMasonryPanel(MainScrollViewer);
+        if (panel != null)
+        {
+            ViewModel.LastViewedYOffset = panel.GetItemYPosition(_currentImageViewModel.CurrentIndex);
         }
     }
 
