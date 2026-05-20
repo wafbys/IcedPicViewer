@@ -35,7 +35,6 @@ public sealed partial class ImageViewerView : Page
         Loaded += async (_, _) =>
         {
             await Task.Delay(10);
-            this.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
             if (DataContext is ImageViewModel vm)
             {
                 vm.DisplayImageChanged += (_, _) => UpdateMinimapDeferred();
@@ -43,25 +42,37 @@ public sealed partial class ImageViewerView : Page
                 vm.NavigateNextCommand.NotifyCanExecuteChanged();
             }
         };
-        SizeChanged += (_, _) =>
-        {
-            this.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-            if (DataContext is ImageViewModel vm)
-            {
-                vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
-                vm.NavigateNextCommand.NotifyCanExecuteChanged();
-            }
-        };
 
-        App.MainWindow!.Activated += (_, _) =>
+        Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
+        Unloaded += (_, _) => Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
+    }
+
+    private void CoreWindow_KeyDown(Windows.UI.Core.CoreWindow sender, Windows.UI.Core.KeyEventArgs args)
+    {
+        if (DataContext is not ImageViewModel vm) return;
+
+        switch (args.VirtualKey)
         {
-            this.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-            if (DataContext is ImageViewModel vm)
-            {
-                vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
-                vm.NavigateNextCommand.NotifyCanExecuteChanged();
-            }
-        };
+            case Windows.System.VirtualKey.Left:
+                if (vm.NavigatePreviousCommand.CanExecute(null))
+                    vm.NavigatePreviousCommand.Execute(null);
+                args.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Right:
+                if (vm.NavigateNextCommand.CanExecute(null))
+                    vm.NavigateNextCommand.Execute(null);
+                args.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Delete:
+                if (vm.DeleteCommand.CanExecute(null))
+                    vm.DeleteCommand.Execute(null);
+                args.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Escape:
+                vm.CloseCommand.Execute(null);
+                args.Handled = true;
+                break;
+        }
     }
 
     private async void UpdateMinimapDeferred()
@@ -70,34 +81,6 @@ public sealed partial class ImageViewerView : Page
         {
             await Task.Delay(50);
             UpdateMinimap();
-        }
-    }
-
-    private void Page_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (DataContext is not ImageViewModel vm) return;
-
-        switch (e.Key)
-        {
-            case Windows.System.VirtualKey.Left:
-                if (vm.NavigatePreviousCommand.CanExecute(null))
-                    vm.NavigatePreviousCommand.Execute(null);
-                e.Handled = true;
-                break;
-            case Windows.System.VirtualKey.Right:
-                if (vm.NavigateNextCommand.CanExecute(null))
-                    vm.NavigateNextCommand.Execute(null);
-                e.Handled = true;
-                break;
-            case Windows.System.VirtualKey.Delete:
-                if (vm.DeleteCommand.CanExecute(null))
-                    vm.DeleteCommand.Execute(null);
-                e.Handled = true;
-                break;
-            case Windows.System.VirtualKey.Escape:
-                vm.CloseCommand.Execute(null);
-                e.Handled = true;
-                break;
         }
     }
 
