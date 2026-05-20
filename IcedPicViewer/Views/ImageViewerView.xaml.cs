@@ -46,6 +46,7 @@ public sealed partial class ImageViewerView : Page
                 vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
                 vm.NavigateNextCommand.NotifyCanExecuteChanged();
             }
+            this.Focus(FocusState.Programmatic);
         };
     }
 
