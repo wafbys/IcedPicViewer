@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="IcedPicViewer\IcedPicViewer.csproj">
+    <Platform Solution="Debug|*" Project="x64" />
+  </Project>
+</Solution>
