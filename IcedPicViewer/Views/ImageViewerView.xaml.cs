@@ -47,7 +47,7 @@ public sealed partial class ImageViewerView : Page
                 vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
                 vm.NavigateNextCommand.NotifyCanExecuteChanged();
             }
-            if (!_keyHandlerAttached)
+            if (!_keyHandlerAttached && Window.Current != null)
             {
                 Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
                 _keyHandlerAttached = true;
@@ -55,7 +55,7 @@ public sealed partial class ImageViewerView : Page
         };
         Unloaded += (_, _) =>
         {
-            if (_keyHandlerAttached)
+            if (_keyHandlerAttached && Window.Current != null)
             {
                 Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
                 _keyHandlerAttached = false;
