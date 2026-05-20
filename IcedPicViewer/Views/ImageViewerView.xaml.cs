@@ -21,9 +21,15 @@ public sealed partial class ImageViewerView : Page
         if (DataContext is ImageViewModel vm && vm.CurrentImage != null)
         {
             var filePath = vm.CurrentImage.Path;
-            if (!string.IsNullOrEmpty(filePath))
+            if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
             {
-                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+                var startInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = $"/select,\"{filePath}\"",
+                    UseShellExecute = true
+                };
+                System.Diagnostics.Process.Start(startInfo);
             }
         }
     }

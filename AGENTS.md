@@ -245,6 +245,20 @@ If the launch fails because an old instance is still running, terminate it with 
 - **Use `winapp` for app-identity / packaging / signing** -- Don't hand-roll `MakeAppx`/`SignTool`/`Add-AppxPackage` invocations. The CLI keeps the manifest, certificate, and registration steps in sync.
 - **Git commit messages must use Chinese** -- All commit messages should be written in Chinese to match the user's preferred language.
 
+## Security Requirements
+
+- **Path validation before Process.Start** -- When using `Process.Start` with file paths, always validate the path with `File.Exists()` and sanitize special characters. Use `"` only as path wrapper, never embed user input directly in arguments.
+- **No silent exception swallowing** -- Catch blocks must log exceptions via `System.Diagnostics.Trace.TraceError()` or similar, not silently ignore them. Empty catch blocks are prohibited.
+- **IDisposable resources must be disposed** -- All `IDisposable` fields (FileSystemWatcher, Stream, etc.) must be properly disposed. ViewModels holding disposables must implement `IDisposable` pattern.
+- **No hardcoded secrets** -- API keys, passwords, connection strings must not be hardcoded.
+
+## Performance Requirements
+
+- **x:Bind over {Binding}** -- Use compiled bindings (`{x:Bind}`) instead of `{Binding}` for better performance and compile-time checking.
+- **IDisposable pattern for resource cleanup** -- ViewModels with `IDisposable` fields must implement full `IDisposable` pattern including `Dispose(bool)` and `GC.SuppressFinalize`.
+- **No blocking calls on UI thread** -- Never use `.Result` or `.GetAwaiter().GetResult()` on the UI thread.
+- **Virtualization for large lists** -- Consider `ItemsRepeater` or `ListView` with virtualization for lists expected to exceed 100 items.
+
 ## Windows AI Prerequisites
 
 When integrating Windows AI APIs (Phi Silica, Windows Vision -- ImageDescription,

@@ -68,9 +68,15 @@ public sealed partial class GalleryView : Page
         if (_selectedItemForDelete == null) return;
 
         var filePath = _selectedItemForDelete.Path;
-        if (!string.IsNullOrEmpty(filePath))
+        if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
         {
-            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{filePath}\"",
+                UseShellExecute = true
+            };
+            System.Diagnostics.Process.Start(startInfo);
         }
     }
 

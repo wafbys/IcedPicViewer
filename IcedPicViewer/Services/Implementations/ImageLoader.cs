@@ -30,8 +30,9 @@ public class ImageLoader : IImageLoader
             await fileStream.CopyToAsync(memoryStream, ct);
             return memoryStream.ToArray();
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Trace.TraceError($"LoadImageAsync error for {path}: {ex}");
             return null;
         }
     }
@@ -53,8 +54,9 @@ public class ImageLoader : IImageLoader
             await bitmapImage.SetSourceAsync(randomAccessStream);
             return bitmapImage;
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Trace.TraceError($"LoadThumbnailAsync error for {path}: {ex}");
             return null;
         }
     }
@@ -74,8 +76,9 @@ public class ImageLoader : IImageLoader
 
             return (bitmapImage.PixelWidth, bitmapImage.PixelHeight);
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Trace.TraceError($"GetImageSizeAsync error for {path}: {ex}");
             return null;
         }
     }

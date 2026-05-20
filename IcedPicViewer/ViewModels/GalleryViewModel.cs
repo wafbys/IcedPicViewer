@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace IcedPicViewer.ViewModels;
 
-public partial class GalleryViewModel : ObservableObject
+public partial class GalleryViewModel : ObservableObject, IDisposable
 {
     private readonly IDirectoryScanner _scanner;
     private readonly IImageLoader _imageLoader;
@@ -21,6 +21,7 @@ public partial class GalleryViewModel : ObservableObject
     private CancellationTokenSource? _loadCts;
     private int _loadedThumbnailCount;
     private IDisposable? _fileWatcher;
+    private bool _disposed;
 
     [ObservableProperty]
     private LoadingState _loadingState;
@@ -39,6 +40,26 @@ public partial class GalleryViewModel : ObservableObject
     {
         _scanner = scanner;
         _imageLoader = imageLoader;
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                _fileWatcher?.Dispose();
+                _loadCts?.Cancel();
+                _loadCts?.Dispose();
+            }
+            _disposed = true;
+        }
     }
 
     [RelayCommand]
@@ -111,7 +132,7 @@ public partial class GalleryViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"DeleteImageAsync error: {ex.Message}");
+            System.Diagnostics.Trace.TraceError($"DeleteImageAsync error: {ex}");
             StatusText = $"Delete failed: {ex.Message}";
             return;
         }
@@ -171,7 +192,7 @@ public partial class GalleryViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"LoadDirectoryAsync error: {ex}");
+            System.Diagnostics.Trace.TraceError($"LoadDirectoryAsync error: {ex}");
             LoadingState = LoadingState.Completed;
             StatusText = $"Error: {ex.Message}";
         }
@@ -271,8 +292,9 @@ public partial class GalleryViewModel : ObservableObject
                 });
             }
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Trace.TraceError($"LoadThumbnailAsync error for {item.Path}: {ex}");
             _dispatcher.TryEnqueue(() =>
             {
                 item.IsLoading = false;
