@@ -49,7 +49,15 @@ public partial class ImageItem : ObservableObject
         DisplayHeight = originalHeight > 0 ? originalHeight : 200;
     }
 
-    public double AspectRatio => OriginalHeight > 0 ? (double)OriginalWidth / OriginalHeight : 1.0;
+    public double AspectRatio
+    {
+        get
+        {
+            if (OriginalHeight <= 0 || OriginalWidth <= 0)
+                return 1.0;
+            return (double)OriginalWidth / OriginalHeight;
+        }
+    }
 
     public string FileSizeText
     {

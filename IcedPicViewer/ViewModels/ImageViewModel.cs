@@ -92,7 +92,7 @@ public partial class ImageViewModel : ObservableObject
     [RelayCommand]
     private async Task NavigatePreviousAsync()
     {
-        if (CurrentIndex > 0)
+        if (Images.Count > 0 && CurrentIndex > 0 && CurrentIndex < Images.Count)
         {
             CurrentIndex--;
             await ShowCurrentImageAsync();
@@ -102,7 +102,7 @@ public partial class ImageViewModel : ObservableObject
     [RelayCommand]
     private async Task NavigateNextAsync()
     {
-        if (CurrentIndex < Images.Count - 1)
+        if (Images.Count > 0 && CurrentIndex >= 0 && CurrentIndex < Images.Count - 1)
         {
             CurrentIndex++;
             await ShowCurrentImageAsync();

@@ -91,10 +91,11 @@ public class MasonryPanel : Panel
         var columnCount = ColumnCount;
         if (columnCount <= 0) columnCount = 3;
 
+        var itemWidth = ItemWidth;
         var spacing = ItemSpacing;
         var totalSpacing = spacing * (columnCount - 1);
         var availableWidth = finalSize.Width - totalSpacing;
-        if (availableWidth <= 0) availableWidth = ColumnCount * ItemWidth;
+        if (availableWidth <= 0) availableWidth = columnCount * itemWidth;
 
         var actualItemWidth = availableWidth / columnCount;
 
