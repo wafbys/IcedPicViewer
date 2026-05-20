@@ -47,6 +47,17 @@ public class MasonryPanel : Panel
         }
     }
 
+    private static int FindShortestColumn(double[] columnHeights)
+    {
+        int shortestColumn = 0;
+        for (int i = 1; i < columnHeights.Length; i++)
+        {
+            if (columnHeights[i] < columnHeights[shortestColumn])
+                shortestColumn = i;
+        }
+        return shortestColumn;
+    }
+
     protected override Size MeasureOverride(Size availableSize)
     {
         var columnCount = ColumnCount;
@@ -72,12 +83,7 @@ public class MasonryPanel : Panel
                 desiredHeight = actualItemWidth;
             }
 
-            var shortestColumn = 0;
-            for (int i = 1; i < columnCount; i++)
-            {
-                if (columnHeights[i] < columnHeights[shortestColumn])
-                    shortestColumn = i;
-            }
+            var shortestColumn = FindShortestColumn(columnHeights);
 
             columnHeights[shortestColumn] += desiredHeight + spacing;
         }
@@ -109,12 +115,7 @@ public class MasonryPanel : Panel
 
         foreach (var child in Children)
         {
-            var shortestColumn = 0;
-            for (int i = 1; i < columnCount; i++)
-            {
-                if (columnHeights[i] < columnHeights[shortestColumn])
-                    shortestColumn = i;
-            }
+            var shortestColumn = FindShortestColumn(columnHeights);
 
             var x = columnPositions[shortestColumn];
             var y = columnHeights[shortestColumn];

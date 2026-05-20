@@ -68,8 +68,12 @@ public sealed partial class MainWindow : Window
         {
             var exeDir = AppDomain.CurrentDomain.BaseDirectory;
             var file = Path.Combine(exeDir, SettingsFile);
+            var tempFile = Path.Combine(exeDir, $"{SettingsFile}.tmp");
             var content = $"{AppWindow.Position.X},{AppWindow.Position.Y},{AppWindow.Size.Width},{AppWindow.Size.Height}";
-            File.WriteAllText(file, content);
+
+            File.WriteAllText(tempFile, content);
+            File.Move(tempFile, file, overwrite: true);
+
             System.Diagnostics.Debug.WriteLine($"Saved window state: {content}");
         }
         catch (Exception ex)

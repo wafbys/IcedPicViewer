@@ -14,12 +14,6 @@ public partial class ImageItem : ObservableObject
     public int OriginalHeight { get; }
 
     [ObservableProperty]
-    private double _displayWidth;
-
-    [ObservableProperty]
-    private double _displayHeight;
-
-    [ObservableProperty]
     private BitmapImage? _thumbnail;
 
     [ObservableProperty]
@@ -44,19 +38,6 @@ public partial class ImageItem : ObservableObject
         ModifiedTime = modifiedTime;
         OriginalWidth = originalWidth;
         OriginalHeight = originalHeight;
-
-        DisplayWidth = originalWidth > 0 ? originalWidth : 200;
-        DisplayHeight = originalHeight > 0 ? originalHeight : 200;
-    }
-
-    public double AspectRatio
-    {
-        get
-        {
-            if (OriginalHeight <= 0 || OriginalWidth <= 0)
-                return 1.0;
-            return (double)OriginalWidth / OriginalHeight;
-        }
     }
 
     public string FileSizeText

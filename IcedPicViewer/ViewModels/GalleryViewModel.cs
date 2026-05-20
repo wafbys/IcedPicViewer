@@ -210,59 +210,51 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     private void OnFileChanged(FileChangeInfo info)
     {
-        var watchCts = new CancellationTokenSource();
         _dispatcher.TryEnqueue(async () =>
         {
-            try
+            switch (info.ChangeType)
             {
-                switch (info.ChangeType)
-                {
-                    case WatchChangeType.Created:
-                        if (!_imageLoader.IsSupportedFormat(info.Path)) return;
-                        if (Images.Any(i => i.Path == info.Path)) return;
-                        var fileInfo = new FileInfo(info.Path);
-                        if (!fileInfo.Exists) return;
-                        var size = await _imageLoader.GetImageSizeAsync(info.Path, watchCts.Token);
-                        var newItem = new ImageItem(
-                            id: info.Path,
-                            name: Path.GetFileName(info.Path),
-                            path: info.Path,
-                            fileSize: fileInfo.Length,
-                            modifiedTime: fileInfo.LastWriteTime,
-                            originalWidth: size?.Width ?? 0,
-                            originalHeight: size?.Height ?? 0
-                        );
-                        Images.Add(newItem);
+                case WatchChangeType.Created:
+                    if (!_imageLoader.IsSupportedFormat(info.Path)) return;
+                    if (Images.Any(i => i.Path == info.Path)) return;
+                    var fileInfo = new FileInfo(info.Path);
+                    if (!fileInfo.Exists) return;
+                    var size = await _imageLoader.GetImageSizeAsync(info.Path, CancellationToken.None);
+                    var newItem = new ImageItem(
+                        id: info.Path,
+                        name: Path.GetFileName(info.Path),
+                        path: info.Path,
+                        fileSize: fileInfo.Length,
+                        modifiedTime: fileInfo.LastWriteTime,
+                        originalWidth: size?.Width ?? 0,
+                        originalHeight: size?.Height ?? 0
+                    );
+                    Images.Add(newItem);
+                    TotalCount = Images.Count;
+                    StatusText = $"Loaded {Images.Count} images";
+                    await LoadThumbnailAsync(newItem, CancellationToken.None);
+                    break;
+
+                case WatchChangeType.Deleted:
+                    var itemToRemove = Images.FirstOrDefault(i => i.Path == info.Path);
+                    if (itemToRemove != null)
+                    {
+                        Images.Remove(itemToRemove);
                         TotalCount = Images.Count;
                         StatusText = $"Loaded {Images.Count} images";
-                        await LoadThumbnailAsync(newItem, watchCts.Token);
-                        break;
+                    }
+                    break;
 
-                    case WatchChangeType.Deleted:
-                        var itemToRemove = Images.FirstOrDefault(i => i.Path == info.Path);
-                        if (itemToRemove != null)
-                        {
-                            Images.Remove(itemToRemove);
-                            TotalCount = Images.Count;
-                            StatusText = $"Loaded {Images.Count} images";
-                        }
-                        break;
-
-                    case WatchChangeType.Modified:
-                    case WatchChangeType.Renamed:
-                        var item = Images.FirstOrDefault(i => i.Path == info.Path);
-                        if (item != null)
-                        {
-                            item.Thumbnail = null;
-                            item.FullImage = null;
-                            await LoadThumbnailAsync(item, watchCts.Token);
-                        }
-                        break;
-                }
-            }
-            finally
-            {
-                watchCts.Dispose();
+                case WatchChangeType.Modified:
+                case WatchChangeType.Renamed:
+                    var item = Images.FirstOrDefault(i => i.Path == info.Path);
+                    if (item != null)
+                    {
+                        item.Thumbnail = null;
+                        item.FullImage = null;
+                        await LoadThumbnailAsync(item, CancellationToken.None);
+                    }
+                    break;
             }
         });
     }
