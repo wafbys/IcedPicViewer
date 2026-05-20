@@ -46,35 +46,39 @@ public sealed partial class ImageViewerView : Page
                 vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
                 vm.NavigateNextCommand.NotifyCanExecuteChanged();
             }
+            Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
+        };
+        Unloaded += (_, _) =>
+        {
+            Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
         };
     }
 
-    private void Page_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void CoreWindow_KeyDown(Windows.UI.Core.CoreWindow sender, Windows.UI.Core.KeyEventArgs args)
     {
-        if (DataContext is ImageViewModel vm)
+        if (DataContext is not ImageViewModel vm) return;
+
+        switch (args.VirtualKey)
         {
-            switch (e.Key)
-            {
-                case Windows.System.VirtualKey.Left:
-                    if (vm.NavigatePreviousCommand.CanExecute(null))
-                        vm.NavigatePreviousCommand.Execute(null);
-                    e.Handled = true;
-                    break;
-                case Windows.System.VirtualKey.Right:
-                    if (vm.NavigateNextCommand.CanExecute(null))
-                        vm.NavigateNextCommand.Execute(null);
-                    e.Handled = true;
-                    break;
-                case Windows.System.VirtualKey.Delete:
-                    if (vm.DeleteCommand.CanExecute(null))
-                        vm.DeleteCommand.Execute(null);
-                    e.Handled = true;
-                    break;
-                case Windows.System.VirtualKey.Escape:
-                    vm.CloseCommand.Execute(null);
-                    e.Handled = true;
-                    break;
-            }
+            case Windows.System.VirtualKey.Left:
+                if (vm.NavigatePreviousCommand.CanExecute(null))
+                    vm.NavigatePreviousCommand.Execute(null);
+                args.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Right:
+                if (vm.NavigateNextCommand.CanExecute(null))
+                    vm.NavigateNextCommand.Execute(null);
+                args.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Delete:
+                if (vm.DeleteCommand.CanExecute(null))
+                    vm.DeleteCommand.Execute(null);
+                args.Handled = true;
+                break;
+            case Windows.System.VirtualKey.Escape:
+                vm.CloseCommand.Execute(null);
+                args.Handled = true;
+                break;
         }
     }
 
