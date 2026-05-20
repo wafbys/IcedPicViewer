@@ -73,10 +73,10 @@ public sealed partial class GalleryView : Page
         }
     }
 
-    private void OpenImageViewer(ImageItem item)
+    private async void OpenImageViewer(ImageItem item)
     {
         var imageViewModel = App.GetService<ImageViewModel>();
-        imageViewModel.ShowImage(item);
+        await imageViewModel.ShowImageAsync(item);
 
         var frame = FindFrame();
         if (frame != null)

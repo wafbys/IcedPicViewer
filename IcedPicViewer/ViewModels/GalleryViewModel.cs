@@ -109,8 +109,10 @@ public partial class GalleryViewModel : ObservableObject
                 File.Delete(item.Path);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"DeleteImageAsync error: {ex.Message}");
+            StatusText = $"Delete failed: {ex.Message}";
             return;
         }
 
@@ -119,10 +121,15 @@ public partial class GalleryViewModel : ObservableObject
 
     public async Task LoadDirectoryAsync(string path, CancellationToken ct = default)
     {
+        var currentCts = new CancellationTokenSource();
         try
         {
             _loadCts?.Cancel();
-            _loadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _loadCts?.Dispose();
+            _loadCts = currentCts;
+            currentCts = null;
+
+            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _loadCts.Token);
 
             LoadingState = LoadingState.Scanning;
             Images.Clear();
@@ -131,12 +138,12 @@ public partial class GalleryViewModel : ObservableObject
 
             var itemCount = 0;
 
-            await foreach (var filePath in _scanner.ScanAsync(path, recursive: true, extensions: _imageLoader.SupportedExtensions, ct: _loadCts.Token))
+            await foreach (var filePath in _scanner.ScanAsync(path, recursive: true, extensions: _imageLoader.SupportedExtensions, ct: linkedCts.Token))
             {
-                if (_loadCts.Token.IsCancellationRequested) break;
+                if (linkedCts.Token.IsCancellationRequested) break;
 
                 var fileInfo = new FileInfo(filePath);
-                var size = await _imageLoader.GetImageSizeAsync(filePath, ct);
+                var size = await _imageLoader.GetImageSizeAsync(filePath, linkedCts.Token);
                 var item = new ImageItem(
                     id: filePath,
                     name: Path.GetFileName(filePath),
@@ -154,18 +161,23 @@ public partial class GalleryViewModel : ObservableObject
                     StatusText = $"Found {TotalCount} images...";
                 });
 
-                _ = LoadThumbnailAsync(item, _loadCts.Token);
+                _ = LoadThumbnailAsync(item, linkedCts.Token);
             }
 
             StartWatching(path);
             LoadingState = LoadingState.Completed;
             StatusText = $"Loaded {Images.Count} images";
+            linkedCts.Dispose();
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"LoadDirectoryAsync error: {ex}");
             LoadingState = LoadingState.Completed;
             StatusText = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            currentCts?.Dispose();
         }
     }
 
@@ -177,51 +189,59 @@ public partial class GalleryViewModel : ObservableObject
 
     private void OnFileChanged(FileChangeInfo info)
     {
+        var watchCts = new CancellationTokenSource();
         _dispatcher.TryEnqueue(async () =>
         {
-            switch (info.ChangeType)
+            try
             {
-                case WatchChangeType.Created:
-                    if (!_imageLoader.IsSupportedFormat(info.Path)) return;
-                    if (Images.Any(i => i.Path == info.Path)) return;
-                    var fileInfo = new FileInfo(info.Path);
-                    if (!fileInfo.Exists) return;
-                    var size = await _imageLoader.GetImageSizeAsync(info.Path, CancellationToken.None);
-                    var newItem = new ImageItem(
-                        id: info.Path,
-                        name: Path.GetFileName(info.Path),
-                        path: info.Path,
-                        fileSize: fileInfo.Length,
-                        modifiedTime: fileInfo.LastWriteTime,
-                        originalWidth: size?.Width ?? 0,
-                        originalHeight: size?.Height ?? 0
-                    );
-                    Images.Add(newItem);
-                    TotalCount = Images.Count;
-                    StatusText = $"Loaded {Images.Count} images";
-                    await LoadThumbnailAsync(newItem, CancellationToken.None);
-                    break;
-
-                case WatchChangeType.Deleted:
-                    var itemToRemove = Images.FirstOrDefault(i => i.Path == info.Path);
-                    if (itemToRemove != null)
-                    {
-                        Images.Remove(itemToRemove);
+                switch (info.ChangeType)
+                {
+                    case WatchChangeType.Created:
+                        if (!_imageLoader.IsSupportedFormat(info.Path)) return;
+                        if (Images.Any(i => i.Path == info.Path)) return;
+                        var fileInfo = new FileInfo(info.Path);
+                        if (!fileInfo.Exists) return;
+                        var size = await _imageLoader.GetImageSizeAsync(info.Path, watchCts.Token);
+                        var newItem = new ImageItem(
+                            id: info.Path,
+                            name: Path.GetFileName(info.Path),
+                            path: info.Path,
+                            fileSize: fileInfo.Length,
+                            modifiedTime: fileInfo.LastWriteTime,
+                            originalWidth: size?.Width ?? 0,
+                            originalHeight: size?.Height ?? 0
+                        );
+                        Images.Add(newItem);
                         TotalCount = Images.Count;
                         StatusText = $"Loaded {Images.Count} images";
-                    }
-                    break;
+                        await LoadThumbnailAsync(newItem, watchCts.Token);
+                        break;
 
-                case WatchChangeType.Modified:
-                case WatchChangeType.Renamed:
-                    var item = Images.FirstOrDefault(i => i.Path == info.Path);
-                    if (item != null)
-                    {
-                        item.Thumbnail = null;
-                        item.FullImage = null;
-                        await LoadThumbnailAsync(item, CancellationToken.None);
-                    }
-                    break;
+                    case WatchChangeType.Deleted:
+                        var itemToRemove = Images.FirstOrDefault(i => i.Path == info.Path);
+                        if (itemToRemove != null)
+                        {
+                            Images.Remove(itemToRemove);
+                            TotalCount = Images.Count;
+                            StatusText = $"Loaded {Images.Count} images";
+                        }
+                        break;
+
+                    case WatchChangeType.Modified:
+                    case WatchChangeType.Renamed:
+                        var item = Images.FirstOrDefault(i => i.Path == info.Path);
+                        if (item != null)
+                        {
+                            item.Thumbnail = null;
+                            item.FullImage = null;
+                            await LoadThumbnailAsync(item, watchCts.Token);
+                        }
+                        break;
+                }
+            }
+            finally
+            {
+                watchCts.Dispose();
             }
         });
     }

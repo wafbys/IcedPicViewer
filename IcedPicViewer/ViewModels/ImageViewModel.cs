@@ -90,22 +90,22 @@ public partial class ImageViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void NavigatePrevious()
+    private async Task NavigatePreviousAsync()
     {
         if (CurrentIndex > 0)
         {
             CurrentIndex--;
-            ShowCurrentImage();
+            await ShowCurrentImageAsync();
         }
     }
 
     [RelayCommand]
-    private void NavigateNext()
+    private async Task NavigateNextAsync()
     {
         if (CurrentIndex < Images.Count - 1)
         {
             CurrentIndex++;
-            ShowCurrentImage();
+            await ShowCurrentImageAsync();
         }
     }
 
@@ -146,7 +146,15 @@ public partial class ImageViewModel : ObservableObject
         var newIndex = wasLastImage ? Math.Max(0, indexToDelete - 1) : indexToDelete;
         newIndex = Math.Min(newIndex, Images.Count - 1);
         CurrentIndex = newIndex;
-        CurrentImage = Images[newIndex];
+        if (Images.Count > 0 && newIndex >= 0 && newIndex < Images.Count)
+        {
+            CurrentImage = Images[newIndex];
+        }
+        else
+        {
+            Close();
+            return;
+        }
         TotalCount = Images.Count;
         DisplayImage = null;
         await LoadFullImageAsync(CurrentImage, _loadCts?.Token ?? CancellationToken.None);
@@ -170,7 +178,7 @@ public partial class ImageViewModel : ObservableObject
         return null;
     }
 
-    public async void ShowImage(ImageItem item)
+    public async Task ShowImageAsync(ImageItem item)
     {
         _loadCts?.Cancel();
         _loadCts?.Dispose();
@@ -222,7 +230,7 @@ public partial class ImageViewModel : ObservableObject
         }
     }
 
-    private async void ShowCurrentImage()
+    private async Task ShowCurrentImageAsync()
     {
         if (CurrentIndex >= 0 && CurrentIndex < Images.Count)
         {

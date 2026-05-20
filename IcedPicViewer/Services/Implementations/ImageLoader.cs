@@ -46,7 +46,7 @@ public class ImageLoader : IImageLoader
             bitmapImage.DecodePixelWidth = maxSize;
 
             using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
-            var randomAccessStream = new InMemoryRandomAccessStream();
+            using var randomAccessStream = new InMemoryRandomAccessStream();
             await fileStream.CopyToAsync(randomAccessStream.AsStreamForWrite(), ct);
             randomAccessStream.Seek(0);
 
@@ -67,7 +67,7 @@ public class ImageLoader : IImageLoader
         {
             var bitmapImage = new BitmapImage();
             using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
-            var randomAccessStream = new InMemoryRandomAccessStream();
+            using var randomAccessStream = new InMemoryRandomAccessStream();
             await fileStream.CopyToAsync(randomAccessStream.AsStreamForWrite(), ct);
             randomAccessStream.Seek(0);
             await bitmapImage.SetSourceAsync(randomAccessStream);

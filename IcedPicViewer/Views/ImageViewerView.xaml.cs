@@ -144,35 +144,34 @@ public sealed partial class ImageViewerView : Page
         double width = 0;
         double height = 0;
 
-        var source = ActualSizeImage?.Source!;
-        if (source is BitmapImage bmp)
+        if (ActualSizeImage?.Source is not BitmapImage bmp)
         {
-            if (bmp.PixelWidth > 0 && bmp.PixelHeight > 0)
-            {
-                width = bmp.PixelWidth;
-                height = bmp.PixelHeight;
-                System.Diagnostics.Debug.WriteLine($"Using PixelWidth/Height: {width}x{height}");
-            }
-            else if (ActualSizeImage!.ActualWidth > 0 && ActualSizeImage!.ActualHeight > 0)
-            {
-                width = ActualSizeImage!.ActualWidth;
-                height = ActualSizeImage!.ActualHeight;
-                System.Diagnostics.Debug.WriteLine($"Using ActualWidth/Height: {width}x{height}");
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"No valid dimensions: Pixel={bmp.PixelWidth}x{bmp.PixelHeight}, Actual={ActualSizeImage!.ActualWidth}x{ActualSizeImage!.ActualHeight}");
-            }
+            System.Diagnostics.Debug.WriteLine("Source is not BitmapImage or is null");
+            return;
+        }
+
+        if (bmp.PixelWidth > 0 && bmp.PixelHeight > 0)
+        {
+            width = bmp.PixelWidth;
+            height = bmp.PixelHeight;
+            System.Diagnostics.Debug.WriteLine($"Using PixelWidth/Height: {width}x{height}");
+        }
+        else if (ActualSizeImage!.ActualWidth > 0 && ActualSizeImage!.ActualHeight > 0)
+        {
+            width = ActualSizeImage!.ActualWidth;
+            height = ActualSizeImage!.ActualHeight;
+            System.Diagnostics.Debug.WriteLine($"Using ActualWidth/Height: {width}x{height}");
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine("Source is not BitmapImage");
+            System.Diagnostics.Debug.WriteLine($"No valid dimensions: Pixel={bmp.PixelWidth}x{bmp.PixelHeight}, Actual={ActualSizeImage!.ActualWidth}x{ActualSizeImage!.ActualHeight}");
+            return;
         }
 
         if (width > 0 && height > 0)
         {
             MinimapImage.Source = null;
-            MinimapImage.Source = source;
+            MinimapImage.Source = bmp;
             MinimapImage.Width = _minimapWidth;
             MinimapImage.Height = _minimapHeight;
 

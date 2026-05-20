@@ -65,10 +65,14 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            var x = double.Parse(parts[0]);
-            var y = double.Parse(parts[1]);
-            var width = double.Parse(parts[2]);
-            var height = double.Parse(parts[3]);
+            if (!double.TryParse(parts[0], out var x) ||
+                !double.TryParse(parts[1], out var y) ||
+                !double.TryParse(parts[2], out var width) ||
+                !double.TryParse(parts[3], out var height))
+            {
+                System.Diagnostics.Debug.WriteLine($"RestoreWindowState: failed to parse values");
+                return;
+            }
 
             AppWindow.MoveAndResize(new Windows.Graphics.RectInt32((int)x, (int)y, (int)width, (int)height));
             System.Diagnostics.Debug.WriteLine($"Restored window state: {content}");
