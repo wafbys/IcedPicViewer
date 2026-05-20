@@ -29,12 +29,16 @@ public sealed partial class GalleryView : Page
         if (ViewModel.LastViewedIndex >= 0 && ViewModel.LastViewedIndex < ViewModel.Images.Count)
         {
             var index = ViewModel.LastViewedIndex;
-            var panel = FindMasonryPanel(MainItemsControl);
-            if (panel != null)
+            DispatcherQueue.TryEnqueue(() =>
             {
-                var y = panel.GetItemYPosition(index);
-                MainScrollViewer.ChangeView(null, y, null, true);
-            }
+                var panel = FindMasonryPanel(MainScrollViewer);
+                if (panel != null)
+                {
+                    panel.UpdateLayout();
+                    var y = panel.GetItemYPosition(index);
+                    MainScrollViewer.ChangeView(null, y, null, true);
+                }
+            });
         }
     }
 
