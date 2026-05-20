@@ -15,6 +15,7 @@ public sealed partial class ImageViewerView : Page
     private double _minimapWidth = 150;
     private double _minimapHeight = 120;
     private Rectangle? _viewportRect;
+    private bool _keyHandlerAttached;
 
     private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
     {
@@ -46,11 +47,19 @@ public sealed partial class ImageViewerView : Page
                 vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
                 vm.NavigateNextCommand.NotifyCanExecuteChanged();
             }
-            Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
+            if (!_keyHandlerAttached)
+            {
+                Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
+                _keyHandlerAttached = true;
+            }
         };
         Unloaded += (_, _) =>
         {
-            Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
+            if (_keyHandlerAttached)
+            {
+                Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
+                _keyHandlerAttached = false;
+            }
         };
     }
 
