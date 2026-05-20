@@ -11,6 +11,7 @@ public sealed partial class GalleryView : Page
     public GalleryViewModel ViewModel { get; }
 
     private ImageItem? _selectedItemForDelete;
+    private bool _isNavigatingToViewer;
 
     public GalleryView()
     {
@@ -75,13 +76,23 @@ public sealed partial class GalleryView : Page
 
     private async void OpenImageViewer(ImageItem item)
     {
-        var imageViewModel = App.GetService<ImageViewModel>();
-        await imageViewModel.ShowImageAsync(item);
+        if (_isNavigatingToViewer) return;
+        _isNavigatingToViewer = true;
 
-        var frame = FindFrame();
-        if (frame != null)
+        try
         {
-            frame.Navigate(typeof(ImageViewerView));
+            var imageViewModel = App.GetService<ImageViewModel>();
+            await imageViewModel.ShowImageAsync(item);
+
+            var frame = FindFrame();
+            if (frame != null)
+            {
+                frame.Navigate(typeof(ImageViewerView));
+            }
+        }
+        finally
+        {
+            _isNavigatingToViewer = false;
         }
     }
 

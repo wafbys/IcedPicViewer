@@ -32,9 +32,16 @@ public sealed partial class ImageViewerView : Page
     {
         this.InitializeComponent();
         DataContext = App.GetService<ImageViewModel>();
-        Loaded += async (_, _) =>
+        Loaded += (_, _) =>
         {
-            await Task.Delay(10);
+            try
+            {
+                Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
+            }
+            catch
+            {
+            }
+
             if (DataContext is ImageViewModel vm)
             {
                 vm.DisplayImageChanged += (_, _) => UpdateMinimapDeferred();
@@ -43,8 +50,16 @@ public sealed partial class ImageViewerView : Page
             }
         };
 
-        Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
-        Unloaded += (_, _) => Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
+        Unloaded += (_, _) =>
+        {
+            try
+            {
+                Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
+            }
+            catch
+            {
+            }
+        };
     }
 
     private void CoreWindow_KeyDown(Windows.UI.Core.CoreWindow sender, Windows.UI.Core.KeyEventArgs args)
