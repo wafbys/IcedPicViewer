@@ -35,6 +35,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private int _lastViewedIndex = -1;
 
+    [ObservableProperty]
+    private double _lastViewedYOffset = 0;
+
     public ObservableCollection<ImageItem> Images { get; } = new();
 
     public GalleryViewModel(

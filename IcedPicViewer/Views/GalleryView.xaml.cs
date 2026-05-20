@@ -26,19 +26,9 @@ public sealed partial class GalleryView : Page
     {
         base.OnNavigatedTo(e);
 
-        if (ViewModel.LastViewedIndex >= 0 && ViewModel.LastViewedIndex < ViewModel.Images.Count)
+        if (ViewModel.LastViewedYOffset > 0)
         {
-            var index = ViewModel.LastViewedIndex;
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                var panel = FindMasonryPanel(MainScrollViewer);
-                if (panel != null)
-                {
-                    panel.UpdateLayout();
-                    var y = panel.GetItemYPosition(index);
-                    MainScrollViewer.ChangeView(null, y, null, true);
-                }
-            });
+            MainScrollViewer.ScrollToVerticalOffset(ViewModel.LastViewedYOffset);
         }
     }
 
@@ -120,6 +110,15 @@ public sealed partial class GalleryView : Page
 
         try
         {
+            var index = ViewModel.Images.IndexOf(item);
+            ViewModel.LastViewedIndex = index;
+
+            var panel = FindMasonryPanel(MainScrollViewer);
+            if (panel != null)
+            {
+                ViewModel.LastViewedYOffset = panel.GetItemYPosition(index);
+            }
+
             var imageViewModel = App.GetService<ImageViewModel>();
             await imageViewModel.ShowImageAsync(item);
 
