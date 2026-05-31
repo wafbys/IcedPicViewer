@@ -1,4 +1,6 @@
-﻿using IcedPicViewer.Services.Implementations;
+﻿// Copyright (c) IcedPicViewer. All rights reserved.
+
+using IcedPicViewer.Services.Implementations;
 using IcedPicViewer.Services.Interfaces;
 using IcedPicViewer.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,8 +30,21 @@ public partial class App : Application
         services.AddSingleton<IDirectoryScanner, DirectoryScanner>();
         services.AddSingleton<IImageLoader, ImageLoader>();
 
-        services.AddSingleton<MainViewModel>();
+        // Navigation
+        services.AddSingleton<INavigationService, NavigationService>();
+
+        // Folder picker (modern Windows App SDK picker)
+        services.AddTransient<IFolderPickerService, FolderPickerService>();
+
+        // ViewModels - appropriate lifetimes
+        // MainViewModel: Transient (light root coordinator)
+        // GalleryViewModel: Singleton (owns current gallery + file watcher + shared collection)
+        // ImageViewModel: Transient (fresh instance every time the photo viewer is opened)
+        services.AddTransient<MainViewModel>();
         services.AddSingleton<GalleryViewModel>();
+        // ImageViewModel kept as Singleton for now so that the instance prepared in GalleryView
+        // (with ShowImageAsync) is the same one received in ImageViewerView.
+        // This restores single image mode functionality while we keep the masonry visual.
         services.AddSingleton<ImageViewModel>();
     }
 
