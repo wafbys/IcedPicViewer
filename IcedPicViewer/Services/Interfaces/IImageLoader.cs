@@ -1,5 +1,7 @@
 using Microsoft.UI.Xaml.Media.Imaging;
 
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 namespace IcedPicViewer.Services.Interfaces;
 
 public interface IImageLoader

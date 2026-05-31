@@ -1,15 +1,17 @@
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 using IcedPicViewer.Services.Interfaces;
 
 namespace IcedPicViewer.Services.Implementations;
 
 public class DirectoryScanner : IDirectoryScanner
 {
-    private static readonly HashSet<string> s_recycleBinNames = ["$RECYCLE.BIN", "Recycler", ".trash"];
+    private static readonly HashSet<string> _recycleBinNames = ["$RECYCLE.BIN", "Recycler", ".trash"];
 
     private static bool IsRecycleBin(string path)
     {
         var dirName = Path.GetFileName(path);
-        return s_recycleBinNames.Contains(dirName, StringComparer.OrdinalIgnoreCase);
+        return _recycleBinNames.Contains(dirName, StringComparer.OrdinalIgnoreCase);
     }
 
     public async IAsyncEnumerable<string> ScanAsync(

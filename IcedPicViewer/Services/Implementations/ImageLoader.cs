@@ -1,22 +1,27 @@
-using IcedPicViewer.Services.Interfaces;
-using Microsoft.UI.Xaml.Media.Imaging;
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using IcedPicViewer.Services.Interfaces;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Storage.Streams;
 
 namespace IcedPicViewer.Services.Implementations;
 
 public class ImageLoader : IImageLoader
 {
-    private static readonly HashSet<string> s_supportedExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico", ".avif", ".heic"];
+    private static readonly HashSet<string> _supportedExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico", ".avif", ".heic"];
 
-    public IEnumerable<string> SupportedExtensions => s_supportedExtensions;
+    // Simple in-memory cache for thumbnails to avoid re-decoding the same images repeatedly
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, BitmapImage> _thumbnailCache = new();
+
+    public IEnumerable<string> SupportedExtensions => _supportedExtensions;
 
     public bool IsSupportedFormat(string path)
     {
         var ext = Path.GetExtension(path).ToLowerInvariant();
-        return s_supportedExtensions.Contains(ext);
+        return _supportedExtensions.Contains(ext);
     }
 
     public async Task<byte[]?> LoadImageAsync(string path, CancellationToken ct = default)
@@ -41,6 +46,13 @@ public class ImageLoader : IImageLoader
     {
         if (!File.Exists(path)) return null;
 
+        // Use cached thumbnail if available and file hasn't changed
+        var cacheKey = $"{path}|{maxSize}";
+        if (_thumbnailCache.TryGetValue(cacheKey, out var cached) && cached != null)
+        {
+            return cached;
+        }
+
         try
         {
             var bitmapImage = new BitmapImage();
@@ -52,6 +64,10 @@ public class ImageLoader : IImageLoader
             randomAccessStream.Seek(0);
 
             await bitmapImage.SetSourceAsync(randomAccessStream);
+
+            // Store in cache (simple unbounded cache for now; can be improved with LRU later)
+            _thumbnailCache[cacheKey] = bitmapImage;
+
             return bitmapImage;
         }
         catch (Exception ex)

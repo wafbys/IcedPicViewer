@@ -1,14 +1,16 @@
-using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
-using IcedPicViewer.Helpers;
-using IcedPicViewer.Models;
-using IcedPicViewer.Services.Interfaces;
-using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml.Controls;
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using IcedPicViewer.Models;
+using IcedPicViewer.Services.Interfaces;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace IcedPicViewer.ViewModels;
 
@@ -16,12 +18,20 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 {
     private readonly IDirectoryScanner _scanner;
     private readonly IImageLoader _imageLoader;
+    private readonly IFolderPickerService _folderPicker;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
     private CancellationTokenSource? _loadCts;
     private int _loadedThumbnailCount;
     private IDisposable? _fileWatcher;
     private bool _disposed;
+
+    // Limit concurrent thumbnail loads
+    private readonly SemaphoreSlim _thumbnailLoadSemaphore = new(initialCount: 6, maxCount: 6);
+
+    // For incremental loading while keeping masonry visual
+    private List<string> _remainingFilePaths = new();
+    private const int PageSize = 150;
 
     [ObservableProperty]
     private LoadingState _loadingState;
@@ -38,14 +48,35 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private double _lastViewedYOffset = 0;
 
+    [ObservableProperty]
+    private bool _canLoadMore;
+
+    partial void OnCanLoadMoreChanged(bool value)
+    {
+        OnPropertyChanged(nameof(LoadMoreVisibility));
+        LoadMoreCommand.NotifyCanExecuteChanged();
+    }
+
+    public Visibility LoadMoreVisibility => CanLoadMore ? Visibility.Visible : Visibility.Collapsed;
+
+    [ObservableProperty]
+    private bool _isLoadingMore;
+
+    partial void OnIsLoadingMoreChanged(bool value)
+    {
+        LoadMoreCommand.NotifyCanExecuteChanged();
+    }
+
     public ObservableCollection<ImageItem> Images { get; } = new();
 
     public GalleryViewModel(
         IDirectoryScanner scanner,
-        IImageLoader imageLoader)
+        IImageLoader imageLoader,
+        IFolderPickerService folderPicker)
     {
         _scanner = scanner;
         _imageLoader = imageLoader;
+        _folderPicker = folderPicker;
     }
 
     public void Dispose()
@@ -63,6 +94,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 _fileWatcher?.Dispose();
                 _loadCts?.Cancel();
                 _loadCts?.Dispose();
+                _thumbnailLoadSemaphore.Dispose();
             }
             _disposed = true;
         }
@@ -71,7 +103,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task OpenFolderAsync()
     {
-        var folderPath = FolderBrowserHelper.SelectFolder("Select Image Folder");
+        var folderPath = await _folderPicker.PickFolderAsync("Select Image Folder");
         if (!string.IsNullOrEmpty(folderPath))
         {
             await LoadDirectoryAsync(folderPath);
@@ -84,8 +116,17 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         if (index >= 0)
         {
             Images.RemoveAt(index);
-            TotalCount = Images.Count;
-            StatusText = $"Loaded {Images.Count} images";
+            if (TotalCount > 0)
+            {
+                TotalCount--;
+            }
+            _remainingFilePaths.Remove(item.Path);
+            CanLoadMore = _remainingFilePaths.Count > 0;
+
+            var loaded = Images.Count;
+            StatusText = (TotalCount > 0 && TotalCount != loaded)
+                ? $"Loaded {loaded} / {TotalCount} images"
+                : $"Loaded {loaded} images";
             return true;
         }
         return false;
@@ -160,41 +201,33 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
             LoadingState = LoadingState.Scanning;
             Images.Clear();
+            _remainingFilePaths.Clear();
             _loadedThumbnailCount = 0;
             TotalCount = 0;
+            CanLoadMore = false;
 
-            var itemCount = 0;
-
+            // First pass: discover all files (usually fast)
+            var allPaths = new List<string>();
             await foreach (var filePath in _scanner.ScanAsync(path, recursive: true, extensions: _imageLoader.SupportedExtensions, ct: linkedCts.Token))
             {
                 if (linkedCts.Token.IsCancellationRequested) break;
-
-                var fileInfo = new FileInfo(filePath);
-                var size = await _imageLoader.GetImageSizeAsync(filePath, linkedCts.Token);
-                var item = new ImageItem(
-                    id: filePath,
-                    name: Path.GetFileName(filePath),
-                    path: filePath,
-                    fileSize: fileInfo.Exists ? fileInfo.Length : 0,
-                    modifiedTime: fileInfo.Exists ? fileInfo.LastWriteTime : DateTime.MinValue,
-                    originalWidth: size?.Width ?? 0,
-                    originalHeight: size?.Height ?? 0
-                );
-
-                _dispatcher.TryEnqueue(() =>
-                {
-                    Images.Add(item);
-                    TotalCount = ++itemCount;
-                    StatusText = $"Found {TotalCount} images...";
-                });
-
-                _ = LoadThumbnailAsync(item, linkedCts.Token);
+                allPaths.Add(filePath);
             }
+
+            if (linkedCts.Token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _remainingFilePaths = allPaths;
+            TotalCount = allPaths.Count;
+
+            // Load first page
+            await LoadNextPageAsync(linkedCts.Token);
 
             StartWatching(path);
             LoadingState = LoadingState.Completed;
-            StatusText = $"Loaded {Images.Count} images";
-            linkedCts.Dispose();
+            StatusText = $"Loaded {Images.Count} / {TotalCount} images";
         }
         catch (Exception ex)
         {
@@ -205,6 +238,68 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         finally
         {
             currentCts?.Dispose();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanLoadMoreCommand))]
+    public async Task LoadMoreAsync(CancellationToken ct = default)
+    {
+        if (!CanLoadMore || IsLoadingMore) return;
+
+        IsLoadingMore = true;
+        try
+        {
+            await LoadNextPageAsync(ct);
+            StatusText = $"Loaded {Images.Count} / {TotalCount} images";
+        }
+        finally
+        {
+            IsLoadingMore = false;
+        }
+    }
+
+    private bool CanLoadMoreCommand() => CanLoadMore && !IsLoadingMore;
+
+    private async Task LoadNextPageAsync(CancellationToken ct)
+    {
+        if (_remainingFilePaths.Count == 0)
+        {
+            CanLoadMore = false;
+            return;
+        }
+
+        var batch = _remainingFilePaths.Take(PageSize).ToList();
+        _remainingFilePaths.RemoveRange(0, batch.Count);
+
+        CanLoadMore = _remainingFilePaths.Count > 0;
+
+        var itemCount = Images.Count;
+
+        foreach (var filePath in batch)
+        {
+            if (ct.IsCancellationRequested) break;
+
+            var fileInfo = new FileInfo(filePath);
+            var size = await _imageLoader.GetImageSizeAsync(filePath, ct);
+
+            var item = new ImageItem(
+                id: filePath,
+                name: Path.GetFileName(filePath),
+                path: filePath,
+                fileSize: fileInfo.Exists ? fileInfo.Length : 0,
+                modifiedTime: fileInfo.Exists ? fileInfo.LastWriteTime : DateTime.MinValue,
+                originalWidth: size?.Width ?? 0,
+                originalHeight: size?.Height ?? 0
+            );
+
+            _dispatcher.TryEnqueue(() =>
+            {
+                Images.Add(item);
+                itemCount++;
+                StatusText = $"Loading {itemCount} / {TotalCount}...";
+            });
+
+            _ = LoadThumbnailAsync(item, ct);
         }
     }
 
@@ -236,8 +331,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                         originalHeight: size?.Height ?? 0
                     );
                     Images.Add(newItem);
-                    TotalCount = Images.Count;
-                    StatusText = $"Loaded {Images.Count} images";
+                    TotalCount++;
+                    StatusText = (TotalCount > 0 && TotalCount != Images.Count)
+                        ? $"Loaded {Images.Count} / {TotalCount} images"
+                        : $"Loaded {Images.Count} images";
                     await LoadThumbnailAsync(newItem, CancellationToken.None);
                     break;
 
@@ -246,8 +343,17 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                     if (itemToRemove != null)
                     {
                         Images.Remove(itemToRemove);
-                        TotalCount = Images.Count;
-                        StatusText = $"Loaded {Images.Count} images";
+                        if (TotalCount > 0)
+                        {
+                            TotalCount--;
+                        }
+                        _remainingFilePaths.Remove(info.Path);
+                        CanLoadMore = _remainingFilePaths.Count > 0;
+
+                        var loaded = Images.Count;
+                        StatusText = (TotalCount > 0 && TotalCount != loaded)
+                            ? $"Loaded {loaded} / {TotalCount} images"
+                            : $"Loaded {loaded} images";
                     }
                     break;
 
@@ -277,6 +383,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             item.Thumbnail = null;
         }
 
+        await _thumbnailLoadSemaphore.WaitAsync(ct);
         try
         {
             var thumbnail = await _imageLoader.LoadThumbnailAsync(item.Path, 400, ct);
@@ -298,6 +405,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 item.IsLoading = false;
                 _loadedThumbnailCount++;
             });
+        }
+        finally
+        {
+            _thumbnailLoadSemaphore.Release();
         }
     }
 }

@@ -4,8 +4,17 @@ using System.Collections.Generic;
 using System.Linq;
 using Windows.Foundation;
 
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 namespace IcedPicViewer.Controls;
 
+/// <summary>
+/// Legacy non-virtualizing masonry panel (kept for reference).
+/// 
+/// Decision: The gallery has migrated to ItemsRepeater + UniformGridLayout for 
+/// virtualization and performance with large collections. Original masonry visual
+/// appearance is traded for significantly better scrolling and memory behavior.
+/// </summary>
 public class MasonryPanel : Panel
 {
     public static readonly DependencyProperty ColumnCountProperty =
@@ -51,13 +60,7 @@ public class MasonryPanel : Panel
 
     private static int FindShortestColumn(double[] columnHeights)
     {
-        int shortestColumn = 0;
-        for (int i = 1; i < columnHeights.Length; i++)
-        {
-            if (columnHeights[i] < columnHeights[shortestColumn])
-                shortestColumn = i;
-        }
-        return shortestColumn;
+        return MasonryLayoutEngine.FindShortestColumn(columnHeights);
     }
 
     protected override Size MeasureOverride(Size availableSize)

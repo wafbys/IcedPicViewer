@@ -1,3 +1,5 @@
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 namespace IcedPicViewer.Services.Interfaces;
 
 public record FileChangeInfo(WatchChangeType ChangeType, string Path);

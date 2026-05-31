@@ -1,3 +1,5 @@
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 

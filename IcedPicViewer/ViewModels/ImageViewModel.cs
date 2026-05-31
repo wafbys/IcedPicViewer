@@ -1,14 +1,14 @@
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading;
-using IcedPicViewer;
 
 namespace IcedPicViewer.ViewModels;
 
@@ -16,6 +16,7 @@ public partial class ImageViewModel : ObservableObject
 {
     private readonly GalleryViewModel _galleryViewModel;
     private readonly IImageLoader _imageLoader;
+    private readonly INavigationService _navigationService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource? _loadCts;
 
@@ -78,10 +79,12 @@ public partial class ImageViewModel : ObservableObject
 
     public ObservableCollection<ImageItem> Images => _galleryViewModel.Images;
 
-    public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader)
+    public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, INavigationService navigationService)
     {
         _galleryViewModel = galleryViewModel;
         _imageLoader = imageLoader;
+        _navigationService = navigationService;
+
         Images.CollectionChanged += (_, _) =>
         {
             TotalCount = Images.Count;
@@ -133,11 +136,7 @@ public partial class ImageViewModel : ObservableObject
         CurrentImage = null;
         DisplayImage = null;
 
-        var frame = FindFrame();
-        if (frame != null && frame.CanGoBack)
-        {
-            frame.GoBack();
-        }
+        _navigationService.GoBack();
     }
 
     [RelayCommand]
@@ -172,24 +171,6 @@ public partial class ImageViewModel : ObservableObject
         TotalCount = Images.Count;
         DisplayImage = null;
         await LoadFullImageAsync(CurrentImage, _loadCts?.Token ?? CancellationToken.None);
-    }
-
-    private static Frame? FindFrame()
-    {
-        var window = App.MainWindow;
-        if (window?.Content is Frame frame)
-            return frame;
-
-        if (window?.Content is Grid grid)
-        {
-            foreach (var child in grid.Children)
-            {
-                if (child is Frame f)
-                    return f;
-            }
-        }
-
-        return null;
     }
 
     public async Task ShowImageAsync(ImageItem item)
