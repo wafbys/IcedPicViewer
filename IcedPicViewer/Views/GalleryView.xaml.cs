@@ -1,9 +1,11 @@
-using IcedPicViewer.Models;
-using IcedPicViewer.ViewModels;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using IcedPicViewer.Models;
+using IcedPicViewer.Services.Interfaces;
+using IcedPicViewer.ViewModels;
 
 namespace IcedPicViewer.Views;
 
@@ -11,16 +13,37 @@ public sealed partial class GalleryView : Page
 {
     public GalleryViewModel ViewModel { get; }
 
+    private readonly INavigationService _navigationService;
+
     private ImageItem? _selectedItemForDelete;
     private int _isNavigatingToViewer;
     private ImageViewModel? _currentImageViewModel;
+
+    // 用于实现“滚动到底部自动加载更多”
+    // 采用 debounce 机制避免快速滚动时频繁触发（符合性能要求）
+    private DispatcherQueueTimer? _loadMoreDebounceTimer;
+    private bool _isAutoLoadingMore;
+    private const double LoadMoreThreshold = 200.0; // 距离底部多少像素触发自动加载
+    private const int LoadMoreDebounceMs = 180;     // 滚动停止后延迟触发时间（毫秒）
 
     public GalleryView()
     {
         this.InitializeComponent();
 
         ViewModel = App.GetService<GalleryViewModel>();
+        _navigationService = App.GetService<INavigationService>();
         DataContext = ViewModel;
+
+        // 滚动到底部自动触发 LoadMore（带 debounce）。保留原“Load More”按钮作为手动后备。
+        MainScrollViewer.ViewChanged += OnMainScrollViewerViewChanged;
+
+        var dq = DispatcherQueue.GetForCurrentThread();
+        _loadMoreDebounceTimer = dq.CreateTimer();
+        _loadMoreDebounceTimer.Interval = TimeSpan.FromMilliseconds(LoadMoreDebounceMs);
+        _loadMoreDebounceTimer.IsRepeating = false;
+        _loadMoreDebounceTimer.Tick += OnLoadMoreDebounceTimerTick;
+
+        Unloaded += OnGalleryViewUnloaded;
     }
 
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
@@ -135,11 +158,7 @@ public sealed partial class GalleryView : Page
             _currentImageViewModel.NavigationChanged += OnImageViewModelNavigationChanged;
             await _currentImageViewModel.ShowImageAsync(item);
 
-            var frame = FindFrame();
-            if (frame != null)
-            {
-                frame.Navigate(typeof(ImageViewerView));
-            }
+            _navigationService.NavigateTo<ImageViewerView>();
         }
         finally
         {
@@ -150,6 +169,7 @@ public sealed partial class GalleryView : Page
     private void OnImageViewModelNavigationChanged(object? sender, EventArgs e)
     {
         if (_currentImageViewModel == null) return;
+
         var panel = FindMasonryPanel(MainScrollViewer);
         if (panel != null)
         {
@@ -157,21 +177,54 @@ public sealed partial class GalleryView : Page
         }
     }
 
-    private static Frame? FindFrame()
+    private void OnMainScrollViewerViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
-        var window = App.MainWindow;
-        if (window?.Content is Frame f)
-            return f;
+        if (!ViewModel.CanLoadMore || ViewModel.IsLoadingMore || _isAutoLoadingMore)
+            return;
 
-        if (window?.Content is Grid grid)
+        var sv = MainScrollViewer;
+        if (sv.ExtentHeight <= 0 || sv.ViewportHeight <= 0)
+            return;
+
+        // 距离底部在阈值内时，启动一次性 debounce 定时器
+        // 只有用户停止滚动一段时间后才真正执行加载，避免性能问题
+        double distanceFromBottom = sv.ExtentHeight - (sv.VerticalOffset + sv.ViewportHeight);
+        if (distanceFromBottom <= LoadMoreThreshold)
         {
-            foreach (var child in grid.Children)
-            {
-                if (child is Frame frame)
-                    return frame;
-            }
+            _loadMoreDebounceTimer?.Start();
+        }
+    }
+
+    private async void OnLoadMoreDebounceTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        if (!ViewModel.CanLoadMore || ViewModel.IsLoadingMore || _isAutoLoadingMore)
+            return;
+
+        _isAutoLoadingMore = true;
+        try
+        {
+            await ViewModel.LoadMoreAsync();
+        }
+        finally
+        {
+            _isAutoLoadingMore = false;
+        }
+    }
+
+    /// <summary>
+    /// 页面卸载时清理事件订阅和定时器，避免内存泄漏。
+    /// </summary>
+    private void OnGalleryViewUnloaded(object sender, RoutedEventArgs e)
+    {
+        MainScrollViewer.ViewChanged -= OnMainScrollViewerViewChanged;
+
+        if (_loadMoreDebounceTimer != null)
+        {
+            _loadMoreDebounceTimer.Tick -= OnLoadMoreDebounceTimerTick;
+            _loadMoreDebounceTimer.Stop();
+            _loadMoreDebounceTimer = null;
         }
 
-        return null;
+        Unloaded -= OnGalleryViewUnloaded;
     }
 }
