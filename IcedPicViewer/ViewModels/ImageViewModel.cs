@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -79,6 +80,19 @@ public partial class ImageViewModel : ObservableObject
 
     public ObservableCollection<ImageItem> Images => _galleryViewModel.Images;
 
+    public bool CanLoadMoreImages => _galleryViewModel.CanLoadMore;
+    public bool IsLoadingMoreImages => _galleryViewModel.IsLoadingMore;
+    public Visibility LoadMoreImagesVisibility => _galleryViewModel.CanLoadMore ? Visibility.Visible : Visibility.Collapsed;
+
+    [RelayCommand(CanExecute = nameof(CanLoadMoreImages))]
+    private async Task LoadMoreImagesAsync()
+    {
+        if (_galleryViewModel.CanLoadMore && !_galleryViewModel.IsLoadingMore)
+        {
+            await _galleryViewModel.LoadMoreAsync();
+        }
+    }
+
     public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, INavigationService navigationService)
     {
         _galleryViewModel = galleryViewModel;
@@ -90,6 +104,20 @@ public partial class ImageViewModel : ObservableObject
             TotalCount = Images.Count;
             NavigatePreviousCommand.NotifyCanExecuteChanged();
             NavigateNextCommand.NotifyCanExecuteChanged();
+        };
+
+        // 监听 Gallery 的增量加载状态变化，以便单图模式下的 Next 按钮和 Load More 按钮能正确启用/显示
+        _galleryViewModel.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(GalleryViewModel.CanLoadMore) ||
+                e.PropertyName == nameof(GalleryViewModel.IsLoadingMore))
+            {
+                LoadMoreImagesCommand.NotifyCanExecuteChanged();
+                NavigateNextCommand.NotifyCanExecuteChanged();
+                OnPropertyChanged(nameof(CanLoadMoreImages));
+                OnPropertyChanged(nameof(IsLoadingMoreImages));
+                OnPropertyChanged(nameof(LoadMoreImagesVisibility));
+            }
         };
     }
 
@@ -104,7 +132,11 @@ public partial class ImageViewModel : ObservableObject
 
     private bool CanNavigatePrevious() => Images.Count > 0 && CurrentIndex > 0;
 
-    private bool CanNavigateNext() => Images.Count > 0 && CurrentIndex < Images.Count - 1;
+    /// <summary>
+    /// 在单图模式下支持“到底自动加载更多”：
+    /// 当到达当前已加载图片的末尾，但 Gallery 还有更多图片时，Next 按钮仍然可用。
+    /// </summary>
+    private bool CanNavigateNext() => Images.Count > 0 && (CurrentIndex < Images.Count - 1 || _galleryViewModel.CanLoadMore);
 
     [RelayCommand(CanExecute = nameof(CanNavigatePrevious))]
     private async Task NavigatePreviousAsync()
@@ -119,10 +151,23 @@ public partial class ImageViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanNavigateNext))]
     private async Task NavigateNextAsync()
     {
-        if (CanNavigateNext())
+        if (CurrentIndex < Images.Count - 1)
         {
+            // 正常前进
             CurrentIndex++;
             await ShowCurrentImageAsync();
+        }
+        else if (_galleryViewModel.CanLoadMore && !_galleryViewModel.IsLoadingMore)
+        {
+            // 到达当前批次末尾（“到底”）→ 自动触发加载更多（单图模式下的 Load More）
+            await _galleryViewModel.LoadMoreAsync();
+
+            // 加载完成后，如果有新图片，则自动前进到下一张
+            if (CurrentIndex < Images.Count - 1)
+            {
+                CurrentIndex++;
+                await ShowCurrentImageAsync();
+            }
         }
     }
 

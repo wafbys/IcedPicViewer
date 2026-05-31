@@ -34,14 +34,15 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += AppWindow_Closing;
 
         // Centralized keyboard handling for ImageViewerView (Left/Right/Delete/Escape).
-        // Previously duplicated in ImageViewerView — now handled only at the root (DRY).
-        RootFrame.KeyDown += RootFrame_KeyDown;
+        // Attached to RootGrid (higher in tree) + handledEventsToo=true to ensure
+        // arrow keys are caught reliably even after Frame navigation.
+        RootGrid.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(RootGrid_KeyDown), true);
     }
 
-    private void RootFrame_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         // Centralized keyboard handling for ImageViewerView.
-        // Previously duplicated in ImageViewerView — now handled only here (DRY principle).
+        // We check RootFrame.Content because that's where the current page lives.
         if (RootFrame.Content is ImageViewerView viewer && viewer.DataContext is ImageViewModel vm)
         {
             switch (e.Key)

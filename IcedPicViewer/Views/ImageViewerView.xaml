@@ -8,7 +8,7 @@
     mc:Ignorable="d"
     Background="#E0000000">
 
-    <Grid>
+    <Grid x:Name="MainContentGrid" IsTabStop="True">
         <Grid.ContextFlyout>
             <MenuFlyout>
                 <MenuFlyoutItem Text="打开文件位置" Click="OpenFileLocation_Click"/>
@@ -48,6 +48,14 @@
                     <Run Text="{Binding TotalCount}"/>
                 </TextBlock>
                 <Button Content="&gt;" Command="{Binding NavigateNextCommand}" Width="36" Height="36" FontSize="18" Margin="4,0"/>
+
+                <!-- 单图模式下的 Load More（支持到底自动加载更多） -->
+                <Button Content="Load More"
+                        Command="{Binding LoadMoreImagesCommand}"
+                        Visibility="{Binding LoadMoreImagesVisibility}"
+                        Margin="12,0,0,0"
+                        Padding="8,4"/> 
+
                 <Button x:Name="FitModeBtn" Content="Fit" Click="FitModeBtn_Click" MinWidth="50" Height="36" FontSize="12" Margin="16,0,0,0" Padding="8,0"/>
             </StackPanel>
         </Grid>

@@ -1,285 +1,110 @@
-# Copilot Agent Instructions -- WinUI 3 / WinAppSDK
+# AI 协作指南 — IcedPicViewer
 
-## Project Overview
+> **目标**：高效交付高质量代码，同时保持良好的开发体验。规则要实用，而不是为了约束而约束。
 
-This is a **WinUI 3** desktop application built on the **Windows App SDK**. It uses MSIX packaging and supports x86, x64, and ARM64 architectures.
+## 项目背景
 
-> **Source of truth for versions & names:** Always read the project `.csproj` to determine the current `TargetFramework`, `RuntimeIdentifiers`, `Platforms`, `RootNamespace`, and `Microsoft.WindowsAppSDK` package version. Never hard-code project names or version numbers in instruction files.
->
-> Throughout this document and the instruction files, `<ProjectName>` is a placeholder -- replace it with the actual project folder/assembly name (derived from the `.csproj` filename).
+这是一个基于 **WinUI 3 + Windows App SDK** 的图片查看器桌面应用（MSIX 打包）。
 
-| Property | How to determine |
-|---|---|
-| UI Framework | WinUI 3 (`Microsoft.UI.Xaml`) -- always used |
-| App SDK | Read `Microsoft.WindowsAppSDK` version from `.csproj` `<PackageReference>` |
-| Runtime / TFM | Read `<TargetFramework>` from `.csproj` (e.g., `net10.0-windows10.0.26100.0`) |
-| Target OS | Derived from `<TargetFramework>` and `<TargetPlatformMinVersion>` in `.csproj` |
-| Platforms | Read `<Platforms>` from `.csproj` (e.g., `x86;x64;ARM64`) |
-| Packaging | MSIX (`<EnableMsixTooling>true</EnableMsixTooling>`) |
-| Namespace | Read `<RootNamespace>` from `.csproj` |
-| Nullable | Read `<Nullable>` from `.csproj` |
+- 使用 **MasonryPanel** 实现瀑布流视觉效果（这是用户明确选择保留的设计，不建议轻易改成虚拟化列表）。
+- 采用 **增量加载**（首次 150 张 + Load More + 滚动到底自动加载）。
+- 使用 CommunityToolkit.Mvvm + Microsoft.Extensions.DependencyInjection。
+- 重视**可维护性**，但反对为了“正确”而过度设计。
 
-> **Default TFM:** Templates ship with `net10.0` by default. Pass
-> `--dotnet-version <tfm>` (for example `net10.0`) when running `dotnet new ...`
-> or edit `<TargetFramework>` inside the generated `.csproj` before the first
-> build if you need a newer framework. Keep `<RuntimeIdentifiers>` synchronized
-> with the framework you pick.
+## 核心协作原则
 
-## Instruction Files Index
+1. **用户意图优先于规则**  
+   当严格遵守某条规则会导致明显不好的体验、拖慢进度或违背你的真实需求时，请主动告诉我。我们可以讨论权衡。
 
-All detailed agent instructions are organized under `.github/instructions/`:
+2. **检查现有代码，再动手**  
+   改动前先搜索项目中是否有类似实现。能复用就复用，能小改就不大改。
 
-| File | Scope |
-|---|---|
-| [design-principles.instructions.md](.github/instructions/design-principles.instructions.md) | DRY, KISS, SOLID, YAGNI |
-| [globalization.instructions.md](.github/instructions/globalization.instructions.md) | Globalization & Localization |
-| [accessibility.instructions.md](.github/instructions/accessibility.instructions.md) | Accessibility |
-| [security.instructions.md](.github/instructions/security.instructions.md) | Security |
-| [performance.instructions.md](.github/instructions/performance.instructions.md) | Performance |
-| [code-quality.instructions.md](.github/instructions/code-quality.instructions.md) | Static Analysis, StyleCop, Code Cleanup |
-| [winui-best-practices.instructions.md](.github/instructions/winui-best-practices.instructions.md) | WinUI 3 / WinAppSDK patterns & references |
-| [windows-apis.instructions.md](.github/instructions/windows-apis.instructions.md) | WinAppSDK & Platform SDK API namespace catalog & lookup guidance |
-| [testing.instructions.md](.github/instructions/testing.instructions.md) | Unit Testing, Build & Run |
+3. **测试要务实**  
+   - 新的公共方法和复杂业务逻辑必须有测试。
+   - UI 胶水代码、探索性改动可以轻量。
+   - 不强制严格 TDD，但欢迎在复杂功能上采用“先写测试再实现”的方式。
 
-## Core Agent Workflow
+4. **Build + 测试必须通过**  
+   任何改动完成后，必须能干净编译 + 相关测试通过。这是底线。
 
-Every time you work on this codebase, follow this checklist:
+5. **主动暴露问题和权衡**  
+   如果你发现需求模糊、存在明显取舍、或者当前做法有风险，请直接说出来。不要为了“听话”而硬做。
 
-### Before Writing Code
-1. **Review the original goal** -- Re-read the user's request and confirm you understand the intent.
-2. **Check existing code** -- Search for related implementations to avoid duplication (DRY).
-3. **Find the right API** -- If the task involves a platform capability (AI, UI controls, file access, notifications, windowing, widgets, sensors, etc.), first check the [Windows APIs catalog](.github/instructions/windows-apis.instructions.md) and then look up the correct API in the [WinUI 3 API Reference](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/) before writing code.
-4. **Plan the approach** -- Consider SOLID principles and identify which classes/interfaces are involved.
+6. **提交信息必须用中文**  
+   Git commit message 一律使用中文。
 
-### While Writing Code
+## 日常工作流程（推荐）
 
-> **Agent Rule -- MANDATORY:** Steps 5-8 are **not** passive references. You **must** actually open and read the linked instruction file before writing code that falls within its scope. Do not skip this -- these files contain rules, anti-patterns, and checklists that must be applied.
+1. 理解需求 + 确认边界（必要时问问题）。
+2. 搜索现有实现，避免重复造轮子。
+3. 实现功能 + 补充必要测试。
+4. 本地构建 + 运行相关测试。
+5. 提交前自检：是否干净？是否符合用户真实意图？
+6. 提交代码（中文信息）。
 
-5. **Apply Design Principles** -- **Read** [design-principles](.github/instructions/design-principles.instructions.md) before adding/refactoring classes or logic. Apply DRY, KISS, SOLID, YAGNI.
-6. **Follow Fundamentals** -- **Read the applicable instruction files** based on what you're changing:
-   - Adding or changing **UI controls / XAML**? -> Read [accessibility](.github/instructions/accessibility.instructions.md) (AutomationProperties, keyboard nav, contrast) AND [performance](.github/instructions/performance.instructions.md) (x:Bind, x:Load, virtualization).
-   - Adding or changing **user-facing strings** (labels, messages, tooltips)? -> Read [globalization](.github/instructions/globalization.instructions.md) (`.resw` files, `x:Uid`, `ResourceLoader`).
-   - Handling **secrets, user input, HTTP, or permissions**? -> Read [security](.github/instructions/security.instructions.md) (no hard-coded secrets, input validation, least privilege).
-   - Working on **data binding, collections, async/IO, or layout**? -> Read [performance](.github/instructions/performance.instructions.md) (x:Bind, virtualization, async patterns).
-7. **Respect Code Quality Rules** -- **Read** [code-quality](.github/instructions/code-quality.instructions.md) before writing code. Follow all CA*/SA*/IDE* analyzer rules and naming conventions.
-8. **Follow WinUI Patterns** -- **Read** [winui-best-practices](.github/instructions/winui-best-practices.instructions.md) for MVVM, x:Bind, community toolkit, and API verification.
+## 必须遵守的硬性规则
 
-### After Writing Code
-9. **Remove unused code** -- Delete unused `using` statements, dead code, commented-out blocks.
-10. **Write unit tests** -- Every new public method/class needs tests. **Read** [testing](.github/instructions/testing.instructions.md) for framework setup, naming conventions (`MethodName_Scenario_ExpectedResult`), AAA pattern, and `dotnet test` commands.
-11. **Build the project** -- Detect the platform first (`$Platform = $env:PROCESSOR_ARCHITECTURE`), then run `dotnet build -c Debug -p:Platform=$Platform` from the project folder and fix all warnings/errors. **If build errors occur, follow the Troubleshooting Build Errors workflow below.**
-12. **Run tests** -- Run tests related to the change using `--filter` (see [testing](.github/instructions/testing.instructions.md)). Run the full suite only when the change is cross-cutting.
-13. **Run the app with package identity** -- Use `dotnet run` (preferred -- the project references `Microsoft.Windows.SDK.BuildTools.WinApp`, which automatically invokes `winapp run` to register a loose-layout package and launch via AUMID). See [Build, Run & Deploy](#build-run--deploy) below for advanced scenarios.
-14. **Re-review against original goal** -- Confirm the implementation matches the user's request.
+- **构建与测试**：改完必须 `dotnet build` + 跑相关测试。
+- **中文提交**：所有 commit message 用中文。
+- **检查重复**：新增功能前先找项目里有没有类似代码。
+- **WinUI 禁忌**：
+  - 不要用 `Window.Current`、`CoreDispatcher` 等已废弃的东西。
+  - 大列表优先考虑虚拟化（但本项目因视觉要求保留了 MasonryPanel）。
+  - 关注焦点管理（单图模式键盘事件曾因此出问题）。
+- **资源清理**：IDisposable 必须正确释放（尤其是 FileSystemWatcher、CancellationTokenSource、Stream）。
+- **异常处理**：禁止空 catch 吞掉异常，至少要用 `Trace.TraceError` 记录。
 
-### Troubleshooting Build Errors
+## 测试策略
 
-> **Agent Rule -- MANDATORY:** When a build fails due to an unknown type, missing namespace, unresolved API, or similar definition error, follow this escalation order. **Do NOT jump straight to reading `.winmd` files or using `ildasm`/decompilers** -- always try web search first.
+- 公共 API（尤其是 ViewModel、Service 的公开方法）必须有单元测试。
+- 使用 MSTest + Moq。
+- 测试命名推荐：`MethodName_Scenario_ExpectedResult`。
+- UI 代码（尤其是 XAML 事件处理）可以放宽，但核心逻辑必须覆盖。
+- 改动后优先跑受影响的测试，而不是每次都全量跑。
 
-**Step 1 -- Web Search (ALWAYS try first):**
-1. Open and read [windows-apis.instructions.md](.github/instructions/windows-apis.instructions.md) -- it contains the API namespace catalog and lookup guidance.
-2. Translate the unknown type/namespace into search keywords (e.g., `ImageDescription` -> "WinAppSDK ImageDescription API").
-3. Use `web_search` or `web_fetch` to search the [WinAppSDK API Reference](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/) and the [Platform SDK API Reference](https://learn.microsoft.com/en-us/uwp/api/) for the correct namespace, class name, and method signatures.
-4. Check the [release notes](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/stable-channel) to verify the API is available in the project's SDK version (read from `.csproj`).
+## 关于“其他详细规则”
 
-**Step 2 -- Sample Repos:**
-If web search finds the API but usage is unclear, search the sample repositories listed in [windows-apis.instructions.md](.github/instructions/windows-apis.instructions.md) for working examples.
+本项目之前有一堆 `.github/instructions/` 下的长文档（设计原则、性能、无障碍等）。  
+**现在这些文件已不再是强制阅读材料**。旧的详细指令文件已全部移动到 `.github/instructions-archive/` 目录下，仅供历史参考。
 
-**Step 3 -- WinMD / Decompiler (last resort only):**
-Only if Steps 1-2 fail to resolve the issue, then inspect `.winmd` metadata files or use decompilation tools to discover the exact type definitions. This is a fallback, not the default approach.
+真正重要的东西已经浓缩在本文件里。如果你不确定某个领域的最佳实践，可以直接问我，我会结合实际情况给出建议。
 
-## Build, Run & Deploy
+## 构建与运行命令
 
-This is an MSIX-packaged WinUI 3 app. You **must** pass both `-c` (Configuration) and `-p:Platform=` to every `dotnet build`/`dotnet test` command.
-
-This template references the [`Microsoft.Windows.SDK.BuildTools.WinApp`](https://www.nuget.org/packages/Microsoft.Windows.SDK.BuildTools.WinApp) NuGet package, which hooks `dotnet run` to invoke the [`winapp` CLI](https://github.com/microsoft/WinAppCli). Use `dotnet run` for everyday inner-loop development -- you do not need to call `Add-AppxPackage` or `MakeAppx.exe` by hand.
-
-### Dotnet CLI Workflow
-
-- Prefer `dotnet new` for scaffolding projects and items so namespaces, GUIDs,
-  and resource wiring stay correct.
-- Common commands:
-  - `dotnet new winui -n MyApp`
-  - `dotnet new winui-page -n SettingsPage --project .\MyApp\MyApp.csproj`
-  - `dotnet new winui-usercontrol -n ProfileCard --project .\MyApp\MyApp.csproj`
-- Discover available scaffolds with `dotnet new winui --list` (shows supported
-  parameters such as `--dotnet-version`).
-- Need a newer TFM? Supply `--dotnet-version net10.0` during scaffold or edit
-  `<TargetFramework>` afterward before the first build.
-
-### Prerequisites
-
-- **Developer Mode must be enabled** on Windows. Verify with:
-  ```powershell
-  # Check developer mode
-  Get-WindowsDeveloperLicense
-  # If not enabled: Settings -> System -> For developers -> Developer Mode -> On
-  ```
-- **`winapp` CLI** -- installed transitively via the `Microsoft.Windows.SDK.BuildTools.WinApp` NuGet reference (no separate install needed for `dotnet run`). To use `winapp` directly from the terminal for advanced scenarios (manifest editing, certificate management, packaging), install it standalone:
-  ```powershell
-  winget install Microsoft.WinAppCli --source winget
-  ```
-
-### Detect Platform
-
-**Always detect the machine's architecture first** -- never hardcode a platform value. Run this once at the start of every build/test session:
+每次工作时先执行一次平台检测：
 
 ```powershell
-# Detect the current machine's CPU architecture
-# (returns AMD64 on x64 boxes, ARM64 on ARM64 boxes, x86 on 32-bit boxes)
-$arch = $env:PROCESSOR_ARCHITECTURE
-$Platform = if ($arch -eq 'AMD64') { 'x64' } else { $arch }   # MSBuild expects x64/x86/ARM64
-```
-
-Use `$Platform` in all subsequent `dotnet` commands.
-
-### Build
-
-```powershell
-# Run from the project folder containing the .csproj
-cd <ProjectName>
-
-# Detect platform (see above)
 $arch = $env:PROCESSOR_ARCHITECTURE
 $Platform = if ($arch -eq 'AMD64') { 'x64' } else { $arch }
+```
 
-# Debug build (matches current machine)
+**构建**：
+```powershell
 dotnet build -c Debug -p:Platform=$Platform
-
-# Release build
-dotnet build -c Release -p:Platform=$Platform
 ```
 
-### Run with Package Identity (preferred)
-
-The template references `Microsoft.Windows.SDK.BuildTools.WinApp`, which makes `dotnet run` register a loose-layout package via `winapp run` and launch the app via AUMID activation -- giving it the same package identity it would have in production:
-
+**运行（推荐，带包身份）**：
 ```powershell
-$arch = $env:PROCESSOR_ARCHITECTURE
-$Platform = if ($arch -eq 'AMD64') { 'x64' } else { $arch }
-
 dotnet run -c Debug -p:Platform=$Platform
 ```
 
-The CLI prints the registered package's AUMID and the launched process's PID -- attach a debugger to that PID for runtime debugging.
-
-#### Useful MSBuild knobs (set in `.csproj` `<PropertyGroup>`)
-
-| Property | When to set |
-|---|---|
-| `EnableWinAppRunSupport=false` | Disable the `dotnet run` integration entirely (e.g., to launch unpackaged) |
-| `WinAppRunUseExecutionAlias=true` | For console apps -- launches via `uap5:ExecutionAlias` so stdin/stdout stay in the terminal. Add the alias first with `winapp manifest add-alias`. |
-| `WinAppRunNoLaunch=true` | Register the package but don't launch (attach your IDE's debugger before launch) |
-| `WinAppLaunchArgs="--flag value"` | Pass arguments to the app on launch |
-
-#### Manual `winapp run` (when not using `dotnet run`)
-
+**测试**：
 ```powershell
-# Read <TargetFramework> from .csproj first; example uses net10.0-windows10.0.26100.0
-winapp run .\bin\$Platform\Debug\<TargetFramework>
-
-# Pass args after -- to avoid escaping
-winapp run .\bin\$Platform\Debug\<TargetFramework> -- --my-flag value
-
-# Console app: keep stdin/stdout in the current terminal (requires uap5:ExecutionAlias)
-winapp run .\bin\$Platform\Debug\<TargetFramework> --with-alias
-
-# Wipe LocalState/settings between runs to test first-run behavior
-winapp run .\bin\$Platform\Debug\<TargetFramework> --clean
+dotnet test -c Debug -p:Platform=$Platform --filter "FullyQualifiedName~你要测试的类或方法"
 ```
 
-#### Run Tests
+## 常见 AI 易犯错误（请主动避免）
 
-```powershell
-# Run from the test project folder
-cd <ProjectName>.Tests
-$arch = $env:PROCESSOR_ARCHITECTURE
-$Platform = if ($arch -eq 'AMD64') { 'x64' } else { $arch }
-dotnet test -c Debug -p:Platform=$Platform
-```
+- 看到问题就自己发明新抽象或新服务。
+- 为了“符合最佳实践”而大幅改动用户明确不想改的地方（比如 MasonryPanel）。
+- 写了一堆代码后才发现项目里早就有类似实现。
+- 过度追求零 warning，导致把时间浪费在无关紧要的清理上。
+- 在用户明确想要“简单方案”时，还在推“更正确但更复杂”的设计。
 
-### winapp CLI command reference
+---
 
-The `winapp` CLI is the canonical entry point for app-identity, packaging, certificate, and asset operations. Reach for it instead of hand-rolling `MakeAppx`/`SignTool`/`Add-AppxPackage` invocations.
+**最后**：  
+这套规则的核心是**高效 + 靠谱 + 尊重用户真实需求**。  
+如果你觉得某条规则在当前任务中不合适，随时告诉我，我们一起调整。
 
-| Scenario | Command | Notes |
-|---|---|---|
-| **Run/debug with identity (loose layout)** | `dotnet run` (or `winapp run <build-output>`) | Default for inner loop. Registers full loose-layout package. |
-| **Console app inner loop** | Set `WinAppRunUseExecutionAlias=true` in `.csproj`, then `dotnet run` | Requires `uap5:ExecutionAlias` -- add via `winapp manifest add-alias`. |
-| **Sparse identity on a single exe** | `winapp create-debug-identity .\bin\Debug\<TFM>\<ProjectName>.exe` | Use when the exe is outside the build folder, or for IDE F5 startup debugging. |
-| **Stop debugging / clean up** | `winapp unregister` | Removes dev packages registered for the current project. |
-| **Generate dev signing cert** | `winapp cert generate --manifest .\Package.appxmanifest --install` | Reads publisher from manifest. Stored as `devcert.pfx` in the project. |
-| **Inspect a cert** | `winapp cert info .\devcert.pfx` | Verify subject matches manifest publisher. |
-| **Sign a file** | `winapp sign .\MyApp.msix --cert .\devcert.pfx` | Wraps `signtool`. |
-| **Build distribution MSIX** | `winapp pack .\bin\$Platform\Release\<TFM>\win-<rid> --cert .\devcert.pfx` | Auto-resolves `$targetnametoken$`, registers third-party WinRT components. |
-| **Self-contained MSIX (bundles WinAppSDK)** | `winapp pack ... --self-contained` | No runtime dependency on the framework package. |
-| **Regenerate Square44/Square150/etc. icons** | `winapp manifest update-assets .\branding\logo.svg` | SVG preferred -- rendered at all 5 scale and 14 targetsize variants. |
-| **Add execution alias** | `winapp manifest add-alias` | Required for console-app inline I/O via `WinAppRunUseExecutionAlias`. |
-| **Underlying SDK tools** | `winapp tool signtool ...`, `winapp tool makeappx ...` | Falls back to the raw [`Microsoft.Windows.SDK.BuildTools`](https://www.nuget.org/packages/Microsoft.Windows.SDK.BuildTools/) tools when needed. |
-
-For full reference, see the [winapp CLI usage docs](https://github.com/microsoft/WinAppCli/blob/main/docs/usage.md) and the [Debugging Guide](https://github.com/microsoft/WinAppCli/blob/main/docs/debugging.md).
-
-### Fallback: register a loose layout manually
-
-Only use this if you've explicitly disabled the `winapp` integration (`<EnableWinAppRunSupport>false</EnableWinAppRunSupport>`) or are debugging the deployment itself. The supported path is `dotnet run` / `winapp run`.
-
-```powershell
-$arch = $env:PROCESSOR_ARCHITECTURE
-$Platform = if ($arch -eq 'AMD64') { 'x64' } else { $arch }
-$Rid = $Platform.ToLower()   # arm64, x64, x86
-
-# Register the built MSIX package from the build output
-# Read <TargetFramework> from .csproj to build the correct path.
-Add-AppxPackage -Register ".\<ProjectName>\bin\$Platform\Debug\<TargetFramework>\win-$Rid\AppxManifest.xml"
-```
-
-> **Note:** Replace `<TargetFramework>` with the actual value from `.csproj` (e.g., `net10.0-windows10.0.26100.0`).
-
-If the launch fails because an old instance is still running, terminate it with `taskkill /IM <ProjectName>.exe /F` before re-running.
-
-## Key Rules (Always Enforced)
-
-- **Every change must build and pass tests** -- Run `dotnet build` and `dotnet test` (see [Build, Run & Deploy](#build-run--deploy)) before considering any task complete.
-- **Follow all instruction files** -- The detailed rules in `.github/instructions/` are authoritative. **You must actually open and read them** (not just acknowledge they exist) when working within their scope. See the trigger conditions in steps 5-8 above.
-- **Web search before decompilation** -- When facing unknown types or build errors, always search the web / API docs first. Only use WinMD/ILDASM as a last resort (see [Troubleshooting Build Errors](#troubleshooting-build-errors)).
-- **Use `winapp` for app-identity / packaging / signing** -- Don't hand-roll `MakeAppx`/`SignTool`/`Add-AppxPackage` invocations. The CLI keeps the manifest, certificate, and registration steps in sync.
-- **Git commit messages must use Chinese** -- All commit messages should be written in Chinese to match the user's preferred language.
-
-## Security Requirements
-
-- **Path validation before Process.Start** -- When using `Process.Start` with file paths, always validate the path with `File.Exists()` and sanitize special characters. Use `"` only as path wrapper, never embed user input directly in arguments.
-- **No silent exception swallowing** -- Catch blocks must log exceptions via `System.Diagnostics.Trace.TraceError()` or similar, not silently ignore them. Empty catch blocks are prohibited.
-- **IDisposable resources must be disposed** -- All `IDisposable` fields (FileSystemWatcher, Stream, etc.) must be properly disposed. ViewModels holding disposables must implement `IDisposable` pattern.
-- **No hardcoded secrets** -- API keys, passwords, connection strings must not be hardcoded.
-
-## Performance Requirements
-
-- **x:Bind over {Binding}** -- Use compiled bindings (`{x:Bind}`) instead of `{Binding}` for better performance and compile-time checking.
-- **IDisposable pattern for resource cleanup** -- ViewModels with `IDisposable` fields must implement full `IDisposable` pattern including `Dispose(bool)` and `GC.SuppressFinalize`.
-- **No blocking calls on UI thread** -- Never use `.Result` or `.GetAwaiter().GetResult()` on the UI thread.
-- **Virtualization for large lists** -- Consider `ItemsRepeater` or `ListView` with virtualization for lists expected to exceed 100 items.
-
-## Windows AI Prerequisites
-
-When integrating Windows AI APIs (Phi Silica, Windows Vision -- ImageDescription,
-TextRecognizer, ImageScaler, etc.) -- see
-[windows-apis.instructions.md](.github/instructions/windows-apis.instructions.md):
-
-1. **Package identity is required.** All Windows AI APIs require the app to
-   run with package identity. The `dotnet run` flow described above already
-   provides this. If you're testing outside `dotnet run`, register identity
-   first with `winapp run` or `winapp create-debug-identity`.
-2. **Manifest capabilities.** Add the capabilities each API requires to
-   `Package.appxmanifest` (commonly `runFullTrust`; some scenarios additionally
-   need `internetClient`). Check the API's docs page for the exact list.
-3. **Hardware / OS gating.** Some APIs require a Copilot+ PC (NPU) or a
-   minimum Windows build. Always probe availability with the API's
-   `IsAvailable` / `EnsureReadyAsync` pattern (or equivalent) and provide a
-   graceful fallback for unsupported devices.
-4. **Verify locally before checking in.** After capability or manifest
-   changes, re-run `dotnet run` (or `winapp run`) so the registered identity
-   reflects the updated manifest -- a stale registration will silently use
-   the old capability set.
-
-
-
+需要我现在帮你清理 `.github/instructions/` 目录下的旧文件吗？（可以归档或直接删除）

@@ -1,6 +1,7 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
 using IcedPicViewer.ViewModels;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -57,6 +58,22 @@ public sealed partial class ImageViewerView : Page
         {
             // No per-page KeyDown handler anymore (consolidated in MainWindow)
         };
+    }
+
+    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+
+        // 关键修复：进入单图模式时请求键盘焦点。
+        // RootFrame.KeyDown 只有在 RootFrame 或其子元素拥有焦点时才会收到按键事件。
+        // Navigate 后焦点不会自动进入新页面，导致左右键初始不响应（必须先点按钮）。
+        // 使用 DispatcherQueue 延迟一帧确保视觉树完全就绪。
+        DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
+        {
+            // Focus the main content container so that arrow keys are reliably
+            // delivered to the RootGrid handler in MainWindow.
+            MainContentGrid?.Focus(FocusState.Programmatic);
+        });
     }
 
     private async void UpdateMinimapDeferred()
