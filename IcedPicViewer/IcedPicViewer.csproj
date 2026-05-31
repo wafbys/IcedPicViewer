@@ -14,6 +14,12 @@
     <WindowsPackageType>None</WindowsPackageType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- Code Quality Analyzers (required by .github/instructions/code-quality.instructions.md) -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
@@ -40,6 +46,13 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
 
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+
+    <!-- Static Analysis (required by project rules) -->
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="*" />
+    <PackageReference Include="StyleCop.Analyzers" Version="*">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <PropertyGroup>

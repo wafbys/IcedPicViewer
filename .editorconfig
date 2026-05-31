@@ -1,0 +1,103 @@
+# EditorConfig for IcedPicViewer
+# Source of truth for code style, per .github/instructions/code-quality.instructions.md
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{csproj,props,targets,ruleset}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# C# files
+[*.cs]
+dotnet_analyzer_diagnostic.severity = warning
+
+# Test files: Allow underscores in test method names (conflicts with project's testing.instructions.md recommendation)
+[*.Tests.cs]
+dotnet_diagnostic.CA1707.severity = none
+
+# Core .NET style rules
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+dotnet_style_qualification_for_event = false:suggestion
+
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:suggestion
+dotnet_style_prefer_null_propagation = true:suggestion
+dotnet_style_prefer_auto_properties = true:suggestion
+
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_coalesce_expression = true:suggestion
+dotnet_style_null_propagation = true:suggestion
+
+# Naming conventions (aligned with project instructions)
+dotnet_naming_rule.private_fields_should_be_camel_case.severity = suggestion
+dotnet_naming_rule.private_fields_should_be_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_camel_case.style = camel_case_style
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.camel_case_style.capitalization = camel_case
+dotnet_naming_style.camel_case_style.required_prefix = _
+
+# Use file-scoped namespaces
+dotnet_style_namespace_match_folder = true:suggestion
+csharp_style_namespace_declarations = file_scoped:warning
+
+# Prefer 'var' when obvious
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+
+# Expression-bodied members
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = when_on_single_line:suggestion
+csharp_style_expression_bodied_accessors = when_on_single_line:suggestion
+csharp_style_expression_bodied_constructors = when_on_single_line:suggestion
+
+# Spacing and layout
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+
+# SA1101: Do not prefix local calls with this
+dotnet_diagnostic.SA1101.severity = none
+
+# SA1309: Field names should not begin with underscore (we intentionally use _camelCase)
+dotnet_diagnostic.SA1309.severity = none
+
+# IDE0058: Remove unused expression value (allow in some async scenarios)
+dotnet_diagnostic.IDE0058.severity = suggestion
+
+# Disable some noisy rules for WinUI projects
+dotnet_diagnostic.CA1816.severity = suggestion  # Dispose methods should call SuppressFinalize
+dotnet_diagnostic.CA2000.severity = suggestion  # Dispose objects before losing scope
+
+# StyleCop Documentation
+dotnet_diagnostic.SA1600.severity = suggestion
+dotnet_diagnostic.SA1601.severity = suggestion
+dotnet_diagnostic.SA1602.severity = suggestion
+
+# Prefer using directive inside namespace (StyleCop default is outside, but we follow common WinUI style)
+# Actually following instruction: systemUsingDirectivesFirst
+dotnet_diagnostic.SA1200.severity = suggestion  # Using directives should be placed outside namespace (we'll keep modern file-scoped preference)
+
+# Enforce consistent using ordering
+dotnet_sort_system_directives_first = true
