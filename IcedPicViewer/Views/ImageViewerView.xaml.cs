@@ -1,3 +1,5 @@
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 using IcedPicViewer.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -15,7 +17,6 @@ public sealed partial class ImageViewerView : Page
     private double _minimapWidth = 150;
     private double _minimapHeight = 120;
     private Rectangle? _viewportRect;
-    private bool _keyHandlerAttached;
 
     private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
     {
@@ -47,48 +48,15 @@ public sealed partial class ImageViewerView : Page
                 vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
                 vm.NavigateNextCommand.NotifyCanExecuteChanged();
             }
-            if (!_keyHandlerAttached && Window.Current != null)
-            {
-                Window.Current.CoreWindow.KeyDown += CoreWindow_KeyDown;
-                _keyHandlerAttached = true;
-            }
+
+            // Keyboard handling is centralized in MainWindow.RootFrame_KeyDown
+            // to avoid duplication. See MainWindow.xaml.cs for viewer navigation keys.
         };
+
         Unloaded += (_, _) =>
         {
-            if (_keyHandlerAttached && Window.Current != null)
-            {
-                Window.Current.CoreWindow.KeyDown -= CoreWindow_KeyDown;
-                _keyHandlerAttached = false;
-            }
+            // No per-page KeyDown handler anymore (consolidated in MainWindow)
         };
-    }
-
-    private void CoreWindow_KeyDown(Windows.UI.Core.CoreWindow sender, Windows.UI.Core.KeyEventArgs args)
-    {
-        if (DataContext is not ImageViewModel vm) return;
-
-        switch (args.VirtualKey)
-        {
-            case Windows.System.VirtualKey.Left:
-                if (vm.NavigatePreviousCommand.CanExecute(null))
-                    vm.NavigatePreviousCommand.Execute(null);
-                args.Handled = true;
-                break;
-            case Windows.System.VirtualKey.Right:
-                if (vm.NavigateNextCommand.CanExecute(null))
-                    vm.NavigateNextCommand.Execute(null);
-                args.Handled = true;
-                break;
-            case Windows.System.VirtualKey.Delete:
-                if (vm.DeleteCommand.CanExecute(null))
-                    vm.DeleteCommand.Execute(null);
-                args.Handled = true;
-                break;
-            case Windows.System.VirtualKey.Escape:
-                vm.CloseCommand.Execute(null);
-                args.Handled = true;
-                break;
-        }
     }
 
     private async void UpdateMinimapDeferred()
@@ -130,7 +98,6 @@ public sealed partial class ImageViewerView : Page
 
     private void ActualSizeImage_Loaded(object sender, RoutedEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine($"ActualSizeImage_Loaded: IsFitMode={_isFitMode}");
         if (!_isFitMode)
         {
             UpdateMinimap();
@@ -139,7 +106,6 @@ public sealed partial class ImageViewerView : Page
 
     private void ActualSizeContainer_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine($"SizeChanged: IsFitMode={_isFitMode}, NewSize={e.NewSize}");
         if (!_isFitMode)
         {
             UpdateMinimap();
@@ -148,25 +114,20 @@ public sealed partial class ImageViewerView : Page
 
     private void ActualSizeImage_ImageOpened(object sender, RoutedEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine($"ImageOpened triggered: IsFitMode={_isFitMode}, Source Tag={ActualSizeImage?.Source?.GetHashCode()}");
         if (!_isFitMode)
         {
             MinimapImage.Source = null;
-            System.Diagnostics.Debug.WriteLine("Calling UpdateMinimap");
             UpdateMinimap();
-            System.Diagnostics.Debug.WriteLine($"MinimapImage.Source after update: {MinimapImage?.Source?.GetHashCode()}");
         }
     }
 
     private void UpdateMinimap()
     {
-        System.Diagnostics.Debug.WriteLine($"UpdateMinimap: ActualSizeImage.Source={ActualSizeImage?.Source}");
         double width = 0;
         double height = 0;
 
         if (ActualSizeImage?.Source is not BitmapImage bmp)
         {
-            System.Diagnostics.Debug.WriteLine("Source is not BitmapImage or is null");
             return;
         }
 
@@ -174,17 +135,14 @@ public sealed partial class ImageViewerView : Page
         {
             width = bmp.PixelWidth;
             height = bmp.PixelHeight;
-            System.Diagnostics.Debug.WriteLine($"Using PixelWidth/Height: {width}x{height}");
         }
         else if (ActualSizeImage!.ActualWidth > 0 && ActualSizeImage!.ActualHeight > 0)
         {
             width = ActualSizeImage!.ActualWidth;
             height = ActualSizeImage!.ActualHeight;
-            System.Diagnostics.Debug.WriteLine($"Using ActualWidth/Height: {width}x{height}");
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine($"No valid dimensions: Pixel={bmp.PixelWidth}x{bmp.PixelHeight}, Actual={ActualSizeImage!.ActualWidth}x{ActualSizeImage!.ActualHeight}");
             return;
         }
 
@@ -198,7 +156,7 @@ public sealed partial class ImageViewerView : Page
             MinimapViewport.Children.Clear();
             _viewportRect = new Rectangle
             {
-                Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(200, 0, 120, 215)),
+                Stroke = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue),
                 StrokeThickness = 1,
                 Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 0, 120, 215))
             };
