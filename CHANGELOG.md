@@ -9,6 +9,7 @@
 - 清理 `IcedPicViewer.csproj` 中关于测试项目的说明注释。
 - 同步更新 `AGENTS.md` 和 `CHANGELOG.md`，移除所有测试相关指令与历史记录。
 - **架构限制**：项目现在仅支持 x64（`<Platforms>x64</Platforms>`、`<Platform>x64</Platform>`、默认 RuntimeIdentifier=win-x64）。已移除对 x86/ARM64 的支持与相关配置/文档提及（历史记录保留）。
+- **发布体积优化**：添加 `<SatelliteResourceLanguages>en</SatelliteResourceLanguages>`，并在 Publish 后通过自定义 Target 自动删除 af-ZA、am-ET、ar-SA 等 70+ 框架 satellite 语言文件夹（仅保留 en-us）。显著减小自包含发布产物体积。
 - 原因：项目当前阶段决定移除单元测试基础设施，专注于核心功能开发与轻量治理；架构仅保留 x64 以简化构建与发布。
 
 ## v0.9.2 (2026-06-02)
