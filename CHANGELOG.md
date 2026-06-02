@@ -1,5 +1,74 @@
 # 更新日志
 
+## v0.9.0 (2026-06-02)
+
+**主题:大规模代码质量与可靠性清理(P0–P3 完整战役)**
+
+### 项目治理与构建(P0)
+
+- 移除 `StyleCop.Analyzers` 及其配置(`stylecop.json`、`.editorconfig` 中 SA 规则)。代码风格改由 `.editorconfig` 显式维护,`.NET Analyzers` 继续保留
+- 关闭 `EnforceCodeStyleInBuild`,IDE 风格建议回到 `.editorconfig` 的 `suggestion` 级别
+- 删除未使用的 NuGet 依赖:`SixLabors.ImageSharp`、`Microsoft.Graphics.Win2D`
+- 删除死代码:`Models/LoadingState.cs` 中无用的 `ImageSourceType` 枚举、空壳 `MainViewModel`
+- 修复 `IcedPicViewer.slnx`:补加 `IcedPicViewer.Tests` 项目引用,补 `Configurations` 节点与平台映射(原写法触发 `MSB4126` `dotnet build` 失败)
+- 修正 `Controls/MasonryPanel.cs` 自相矛盾的注释(说明仍是主用布局)
+- 修复 `.editorconfig` glob:`[*.Tests.cs]` → `[*Tests.cs]`(原写法未匹配实际文件名)
+- 删除 csproj / `.editorconfig` 中过时的 `.github/instructions` 死路径引用
+- 删除 `Package.appxmanifest` 多余的 `systemAIModels` capability
+- `ImageViewModel` 实现 `IDisposable`(CA1001),`_loadCts` 在 `Dispose` 中释放
+
+### 平台简化
+
+- 主项目 `csproj` `<Platforms>` 从 `x86;x64;ARM64` 改为 `x64`
+- `slnx` `Configurations` 节点简化为仅 `x64`,对应 Project 平台映射同步收敛
+- 删除未使用的 `win-x86.pubxml` / `win-arm64.pubxml` 配置文件(本就不在版本控制中)
+- 工作区 `bin/obj` 体积从 `~896 MB` 降至 `~96 MB`(单平台累积),VS 配置管理器只显示 `x64`
+
+### 性能与可靠性(P1)
+
+- `ImageViewerView.FitModeBtn_Click` 删 `Task.Delay(100/200)` hack,改纯事件驱动(`ActualSizeImage.ImageOpened` / `ActualSizeContainer.SizeChanged` 已自动驱动 `UpdateMinimap`)
+- `ImageLoader` 缩略图缓存由无界 `ConcurrentDictionary` 改为手写 LRU(`LinkedList` + `Dictionary` + `lock`),容量 200。400px 缩略图最坏 `~30-80 MB`,不再随大文件夹持续涨内存。无新包依赖。
+- 窗口状态文件从 exe 目录改存 `%LOCALAPPDATA%\IcedPicViewer\`,符合 unpackaged WinUI 应用标准做法(避免 `Program Files` 只读 / AV 拦截)
+
+### 测试覆盖(P1)
+
+- 新增 `ImageViewModelTests.cs`,6 个测试覆盖 `ShowImage` / `Navigate` / `Close` / `Delete` 关键路径,补齐 `ImageViewModel` 零覆盖缺口
+
+### 性能与文件监控(P2)
+
+- `GalleryViewModel.Images` 加 `Dictionary<string, ImageItem>` 索引(`OrdinalIgnoreCase`),`OnFileChanged` 从 O(n) `FirstOrDefault` 改为 O(1) `TryGetValue`,大文件夹监控不再线性扫描
+- `IImageLoader.LoadImageAsync(byte[])` → `LoadImageStreamAsync(Stream)`,调用方持有 `Stream` 直接喂 `BitmapImage.SetSourceAsync`,跳过中间 `byte[]` 缓冲。50MB RAW 不再爆 LOH
+- `FileSystemWatcher.Renamed` 事件正确处理:`FileChangeInfo` 加 `OldPath` 可选字段、`DirectoryScanner` 填 `e.OldFullPath`、`ImageItem` 加 `UpdatePath(newPath, newName)` 方法、`OnFileChanged.Renamed` 用 `OldPath` 匹配后 `Remove → UpdatePath → Add` 维护索引一致
+
+### 静态分析(P2)
+
+- 修剩余 11 个 warning 直至归零(`CA1861` × 4、`MSTEST0032` × 2、`CA1305` × 4、`CsWinRT1028/1030` 抑制)
+- `MasonryPanel` 标记 `partial`(CsWinRT1028 触发条件)
+
+### 资源释放与健壮性(P3)
+
+- `GalleryViewModel._remainingFilePaths` 加 `_remainingLock` 保护,`LoadNextPageAsync`(worker 线程)与 `OnFileChanged.Deleted`(dispatcher 线程)并发访问不再 race
+- 删除 `ImageItem.IsLoading` 死字段(从未被设为 true),同步删除 `GalleryView.xaml` 中相应 `ProgressRing` 节点
+- `ImageViewModel` 构造里两个 lambda 订阅改 named method,`Dispose` 时取消订阅,避免 lambda 闭包阻止 GC 回收
+- `OnFileChanged` dispatcher lambda 整体加 `try-catch`,异常时 `Trace.TraceError` 而非被 WinUI 静默吞掉
+- `App.OnLaunched` 订阅 `_window.AppWindow.Closing`,关闭时显式 `Dispose` `GalleryViewModel` 和 `ImageViewModel`,避免 `_fileWatcher` / `_loadCts` / `_thumbnailLoadSemaphore` 漏清理
+- 删除 `GalleryViewModel._loadedThumbnailCount` 死字段(被 `++` 但从未被读取)
+- 抽 `UpdateStatusText()` helper,消 `Created` / `Deleted` / `LoadDirectory` / `LoadMore` 四处重复的 `'Loaded X / Y images'` 格式化逻辑
+- `GalleryViewModel._canLoadMore` 装饰 `[NotifyPropertyChangedFor]` + `[NotifyCanExecuteChangedFor]`,删手动 `OnCanLoadMoreChanged` partial method
+
+### 指标对比
+
+| 维度 | v0.8.0 | v0.9.0 |
+|---|---|---|
+| NuGet 直接依赖 | 7(含 2 个死依赖) | 5 |
+| `bin/obj` 体积(多平台累积) | `~896 MB` | `~96 MB` |
+| 编译警告 | `1024`(StyleCop 噪音) | `0` |
+| 单元测试 | `27/27` | `33/33` |
+| 死代码 | `ImageSourceType` / `MainViewModel` | 0 |
+| 线程安全 race | `_remainingFilePaths` 无锁 | 加 lock |
+| 资源释放 | App 退出漏 dispose | `AppWindow.Closing` 显式 dispose |
+| 解决方案构建 | `dotnet build` slnx 失败(`MSB4126`) | 正常 |
+
 ## v0.8.0 (2026-05-31)
 
 - 项目治理重构：将原有多文件重度指令系统大幅精简，改为轻量实用版 AGENTS.md
