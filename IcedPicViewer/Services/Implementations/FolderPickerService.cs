@@ -1,6 +1,7 @@
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.Storage.Pickers;
+using System.Diagnostics;
 
 namespace IcedPicViewer.Services.Implementations;
 
@@ -38,7 +39,7 @@ public sealed class FolderPickerService : IFolderPickerService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"FolderPickerService error: {ex}");
+            Trace.TraceError($"FolderPickerService error: {ex}");
             return null;
         }
     }

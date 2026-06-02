@@ -6,6 +6,7 @@ using IcedPicViewer.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using System.Diagnostics;
 using System.IO;
 
 namespace IcedPicViewer;
@@ -98,11 +99,11 @@ public sealed partial class MainWindow : Window
             File.WriteAllText(tempFile, content);
             File.Move(tempFile, file, overwrite: true);
 
-            System.Diagnostics.Trace.TraceInformation($"Saved window state: {content}");
+            Trace.TraceInformation($"Saved window state: {content}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"SaveWindowState error: {ex}");
+            Trace.TraceError($"SaveWindowState error: {ex}");
         }
     }
 
@@ -113,7 +114,7 @@ public sealed partial class MainWindow : Window
             var file = GetSettingsPath();
             if (!File.Exists(file))
             {
-                System.Diagnostics.Trace.TraceWarning("RestoreWindowState: file not found");
+                Trace.TraceWarning("RestoreWindowState: file not found");
                 return;
             }
 
@@ -121,7 +122,7 @@ public sealed partial class MainWindow : Window
             var parts = content.Split(',');
             if (parts.Length != 4)
             {
-                System.Diagnostics.Trace.TraceWarning($"RestoreWindowState: invalid parts count {parts.Length}");
+                Trace.TraceWarning($"RestoreWindowState: invalid parts count {parts.Length}");
                 return;
             }
 
@@ -130,16 +131,16 @@ public sealed partial class MainWindow : Window
                 !double.TryParse(parts[2], out var width) ||
                 !double.TryParse(parts[3], out var height))
             {
-                System.Diagnostics.Trace.TraceWarning($"RestoreWindowState: failed to parse values");
+                Trace.TraceWarning($"RestoreWindowState: failed to parse values");
                 return;
             }
 
             AppWindow.MoveAndResize(new Windows.Graphics.RectInt32((int)x, (int)y, (int)width, (int)height));
-            System.Diagnostics.Trace.TraceInformation($"Restored window state: {content}");
+            Trace.TraceInformation($"Restored window state: {content}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"RestoreWindowState error: {ex}");
+            Trace.TraceError($"RestoreWindowState error: {ex}");
         }
     }
 }

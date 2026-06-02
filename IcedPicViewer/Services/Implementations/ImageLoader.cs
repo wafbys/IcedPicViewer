@@ -1,6 +1,7 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,7 +53,7 @@ public class ImageLoader : IImageLoader
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"LoadImageStreamAsync error for {path}: {ex}");
+            Trace.TraceError($"LoadImageStreamAsync error for {path}: {ex}");
             return null;
         }
     }
@@ -84,7 +85,7 @@ public class ImageLoader : IImageLoader
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"LoadThumbnailAsync error for {path}: {ex}");
+            Trace.TraceError($"LoadThumbnailAsync error for {path}: {ex}");
             return null;
         }
     }
@@ -106,7 +107,7 @@ public class ImageLoader : IImageLoader
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"GetImageSizeAsync error for {path}: {ex}");
+            Trace.TraceError($"GetImageSizeAsync error for {path}: {ex}");
             return null;
         }
     }

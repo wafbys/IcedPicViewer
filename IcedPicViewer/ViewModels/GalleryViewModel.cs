@@ -1,6 +1,7 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -211,7 +212,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"DeleteImageAsync error: {ex}");
+            Trace.TraceError($"DeleteImageAsync error: {ex}");
             StatusText = $"Delete failed: {ex.Message}";
             return;
         }
@@ -270,7 +271,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"LoadDirectoryAsync error: {ex}");
+            Trace.TraceError($"LoadDirectoryAsync error: {ex}");
             LoadingState = LoadingState.Completed;
             StatusText = $"Error: {ex.Message}";
         }
@@ -371,7 +372,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // network share dropped, etc.) — just surface the failure to the user
             // and keep the gallery working.
             _fileWatcher = null;
-            System.Diagnostics.Trace.TraceError($"StartWatching failed for {path}: {ex}");
+            Trace.TraceError($"StartWatching failed for {path}: {ex}");
             StatusText = $"File monitoring unavailable: {ex.Message}";
         }
     }
@@ -456,7 +457,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.TraceError($"OnFileChanged error for {info.Path} ({info.ChangeType}): {ex}");
+                Trace.TraceError($"OnFileChanged error for {info.Path} ({info.ChangeType}): {ex}");
             }
         });
     }
@@ -487,7 +488,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"LoadThumbnailAsync error for {item.Path}: {ex}");
+            Trace.TraceError($"LoadThumbnailAsync error for {item.Path}: {ex}");
         }
         finally
         {
