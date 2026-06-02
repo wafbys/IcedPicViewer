@@ -2,7 +2,7 @@
 
 namespace IcedPicViewer.Services.Interfaces;
 
-public record FileChangeInfo(WatchChangeType ChangeType, string Path);
+public record FileChangeInfo(WatchChangeType ChangeType, string Path, string? OldPath = null);
 
 public enum WatchChangeType
 {

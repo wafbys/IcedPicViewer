@@ -21,6 +21,9 @@
     <!-- IDE style rules stay as suggestions in .editorconfig; do not promote to warnings in build. -->
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- CsWinRT: false positives in this project. Our HashSet<string>, ServiceCollection, etc.
+         are never marshaled across the WinRT ABI; these are internal-only types. -->
+    <NoWarn>$(NoWarn);CsWinRT1028;CsWinRT1030</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

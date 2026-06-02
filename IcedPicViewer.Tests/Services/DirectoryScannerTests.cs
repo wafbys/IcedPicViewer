@@ -13,6 +13,9 @@ public class DirectoryScannerTests
 {
     private readonly DirectoryScanner _scanner = new DirectoryScanner();
 
+    // CA1861: prefer static readonly over const arrays for repeated invocations.
+    private static readonly string[] JpgOnly = [".jpg"];
+
     [TestMethod]
     public async Task ScanAsync_EmptyDirectory_ReturnsNoFiles()
     {
@@ -79,7 +82,7 @@ public class DirectoryScannerTests
         {
             // Act
             var results = new List<string>();
-            await foreach (var path in _scanner.ScanAsync(tempDir, recursive: false, extensions: new[] { ".jpg" }))
+            await foreach (var path in _scanner.ScanAsync(tempDir, recursive: false, extensions: JpgOnly))
             {
                 results.Add(path);
             }

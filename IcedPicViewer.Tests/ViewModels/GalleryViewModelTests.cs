@@ -78,8 +78,8 @@ public class GalleryViewModelTests
 
         await vm.LoadDirectoryAsync(@"C:\some\path", cts.Token);
 
-        // If we reach here without hanging, cancellation is at least handled at the call site
-        Assert.IsTrue(true);
+        // Reaching this point without hanging is the assertion:
+        // cancellation is at least handled at the call site.
     }
 
     [TestMethod]

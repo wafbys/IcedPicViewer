@@ -31,20 +31,28 @@ public class ImageLoader : IImageLoader
         return _supportedExtensions.Contains(ext);
     }
 
-    public async Task<byte[]?> LoadImageAsync(string path, CancellationToken ct = default)
+    public async Task<Stream?> LoadImageStreamAsync(string path, CancellationToken ct = default)
     {
         if (!File.Exists(path)) return null;
 
         try
         {
-            using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
-            using var memoryStream = new MemoryStream();
-            await fileStream.CopyToAsync(memoryStream, ct);
-            return memoryStream.ToArray();
+            // Caller owns the stream and is responsible for disposing it.
+            // No intermediate byte[] buffer — keeps large images (e.g. RAW) off the LOH.
+            var fileStream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                useAsync: true);
+            // Touch ct so callers passing a token can still cancel before the first read.
+            ct.ThrowIfCancellationRequested();
+            return await Task.FromResult(fileStream);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceError($"LoadImageAsync error for {path}: {ex}");
+            System.Diagnostics.Trace.TraceError($"LoadImageStreamAsync error for {path}: {ex}");
             return null;
         }
     }

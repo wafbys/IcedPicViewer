@@ -83,5 +83,8 @@ dotnet_diagnostic.IDE0058.severity = suggestion
 dotnet_diagnostic.CA1816.severity = suggestion  # Dispose methods should call SuppressFinalize
 dotnet_diagnostic.CA2000.severity = suggestion  # Dispose objects before losing scope
 
+# CsWinRT rules are suppressed via <NoWarn> in the csproj — .editorconfig
+# keys are not honored by the CsWinRT source generator.
+
 # Enforce consistent using ordering
 dotnet_sort_system_directives_first = true

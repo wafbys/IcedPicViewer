@@ -44,13 +44,13 @@ public class ImageLoaderTests
     }
 
     [TestMethod]
-    public async Task LoadImageAsync_NonExistentFile_ReturnsNull()
+    public async Task LoadImageStreamAsync_NonExistentFile_ReturnsNull()
     {
         // Arrange
         const string nonExistentPath = @"C:\this\path\does\not\exist\image.jpg";
 
         // Act
-        var result = await _imageLoader.LoadImageAsync(nonExistentPath);
+        var result = await _imageLoader.LoadImageStreamAsync(nonExistentPath);
 
         // Assert
         Assert.IsNull(result);

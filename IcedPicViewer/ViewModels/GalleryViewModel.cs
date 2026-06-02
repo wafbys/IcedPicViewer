@@ -33,6 +33,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private List<string> _remainingFilePaths = new();
     private const int PageSize = 150;
 
+    // O(1) path → item lookup. Mirrors the Images collection; maintained via
+    // the CollectionChanged handler in the constructor. Windows paths are
+    // case-insensitive, so use OrdinalIgnoreCase.
+    private readonly Dictionary<string, ImageItem> _imageIndex = new(StringComparer.OrdinalIgnoreCase);
+
     [ObservableProperty]
     private LoadingState _loadingState;
 
@@ -77,6 +82,34 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         _scanner = scanner;
         _imageLoader = imageLoader;
         _folderPicker = folderPicker;
+
+        // Keep the path → item index in sync with the observable collection.
+        // Avoids O(n) FirstOrDefault scans in OnFileChanged when collections grow.
+        Images.CollectionChanged += OnImagesCollectionChanged;
+    }
+
+    private void OnImagesCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+        {
+            _imageIndex.Clear();
+        }
+
+        if (e.OldItems != null)
+        {
+            foreach (ImageItem item in e.OldItems)
+            {
+                _imageIndex.Remove(item.Path);
+            }
+        }
+
+        if (e.NewItems != null)
+        {
+            foreach (ImageItem item in e.NewItems)
+            {
+                _imageIndex[item.Path] = item;
+            }
+        }
     }
 
     public void Dispose()
@@ -95,6 +128,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 _loadCts?.Cancel();
                 _loadCts?.Dispose();
                 _thumbnailLoadSemaphore.Dispose();
+                Images.CollectionChanged -= OnImagesCollectionChanged;
             }
             _disposed = true;
         }
@@ -317,7 +351,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             {
                 case WatchChangeType.Created:
                     if (!_imageLoader.IsSupportedFormat(info.Path)) return;
-                    if (Images.Any(i => i.Path == info.Path)) return;
+                    if (_imageIndex.ContainsKey(info.Path)) return;
                     var fileInfo = new FileInfo(info.Path);
                     if (!fileInfo.Exists) return;
                     var size = await _imageLoader.GetImageSizeAsync(info.Path, CancellationToken.None);
@@ -339,8 +373,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                     break;
 
                 case WatchChangeType.Deleted:
-                    var itemToRemove = Images.FirstOrDefault(i => i.Path == info.Path);
-                    if (itemToRemove != null)
+                    if (_imageIndex.TryGetValue(info.Path, out var itemToRemove))
                     {
                         Images.Remove(itemToRemove);
                         if (TotalCount > 0)
@@ -358,13 +391,25 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                     break;
 
                 case WatchChangeType.Modified:
-                case WatchChangeType.Renamed:
-                    var item = Images.FirstOrDefault(i => i.Path == info.Path);
-                    if (item != null)
+                    if (_imageIndex.TryGetValue(info.Path, out var modifiedItem))
                     {
-                        item.Thumbnail = null;
-                        item.FullImage = null;
-                        await LoadThumbnailAsync(item, CancellationToken.None);
+                        modifiedItem.Thumbnail = null;
+                        modifiedItem.FullImage = null;
+                        await LoadThumbnailAsync(modifiedItem, CancellationToken.None);
+                    }
+                    break;
+
+                case WatchChangeType.Renamed:
+                    // The watcher delivers Renamed with NewPath = info.Path, OldPath = info.OldPath.
+                    // We need to rebind the existing item to the new path so the index stays consistent.
+                    if (info.OldPath != null && _imageIndex.TryGetValue(info.OldPath, out var renamedItem))
+                    {
+                        Images.Remove(renamedItem);  // triggers index removal on OldPath
+                        renamedItem.UpdatePath(info.Path, Path.GetFileName(info.Path));
+                        Images.Add(renamedItem);     // triggers index insertion on NewPath
+                        renamedItem.Thumbnail = null;
+                        renamedItem.FullImage = null;
+                        await LoadThumbnailAsync(renamedItem, CancellationToken.None);
                     }
                     break;
             }

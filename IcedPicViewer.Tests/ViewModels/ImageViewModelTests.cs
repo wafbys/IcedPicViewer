@@ -5,6 +5,7 @@ using IcedPicViewer.Services.Interfaces;
 using IcedPicViewer.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
+using System.Globalization;
 using System.Threading.Tasks;
 
 namespace IcedPicViewer.Tests.ViewModels;
@@ -21,9 +22,9 @@ public class ImageViewModelTests
     }
 
     private static ImageItem MakeItem(int i) => new(
-        id: i.ToString(),
-        name: $"img{i}.jpg",
-        path: $@"C:\fake\img{i}.jpg",
+        id: i.ToString(CultureInfo.InvariantCulture),
+        name: $"img{i.ToString(CultureInfo.InvariantCulture)}.jpg",
+        path: $@"C:\fake\img{i.ToString(CultureInfo.InvariantCulture)}.jpg",
         fileSize: 1024,
         modifiedTime: System.DateTime.Now,
         originalWidth: 800,
@@ -35,8 +36,8 @@ public class ImageViewModelTests
         // Arrange
         var gallery = CreateGallery(out var loader);
         var nav = new Mock<INavigationService>();
-        loader.Setup(l => l.LoadImageAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>()))
-              .ReturnsAsync((byte[]?)null);
+        loader.Setup(l => l.LoadImageStreamAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>()))
+              .ReturnsAsync((System.IO.Stream?)null);
 
         gallery.Images.Add(MakeItem(1));
         gallery.Images.Add(MakeItem(2));
@@ -59,8 +60,8 @@ public class ImageViewModelTests
     {
         var gallery = CreateGallery(out var loader);
         var nav = new Mock<INavigationService>();
-        loader.Setup(l => l.LoadImageAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>()))
-              .ReturnsAsync((byte[]?)null);
+        loader.Setup(l => l.LoadImageStreamAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>()))
+              .ReturnsAsync((System.IO.Stream?)null);
 
         gallery.Images.Add(MakeItem(1));
         gallery.Images.Add(MakeItem(2));
@@ -102,8 +103,8 @@ public class ImageViewModelTests
     {
         var gallery = CreateGallery(out var loader);
         var nav = new Mock<INavigationService>();
-        loader.Setup(l => l.LoadImageAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>()))
-              .ReturnsAsync((byte[]?)null);
+        loader.Setup(l => l.LoadImageStreamAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>()))
+              .ReturnsAsync((System.IO.Stream?)null);
 
         gallery.Images.Add(MakeItem(1));
         gallery.Images.Add(MakeItem(2));
@@ -144,8 +145,8 @@ public class ImageViewModelTests
     {
         var gallery = CreateGallery(out var loader);
         var nav = new Mock<INavigationService>();
-        loader.Setup(l => l.LoadImageAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>()))
-              .ReturnsAsync((byte[]?)null);
+        loader.Setup(l => l.LoadImageStreamAsync(It.IsAny<string>(), It.IsAny<System.Threading.CancellationToken>()))
+              .ReturnsAsync((System.IO.Stream?)null);
         // System.IO.File.Exists returns false for the fake path; DeleteImageAsync early-exits.
         // For testing logic, we manually remove via gallery and exercise the index-adjustment branch
         // by re-invoking DeleteAsync on a real existing file in temp dir.

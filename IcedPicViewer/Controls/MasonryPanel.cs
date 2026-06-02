@@ -17,7 +17,7 @@ namespace IcedPicViewer.Controls;
 /// custom layout) was explored but traded the desired waterfall visual for
 /// modest perf wins — kept here intentionally until that's worth revisiting.
 /// </summary>
-public class MasonryPanel : Panel
+public partial class MasonryPanel : Panel
 {
     public static readonly DependencyProperty ColumnCountProperty =
         DependencyProperty.Register(nameof(ColumnCount), typeof(int), typeof(MasonryPanel),

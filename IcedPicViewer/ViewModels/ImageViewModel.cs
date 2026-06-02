@@ -22,19 +22,30 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _loadCts;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActualWidth))]
+    [NotifyPropertyChangedFor(nameof(ActualHeight))]
+    [NotifyPropertyChangedFor(nameof(ImagePath))]
     private ImageItem? _currentImage;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActualWidth))]
+    [NotifyPropertyChangedFor(nameof(ActualHeight))]
     private BitmapImage? _displayImage;
 
     public event EventHandler? DisplayImageChanged;
     public event EventHandler? NavigationChanged;
 
-    private int _actualWidth;
-    public int ActualWidth => _actualWidth > 0 ? _actualWidth : CurrentImage?.OriginalWidth ?? 0;
+    // Backing fields for the displayed bitmap's pixel dimensions. ActualWidth/Height
+    // fall back to CurrentImage.OriginalWidth/Height until the bitmap has loaded.
+    [ObservableProperty]
+    private int _displayActualWidth;
 
-    private int _actualHeight;
-    public int ActualHeight => _actualHeight > 0 ? _actualHeight : CurrentImage?.OriginalHeight ?? 0;
+    [ObservableProperty]
+    private int _displayActualHeight;
+
+    public int ActualWidth => DisplayActualWidth > 0 ? DisplayActualWidth : CurrentImage?.OriginalWidth ?? 0;
+
+    public int ActualHeight => DisplayActualHeight > 0 ? DisplayActualHeight : CurrentImage?.OriginalHeight ?? 0;
 
     public string ImagePath => CurrentImage?.Path ?? string.Empty;
 
@@ -43,20 +54,15 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         DisplayImageChanged?.Invoke(this, EventArgs.Empty);
         if (value != null)
         {
-            _actualWidth = value.PixelWidth;
-            _actualHeight = value.PixelHeight;
-            OnPropertyChanged(nameof(ActualWidth));
-            OnPropertyChanged(nameof(ActualHeight));
+            DisplayActualWidth = value.PixelWidth;
+            DisplayActualHeight = value.PixelHeight;
         }
     }
 
     partial void OnCurrentImageChanged(ImageItem? value)
     {
-        _actualWidth = 0;
-        _actualHeight = 0;
-        OnPropertyChanged(nameof(ActualWidth));
-        OnPropertyChanged(nameof(ActualHeight));
-        OnPropertyChanged(nameof(ImagePath));
+        DisplayActualWidth = 0;
+        DisplayActualHeight = 0;
     }
 
     [ObservableProperty]
@@ -246,15 +252,17 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         IsLoading = true;
         try
         {
-            byte[]? data = await _imageLoader.LoadImageAsync(item.Path, ct);
+            using var stream = await _imageLoader.LoadImageStreamAsync(item.Path, ct);
 
-            if (ct.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
 
-            if (data != null)
+            if (stream != null)
             {
                 var bitmapImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-                using var stream = new MemoryStream(data);
-                bitmapImage.SetSource(stream.AsRandomAccessStream());
+                await bitmapImage.SetSourceAsync(stream.AsRandomAccessStream());
                 item.FullImage = bitmapImage;
                 DisplayImage = bitmapImage;
             }
