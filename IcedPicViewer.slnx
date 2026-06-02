@@ -1,5 +1,17 @@
 <Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+    <Platform Name="ARM64" />
+  </Configurations>
   <Project Path="IcedPicViewer\IcedPicViewer.csproj">
-    <Platform Solution="Debug|*" Project="x64" />
+    <Platform Solution="*|Any CPU" Project="x64" />
+    <Platform Solution="*|x86" Project="x86" />
+    <Platform Solution="*|ARM64" Project="ARM64" />
+  </Project>
+  <Project Path="IcedPicViewer.Tests\IcedPicViewer.Tests.csproj">
+    <Platform Solution="*|Any CPU" Project="x64" />
+    <Platform Solution="*|x86" Project="x86" />
+    <Platform Solution="*|ARM64" Project="ARM64" />
   </Project>
 </Solution>

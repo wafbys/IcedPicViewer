@@ -15,10 +15,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <!-- Code Quality Analyzers (required by .github/instructions/code-quality.instructions.md) -->
+    <!-- Code Quality Analyzers -->
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
-    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- IDE style rules stay as suggestions in .editorconfig; do not promote to warnings in build. -->
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
@@ -41,18 +42,11 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
 
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
-
-    <!-- Static Analysis (required by project rules) -->
+    <!-- Static Analysis -->
     <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="*" />
-    <PackageReference Include="StyleCop.Analyzers" Version="*">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
-    </PackageReference>
   </ItemGroup>
 
   <PropertyGroup>

@@ -9,11 +9,13 @@ using Windows.Foundation;
 namespace IcedPicViewer.Controls;
 
 /// <summary>
-/// Legacy non-virtualizing masonry panel (kept for reference).
+/// Masonry (waterfall) layout panel used by the main gallery.
 /// 
-/// Decision: The gallery has migrated to ItemsRepeater + UniformGridLayout for 
-/// virtualization and performance with large collections. Original masonry visual
-/// appearance is traded for significantly better scrolling and memory behavior.
+/// This is a non-virtualizing Panel; for large collections it is paired with
+/// incremental loading (see GalleryViewModel.PageSize) to keep initial render
+/// and memory pressure manageable. A virtualizing alternative (ItemsRepeater +
+/// custom layout) was explored but traded the desired waterfall visual for
+/// modest perf wins — kept here intentionally until that's worth revisiting.
 /// </summary>
 public class MasonryPanel : Panel
 {

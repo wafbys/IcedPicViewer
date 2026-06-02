@@ -13,7 +13,7 @@ using System.Threading;
 
 namespace IcedPicViewer.ViewModels;
 
-public partial class ImageViewModel : ObservableObject
+public partial class ImageViewModel : ObservableObject, IDisposable
 {
     private readonly GalleryViewModel _galleryViewModel;
     private readonly IImageLoader _imageLoader;
@@ -279,5 +279,25 @@ public partial class ImageViewModel : ObservableObject
             ZoomLevel = 1.0;
             await LoadFullImageAsync(CurrentImage, _loadCts?.Token ?? CancellationToken.None);
         }
+    }
+
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        if (disposing)
+        {
+            _loadCts?.Cancel();
+            _loadCts?.Dispose();
+            _loadCts = null;
+        }
+        _disposed = true;
     }
 }

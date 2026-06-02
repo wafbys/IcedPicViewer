@@ -37,14 +37,11 @@ public partial class App : Application
         services.AddTransient<IFolderPickerService, FolderPickerService>();
 
         // ViewModels - appropriate lifetimes
-        // MainViewModel: Transient (light root coordinator)
         // GalleryViewModel: Singleton (owns current gallery + file watcher + shared collection)
-        // ImageViewModel: Transient (fresh instance every time the photo viewer is opened)
-        services.AddTransient<MainViewModel>();
+        // ImageViewModel: Singleton (instance prepared in GalleryView with ShowImageAsync
+        //   is the same one received in ImageViewerView; this restores single image mode
+        //   functionality while we keep the masonry visual).
         services.AddSingleton<GalleryViewModel>();
-        // ImageViewModel kept as Singleton for now so that the instance prepared in GalleryView
-        // (with ShowImageAsync) is the same one received in ImageViewerView.
-        // This restores single image mode functionality while we keep the masonry visual.
         services.AddSingleton<ImageViewModel>();
     }
 

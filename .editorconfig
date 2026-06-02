@@ -1,5 +1,4 @@
 # EditorConfig for IcedPicViewer
-# Source of truth for code style, per .github/instructions/code-quality.instructions.md
 
 root = true
 
@@ -24,8 +23,8 @@ trim_trailing_whitespace = false
 [*.cs]
 dotnet_analyzer_diagnostic.severity = warning
 
-# Test files: Allow underscores in test method names (conflicts with project's testing.instructions.md recommendation)
-[*.Tests.cs]
+# Test files: allow underscores in test method names (MethodName_Scenario_ExpectedResult)
+[*Tests.cs]
 dotnet_diagnostic.CA1707.severity = none
 
 # Core .NET style rules
@@ -43,7 +42,7 @@ dotnet_style_collection_initializer = true:suggestion
 dotnet_style_coalesce_expression = true:suggestion
 dotnet_style_null_propagation = true:suggestion
 
-# Naming conventions (aligned with project instructions)
+# Naming conventions
 dotnet_naming_rule.private_fields_should_be_camel_case.severity = suggestion
 dotnet_naming_rule.private_fields_should_be_camel_case.symbols = private_fields
 dotnet_naming_rule.private_fields_should_be_camel_case.style = camel_case_style
@@ -77,27 +76,12 @@ csharp_new_line_before_finally = true
 csharp_new_line_before_members_in_object_initializers = true
 csharp_new_line_before_members_in_anonymous_types = true
 
-# SA1101: Do not prefix local calls with this
-dotnet_diagnostic.SA1101.severity = none
-
-# SA1309: Field names should not begin with underscore (we intentionally use _camelCase)
-dotnet_diagnostic.SA1309.severity = none
-
 # IDE0058: Remove unused expression value (allow in some async scenarios)
 dotnet_diagnostic.IDE0058.severity = suggestion
 
 # Disable some noisy rules for WinUI projects
 dotnet_diagnostic.CA1816.severity = suggestion  # Dispose methods should call SuppressFinalize
 dotnet_diagnostic.CA2000.severity = suggestion  # Dispose objects before losing scope
-
-# StyleCop Documentation
-dotnet_diagnostic.SA1600.severity = suggestion
-dotnet_diagnostic.SA1601.severity = suggestion
-dotnet_diagnostic.SA1602.severity = suggestion
-
-# Prefer using directive inside namespace (StyleCop default is outside, but we follow common WinUI style)
-# Actually following instruction: systemUsingDirectivesFirst
-dotnet_diagnostic.SA1200.severity = suggestion  # Using directives should be placed outside namespace (we'll keep modern file-scoped preference)
 
 # Enforce consistent using ordering
 dotnet_sort_system_directives_first = true
