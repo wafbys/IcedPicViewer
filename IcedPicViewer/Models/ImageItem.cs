@@ -48,6 +48,16 @@ public partial class ImageItem : ObservableObject
     }
 
     /// <summary>
+    /// Original pixel dimensions formatted as "WIDTH×HEIGHT", or "Unknown" when
+    /// the size could not be determined (corrupt file, unsupported format, etc.).
+    /// Avoids the misleading "0×0" you would get from binding OriginalWidth/Height
+    /// directly when the metadata is missing.
+    /// </summary>
+    public string OriginalSizeText => OriginalWidth > 0 && OriginalHeight > 0
+        ? $"{OriginalWidth}×{OriginalHeight}"
+        : "Unknown";
+
+    /// <summary>
     /// Rebind this item to a new on-disk path. Used when the FileSystemWatcher
     /// reports a rename — keeps the same ImageItem instance but updates its
     /// identity, name, and path. Callers are responsible for re-inserting the

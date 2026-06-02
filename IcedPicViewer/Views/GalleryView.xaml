@@ -73,7 +73,7 @@
                                         <TextBlock Foreground="#CCC"
                                                    FontSize="10"
                                                    MaxWidth="200">
-                                            <Run Text="{Binding OriginalWidth}"/><Run Text="×"/><Run Text="{Binding OriginalHeight}"/>
+                                            <Run Text="{Binding OriginalSizeText}"/>
                                             <Run Text=" · "/>
                                             <Run Text="{Binding FileSizeText}"/>
                                         </TextBlock>

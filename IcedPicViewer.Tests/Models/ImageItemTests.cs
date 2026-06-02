@@ -56,4 +56,49 @@ public class ImageItemTests
         // Act & Assert
         Assert.AreEqual("2.5 MB", item.FileSizeText);
     }
+
+    [TestMethod]
+    public void OriginalSizeText_WhenBothDimensionsValid_ReturnsFormatted()
+    {
+        var item = new ImageItem(
+            id: "test", name: "test.jpg", path: @"C:\test.jpg",
+            fileSize: 1024, modifiedTime: DateTime.Now,
+            originalWidth: 1920, originalHeight: 1080);
+
+        Assert.AreEqual("1920×1080", item.OriginalSizeText);
+    }
+
+    [TestMethod]
+    public void OriginalSizeText_WhenWidthZero_ReturnsUnknown()
+    {
+        // Simulates a corrupt or unsupported file where GetImageSizeAsync returns null.
+        var item = new ImageItem(
+            id: "test", name: "test.jpg", path: @"C:\test.jpg",
+            fileSize: 1024, modifiedTime: DateTime.Now,
+            originalWidth: 0, originalHeight: 1080);
+
+        Assert.AreEqual("Unknown", item.OriginalSizeText);
+    }
+
+    [TestMethod]
+    public void OriginalSizeText_WhenHeightZero_ReturnsUnknown()
+    {
+        var item = new ImageItem(
+            id: "test", name: "test.jpg", path: @"C:\test.jpg",
+            fileSize: 1024, modifiedTime: DateTime.Now,
+            originalWidth: 1920, originalHeight: 0);
+
+        Assert.AreEqual("Unknown", item.OriginalSizeText);
+    }
+
+    [TestMethod]
+    public void OriginalSizeText_WhenBothZero_ReturnsUnknown()
+    {
+        var item = new ImageItem(
+            id: "test", name: "test.jpg", path: @"C:\test.jpg",
+            fileSize: 1024, modifiedTime: DateTime.Now,
+            originalWidth: 0, originalHeight: 0);
+
+        Assert.AreEqual("Unknown", item.OriginalSizeText);
+    }
 }
