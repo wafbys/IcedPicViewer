@@ -27,7 +27,8 @@
   </Dependencies>
 
   <Resources>
-    <Resource Language="x-generate"/>
+    <!-- 单语言支持：本应用未实现多语言本地化，设置为 en 避免生成多语言包支持 -->
+    <Resource Language="en"/>
   </Resources>
 
   <Applications>

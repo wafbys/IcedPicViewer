@@ -15,8 +15,9 @@
     <WindowsPackageType>None</WindowsPackageType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- 只保留英文 satellite resources，删除 af-ZA、am-ET、ar-SA 等乱七八糟的框架语言包，显著减小 publish 体积 -->
-    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- 完全删除多语言支持：不包含任何 satellite resources（af-ZA 等所有 xx-XX 文件夹）。
+         本应用无自定义本地化资源（无 .resw），框架语言包对发布体积无益，全部剥离。 -->
+    <SatelliteResourceLanguages></SatelliteResourceLanguages>
 
     <!-- Code Quality Analyzers -->
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -130,13 +131,12 @@
   </Target>
 
   <!--
-    删除 publish 输出中的所有乱七八糟的 satellite 语言文件夹 (af-ZA, am-ET, ar-SA, ...)。
-    这些来自 .NET runtime 和 WindowsAppSDK 的本地化资源对本应用无用，会显著增大发布体积。
-    只保留 en（英文），其他全部清理。
-    使用 PowerShell 可靠地识别并删除文化目录（名称匹配 xx 或 xx-XX 的子文件夹）。
+    彻底删除 publish 输出中的所有多语言支持 satellite 文件夹 (af-ZA, en-us, zh-CN 等所有文化目录)。
+    本应用未使用任何多语言支持（无 .resw 本地化资源），这些文件夹仅来自框架，删除后发布目录更干净、体积更小。
+    使用 PowerShell 识别所有匹配文化名称模式的子目录并删除。
   -->
   <Target Name="RemoveUnwantedCultures" AfterTargets="Publish">
-    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(PublishDir)' -Directory | Where-Object { $_.Name -match '^[a-z]{2}(-[A-Z]{2})?$' -and $_.Name -ne 'en' -and $_.Name -ne 'en-US' } | Remove-Item -Recurse -Force&quot;" />
-    <Message Text="已清理 publish 输出中的 af-ZA 等语言文件夹" Importance="high" />
+    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(PublishDir)' -Directory | Where-Object { $_.Name -match '^[a-z]{2}(-[A-Z]{2})?$' } | Remove-Item -Recurse -Force&quot;" />
+    <Message Text="已彻底删除 publish 输出中的所有多语言支持文件夹 (af-ZA 等)" Importance="high" />
   </Target>
 </Project>

@@ -83,7 +83,7 @@ dotnet run -c Debug -p:Platform=$Platform
 ```powershell
 dotnet publish -c Release -p:Platform=$Platform
 ```
-产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`，~220 MB，包含 .NET 运行时和 WindowsAppSDK 运行时，**不依赖系统安装 Windows App Runtime**。双击 `IcedPicViewer.exe` 即可启动。别人 fresh clone 这份代码、装好 .NET 10 SDK 后跑这个命令就能直接产出可分发的 exe。
+产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`，~220 MB，包含 .NET 运行时和 WindowsAppSDK 运行时，**不依赖系统安装 Windows App Runtime**。发布目录干净，无任何 af-ZA、en-us 等多语言支持文件夹（已彻底删除所有 satellite 语言资源）。双击 `IcedPicViewer.exe` 即可启动。别人 fresh clone 这份代码、装好 .NET 10 SDK 后跑这个命令就能直接产出可分发的 exe。
 
 > 实现细节见 `IcedPicViewer.csproj` 末尾的两个 target：
 > 1. `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 2.0 的 bug：它的 targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`，**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`IcedPicViewer.pri`/`Assets`/`Views`，启动后立刻崩（`0xC000027B`）。
