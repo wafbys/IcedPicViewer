@@ -53,3 +53,18 @@
 - v0.3.0 - 修复 1:1 模式下小地图刷新问题
 - v0.2.0 - 键盘导航、图片信息显示、窗口状态记忆
 - v0.1.0-alpha - 初始版本
+
+## 构建单一可执行文件
+
+项目已清理为仅 x64、无多语言支持（无 af-ZA 等文件夹）、无测试项目。
+
+生成自包含单一可执行文件（~220MB，包含运行时，无需安装 .NET 或 Windows App Runtime）：
+
+```powershell
+cd IcedPicViewer
+dotnet publish -c Release -p:Platform=x64
+```
+
+产物在 `bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\publish\IcedPicViewer.exe`
+
+双击即可运行。发布目录干净，无多余语言文件夹。
