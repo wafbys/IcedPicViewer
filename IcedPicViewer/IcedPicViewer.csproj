@@ -7,7 +7,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>
-    <PublishProfile Condition="Exists('Properties\PublishProfiles\win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
+    <!-- Only x64 architecture is supported for this project -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>false</EnableMsixTooling>
@@ -57,4 +58,72 @@
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
     <SupportedOSPlatformVersion>10.0.26100.0</SupportedOSPlatformVersion>
   </PropertyGroup>
+
+  <!--
+    Publish defaults so that a plain `dotnet publish -c Release -p:Platform=x64`
+    (no extra -p: parameters) produces a self-contained, redistributable
+    folder at bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\publish\
+    that does NOT require the Windows App Runtime or .NET runtime to be
+    installed on the target machine. Output is ~220 MB and bundles both
+    the .NET runtime and the WindowsAppSDK native runtime.
+
+    The same defaults also apply to `dotnet build`.
+  -->
+  <PropertyGroup>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <WindowsAppSDKSelfContained Condition="'$(WindowsAppSDKSelfContained)' == ''">true</WindowsAppSDKSelfContained>
+    <!-- Force the WindowsAppSDK bootstrap auto-initializer to be generated.
+         The SDK skips it by default when WindowsAppSDKSelfContained=true. -->
+    <WindowsAppSdkBootstrapInitialize Condition="'$(WindowsAppSdkBootstrapInitialize)' == ''">true</WindowsAppSdkBootstrapInitialize>
+    <PublishSingleFile>False</PublishSingleFile>
+    <PublishDir>bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\publish\</PublishDir>
+  </PropertyGroup>
+
+  <!--
+    Copy WindowsAppRuntime.Bootstrap.dll to the build output root.
+
+    With <RuntimeIdentifier>win-x64</RuntimeIdentifier> set, the native
+    bootstrapper lands under runtimes\win-x64\native\ which is not
+    searched by the WindowsAppSDK's P/Invoke loader (it only looks in
+    the application directory and PATH). Setting
+    WindowsAppSDKSelfContained=true alone does not flatten the layout
+    for non-publish builds, so we copy explicitly.
+
+  -->
+  <Target Name="CopyWindowsAppRuntimeBootstrapToOutput"
+          AfterTargets="Build"
+          Condition="Exists('$(OutDir)runtimes\win-x64\native\Microsoft.WindowsAppRuntime.Bootstrap.dll')">
+    <ItemGroup>
+      <_WinAppSdkNative Include="$(OutDir)runtimes\win-x64\native\Microsoft.WindowsAppRuntime.Bootstrap.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WinAppSdkNative)"
+          DestinationFiles="@(_WinAppSdkNative->'$(OutDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!--
+    Workaround: WindowsAppSDK 2.0's WinUI targets only add XAML/.xbf/.pri/Assets/Views
+    to GetCopyToOutputDirectoryItems (build), not GetCopyToPublishDirectoryItems (publish).
+    Without this, `dotnet publish` produces an exe that crashes on launch (0xC000027B)
+    because it cannot find App.xbf / MainWindow.xbf / IcedPicViewer.pri / Assets / Views.
+    This target copies those files from the build output to the publish directory.
+  -->
+  <Target Name="SyncWinUIBuildOutputToPublish"
+          AfterTargets="Publish"
+          Condition="'$(WindowsPackageType)' == 'None' and Exists('$(OutDir)') and '$(PublishDir)' != ''">
+    <ItemGroup>
+      <_WinUIPublishFiles Include="$(OutDir)**\*.xbf" />
+      <_WinUIPublishFiles Include="$(OutDir)**\*.pri" />
+      <_WinUIPublishFiles Include="$(OutDir)Assets\**\*"
+                          Condition="Exists('$(OutDir)Assets')" />
+      <_WinUIPublishFiles Include="$(OutDir)Views\**\*"
+                          Condition="Exists('$(OutDir)Views')" />
+      <_WinUIPublishFiles Include="$(OutDir)Microsoft.UI.Xaml\**\*"
+                          Condition="Exists('$(OutDir)Microsoft.UI.Xaml')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WinUIPublishFiles)"
+          DestinationFiles="@(_WinUIPublishFiles->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

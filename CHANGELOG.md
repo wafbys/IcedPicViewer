@@ -1,5 +1,30 @@
 # 更新日志
 
+## v0.10.0 (2026-06-02)
+
+**主题: 删除测试项目 + 架构精简为仅 x64**
+
+- 彻底移除 `IcedPicViewer.Tests` 测试项目目录（含所有测试文件、MSTest 配置、旧 TestResults）。
+- 更新 `IcedPicViewer.slnx`，移除测试项目引用。
+- 清理 `IcedPicViewer.csproj` 中关于测试项目的说明注释。
+- 同步更新 `AGENTS.md` 和 `CHANGELOG.md`，移除所有测试相关指令与历史记录。
+- **架构限制**：项目现在仅支持 x64（`<Platforms>x64</Platforms>`、`<Platform>x64</Platform>`、默认 RuntimeIdentifier=win-x64）。已移除对 x86/ARM64 的支持与相关配置/文档提及（历史记录保留）。
+- 原因：项目当前阶段决定移除单元测试基础设施，专注于核心功能开发与轻量治理；架构仅保留 x64 以简化构建与发布。
+
+## v0.9.2 (2026-06-02)
+
+**主题:修复 `dotnet publish` 产物无法启动 / 让 publish 默认产出真正自包含**
+
+`dotnet publish` 跑出来的 exe 双击立刻闪退(退出码 `0xC000027B`)。定位到三处独立的 WindowsAppSDK 2.0 bug + 一处路径错位,都修在 csproj 里(`.pubxml` 进了 `.gitignore`,不适合存项目级配置,所以合并进来):
+
+- `IcedPicViewer.csproj` 新增 publish 默认值 (`RuntimeIdentifier=win-x64` / `SelfContained=true` / `WindowsAppSDKSelfContained=true` / `WindowsAppSdkBootstrapInitialize=true`),产物自带 .NET 运行时 + WindowsAppSDK 原生运行时,**目标机器无需装任何 runtime 双击即用**。
+- 新增 `SyncWinUIBuildOutputToPublish` target (`AfterTargets="Publish"`):把 `OutDir` 的 `*.xbf` / `*.pri` / `Assets/**` / `Views/**` / `Microsoft.UI.Xaml/**` 同步到 `PublishDir`。**根因**:WindowsAppSDK 2.0 的 WinUI targets 只 hook `GetCopyToOutputDirectoryItems` (build),没 hook `GetCopyToPublishDirectoryItems` (publish)。
+- 新增 `CopyWindowsAppRuntimeBootstrapToOutput` target (`AfterTargets="Build"`):把 `Microsoft.WindowsAppRuntime.Bootstrap.dll` 从 `runtimes\win-x64\native\` 拷到 build 输出根。**根因**:bootstrap 是 P/Invoke 加载,只搜应用目录和 PATH,搜不到 `runtimes\` 子目录。
+- `IcedPicViewer.Tests.csproj` 配套新增 `CopyWindowsAppRuntimeBootstrapToTestBin` target:test framework 复制 IcedPicViewer build 输出到 test bin 时只认 `deps.json`,上面手动放根目录那一份传不过去,test 端要再来一份。
+- 删除 `Properties\PublishProfiles\win-x64.pubxml`(被 .gitignore 排除,改完不会进 git)和 `.gitignore` 里的 `*.pubxml` 行。
+- `AGENTS.md` 补充 publish 命令和这三个坑的说明。
+- 自包含 publish 产物:~218 MB,559 文件;`dotnet test` 37/37 通过;产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`。
+
 ## v0.9.1 (2026-06-02)
 
 **主题:深度 review 收尾(P3–P7),覆盖之前 v0.9.0 之后的所有改进**

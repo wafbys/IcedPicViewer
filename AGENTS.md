@@ -54,28 +54,19 @@
 - **资源清理**：IDisposable 必须正确释放（尤其是 FileSystemWatcher、CancellationTokenSource、Stream）。
 - **异常处理**：禁止空 catch 吞掉异常，至少要用 `Trace.TraceError` 记录。
 
-## 测试策略
-
-- 公共 API（尤其是 ViewModel、Service 的公开方法）必须有单元测试。
-- 使用 MSTest + Moq。
-- 测试命名推荐：`MethodName_Scenario_ExpectedResult`。
-- UI 代码（尤其是 XAML 事件处理）可以放宽，但核心逻辑必须覆盖。
-- 改动后优先跑受影响的测试，而不是每次都全量跑。
-
 ## 关于“其他详细规则”
 
 本项目之前有一堆 `.github/instructions/` 下的长文档（设计原则、性能、无障碍等）。  
-**现在这些文件已不再是强制阅读材料**。旧的详细指令文件已全部移动到 `.github/instructions-archive/` 目录下，仅供历史参考。
+**现在这些文件已不再是强制阅读材料**。旧的详细指令文件及目录已彻底删除，仅保留轻量化的 AGENTS.md。
 
 真正重要的东西已经浓缩在本文件里。如果你不确定某个领域的最佳实践，可以直接问我，我会结合实际情况给出建议。
 
 ## 构建与运行命令
 
-每次工作时先执行一次平台检测：
+**本项目仅支持 x64 架构**。
 
 ```powershell
-$arch = $env:PROCESSOR_ARCHITECTURE
-$Platform = if ($arch -eq 'AMD64') { 'x64' } else { $arch }
+$Platform = 'x64'
 ```
 
 **构建**：
@@ -88,10 +79,15 @@ dotnet build -c Debug -p:Platform=$Platform
 dotnet run -c Debug -p:Platform=$Platform
 ```
 
-**测试**：
+**发布（自包含可分发的产物）**：
 ```powershell
-dotnet test -c Debug -p:Platform=$Platform --filter "FullyQualifiedName~你要测试的类或方法"
+dotnet publish -c Release -p:Platform=$Platform
 ```
+产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`，~220 MB，包含 .NET 运行时和 WindowsAppSDK 运行时，**不依赖系统安装 Windows App Runtime**。双击 `IcedPicViewer.exe` 即可启动。别人 fresh clone 这份代码、装好 .NET 10 SDK 后跑这个命令就能直接产出可分发的 exe。
+
+> 实现细节见 `IcedPicViewer.csproj` 末尾的两个 target：
+> 1. `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 2.0 的 bug：它的 targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`，**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`IcedPicViewer.pri`/`Assets`/`Views`，启动后立刻崩（`0xC000027B`）。
+> 2. `CopyWindowsAppRuntimeBootstrapToOutput` —— 修另一个 WindowsAppSDK 2.0 的坑：设了 `RuntimeIdentifier=win-x64` 后，`Microsoft.WindowsAppRuntime.Bootstrap.dll` 被丢到 `runtimes\win-x64\native\`，但它的 P/Invoke loader 走的是标准 Windows DLL 搜索（只看应用目录和 PATH），找不到就初始化失败。手动把 bootstrapper 拷到 build 输出根。
 
 ## 常见 AI 易犯错误（请主动避免）
 
@@ -106,5 +102,3 @@ dotnet test -c Debug -p:Platform=$Platform --filter "FullyQualifiedName~你要�
 **最后**：  
 这套规则的核心是**高效 + 靠谱 + 尊重用户真实需求**。  
 如果你觉得某条规则在当前任务中不合适，随时告诉我，我们一起调整。
-
-需要我现在帮你清理 `.github/instructions/` 目录下的旧文件吗？（可以归档或直接删除）
