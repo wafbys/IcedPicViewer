@@ -1,5 +1,60 @@
 # 更新日志
 
+## v0.9.1 (2026-06-02)
+
+**主题:深度 review 收尾(P3–P7),覆盖之前 v0.9.0 之后的所有改进**
+
+### 资源释放与健壮性(P3)
+
+- `GalleryViewModel._remainingFilePaths` 加 `_remainingLock` 保护,`LoadNextPageAsync` 与 `OnFileChanged.Deleted` 并发访问不再 race
+- 删除 `ImageItem.IsLoading` 死字段(从未被设为 true),同步删除 `GalleryView.xaml` 中相应 `ProgressRing` 节点
+- `ImageViewModel` 构造里两个 lambda 订阅改 named method,`Dispose` 时取消订阅
+- `OnFileChanged` dispatcher lambda 整体加 `try-catch`,异常时 `Trace.TraceError` 而非被 WinUI 静默吞掉
+- `App.OnLaunched` 订阅 `_window.AppWindow.Closing`,关闭时显式 `Dispose` `GalleryViewModel` 和 `ImageViewModel`
+- 删除 `GalleryViewModel._loadedThumbnailCount` 死字段
+- 抽 `UpdateStatusText()` helper,消 `Created` / `Deleted` / `LoadDirectory` / `LoadMore` 四处重复的格式化逻辑
+- `GalleryViewModel._canLoadMore` 装饰 `[NotifyPropertyChangedFor]` + `[NotifyCanExecuteChangedFor]`,删手动 `OnCanLoadMoreChanged` partial method
+
+### 跨 await cancellation 保护(P4)
+
+- `LoadNextPageAsync` / `OnFileChanged` lambda 跨 `await` 后可能误入新 `Images`,加 `ct.IsCancellationRequested` 早退
+- `LoadDirectoryAsync` 的 `linkedCts` 改 `using var`,不再泄漏
+- `ShowImageAsync` 切图时立即 `DisplayImage = null`,旧图立刻消失(之前大图场景 100-500ms 视觉延迟)
+- 消除 `LoadNextPageAsync` 内的 `itemCount` 闭包变量,直接用 `Images.Count`
+- `StartWatching` 加 `try-catch` + `StatusText` 反馈
+- `LoadDirectoryAsync` 的 cts 替换改用 `Interlocked.Exchange`,代码更清晰
+
+### 事件订阅泄漏与 UX 状态(P5)
+
+- `ImageViewerView.DisplayImageChanged` lambda 订阅改为 named method,`Unloaded` 时取消订阅
+- `GalleryView.OpenImageViewer` 加 `_currentImageViewModel == null` 守卫
+- `GalleryView.OnGalleryViewUnloaded` 删 `Unloaded -= self`,Page 复用时清理仍能触发
+- `ImageViewModel.CanLoadMoreImages` 加 `!IsLoadingMore`,LoadMore 按钮加载中正确 disable
+- `OnFileChanged.Modified` / `Renamed` 跨 `await LoadThumbnailAsync` 后加 token 检查(P4-A 漏修)
+- `ImageItem` 4 个字段改回 `init`,只 `UpdatePath` 用 `private set`
+
+### 损坏图片 UX(P6)
+
+- `ImageItem` 加 `OriginalSizeText` derived property,损坏图不显示 "0×0" 而是 "Unknown"
+- `GalleryView.xaml` 改用 `OriginalSizeText`
+- 新增 4 个 `OriginalSizeText` 单元测试,覆盖所有边界
+
+### 维护(P7)
+
+- 清理工作区 `bin/obj`(P6 提交后再次堆积的 4 个目录)
+- `CHANGELOG.md` 追记 P3–P6 的所有 commit
+
+### 指标对比(v0.9.0 → v0.9.1)
+
+| 维度 | v0.9.0 | v0.9.1 |
+|---|---|---|
+| 单元测试 | `33/33` | `37/37` |
+| `dispose` 泄漏 | 仍有 App 退出路径 | 全清理 |
+| 跨 await cancellation 漏洞 | 3 处 | `0` |
+| 静默失败 | 1 处(`StartWatching`) | `0` |
+| 事件订阅泄漏 | 2 处 | `0` |
+| 损坏图 UX | 显示 "0×0" | 显示 "Unknown" |
+
 ## v0.9.0 (2026-06-02)
 
 **主题:大规模代码质量与可靠性清理(P0–P3 完整战役)**
