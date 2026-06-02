@@ -221,15 +221,17 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     public async Task LoadDirectoryAsync(string path, CancellationToken ct = default)
     {
-        var currentCts = new CancellationTokenSource();
+        // Atomically swap in a fresh cts; cancel + dispose the previous one so
+        // any in-flight LoadNextPageAsync / OnFileChanged lambdas will see the
+        // cancellation and early-exit.
+        var newCts = new CancellationTokenSource();
+        var oldCts = Interlocked.Exchange(ref _loadCts, newCts);
+        oldCts?.Cancel();
+        oldCts?.Dispose();
+
         try
         {
-            _loadCts?.Cancel();
-            _loadCts?.Dispose();
-            _loadCts = currentCts;
-            currentCts = null;
-
-            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _loadCts.Token);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, newCts.Token);
 
             LoadingState = LoadingState.Scanning;
             Images.Clear();
@@ -272,10 +274,6 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             LoadingState = LoadingState.Completed;
             StatusText = $"Error: {ex.Message}";
         }
-        finally
-        {
-            currentCts?.Dispose();
-        }
     }
 
     [RelayCommand(CanExecute = nameof(CanLoadMoreCommand))]
@@ -312,14 +310,17 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             CanLoadMore = _remainingFilePaths.Count > 0;
         }
 
-        var itemCount = Images.Count;
-
         foreach (var filePath in batch)
         {
             if (ct.IsCancellationRequested) break;
 
             var fileInfo = new FileInfo(filePath);
             var size = await _imageLoader.GetImageSizeAsync(filePath, ct);
+
+            // If a new LoadDirectoryAsync fired while we were awaiting above,
+            // ct is now cancelled — abandon the rest of the batch. Items already
+            // enqueued below will see the cancelled token when they run and early-exit.
+            if (ct.IsCancellationRequested) break;
 
             var item = new ImageItem(
                 id: filePath,
@@ -333,9 +334,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
             _dispatcher.TryEnqueue(() =>
             {
+                // Guard against running after cancellation: prevents stale items
+                // from a previous folder sneaking into the new Images collection.
+                if (ct.IsCancellationRequested) return;
                 Images.Add(item);
-                itemCount++;
-                StatusText = $"Loading {itemCount} / {TotalCount}...";
+                StatusText = $"Loading {Images.Count} / {TotalCount}...";
             });
 
             _ = LoadThumbnailAsync(item, ct);
@@ -358,13 +361,31 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private void StartWatching(string path)
     {
         _fileWatcher?.Dispose();
-        _fileWatcher = _scanner.Watch(path, recursive: true, OnFileChanged);
+        try
+        {
+            _fileWatcher = _scanner.Watch(path, recursive: true, OnFileChanged);
+        }
+        catch (Exception ex)
+        {
+            // Don't crash the app if the folder can't be watched (no permission,
+            // network share dropped, etc.) — just surface the failure to the user
+            // and keep the gallery working.
+            _fileWatcher = null;
+            System.Diagnostics.Trace.TraceError($"StartWatching failed for {path}: {ex}");
+            StatusText = $"File monitoring unavailable: {ex.Message}";
+        }
     }
 
     private void OnFileChanged(FileChangeInfo info)
     {
+        // Capture the load cts token. When LoadDirectoryAsync starts a new
+        // folder it cancels and replaces _loadCts, so any lambdas already
+        // enqueued will see the cancelled token and early-exit instead of
+        // mutating the new Images collection.
+        var token = _loadCts?.Token ?? CancellationToken.None;
         _dispatcher.TryEnqueue(async () =>
         {
+            if (token.IsCancellationRequested) return;
             try
             {
                 switch (info.ChangeType)

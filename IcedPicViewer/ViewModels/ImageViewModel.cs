@@ -235,6 +235,11 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         _loadCts?.Dispose();
         _loadCts = new CancellationTokenSource();
 
+        // Clear the previous image immediately so the user doesn't see a stale
+        // bitmap while the new one is decoding. The ProgressRing overlay in
+        // the view covers the brief blank state.
+        DisplayImage = null;
+
         CurrentImage = item;
         CurrentIndex = Images.IndexOf(item);
         _galleryViewModel.LastViewedIndex = CurrentIndex;
