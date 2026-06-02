@@ -85,7 +85,7 @@ public sealed partial class ImageViewerView : Page
         }
     }
 
-    private async void FitModeBtn_Click(object sender, RoutedEventArgs e)
+    private void FitModeBtn_Click(object sender, RoutedEventArgs e)
     {
         _isFitMode = !_isFitMode;
         FitModeBtn.Content = _isFitMode ? "Fit" : "1:1";
@@ -101,10 +101,8 @@ public sealed partial class ImageViewerView : Page
             FitContainer.Visibility = Visibility.Collapsed;
             ActualSizeContainer.Visibility = Visibility.Visible;
             MinimapOverlay.Visibility = Visibility.Visible;
-            await Task.Delay(100);
-            UpdateMinimap();
-            await Task.Delay(200);
-            UpdateMinimap();
+            // UpdateMinimap 会在 ActualSizeImage.ImageOpened / ActualSizeContainer.SizeChanged
+            // 事件里被自动触发;此处无需再手动调用,更不应用 Task.Delay 猜布局时机。
         }
     }
 

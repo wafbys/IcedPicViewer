@@ -1,5 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,8 +14,14 @@ public class ImageLoader : IImageLoader
 {
     private static readonly HashSet<string> _supportedExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico", ".avif", ".heic"];
 
-    // Simple in-memory cache for thumbnails to avoid re-decoding the same images repeatedly
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, BitmapImage> _thumbnailCache = new();
+    // Bounded LRU cache for thumbnails. Cap is intentionally modest: a 400px BitmapImage
+    // averages ~150-400 KB, so 200 entries ≈ 30-80 MB worst case instead of "unbounded".
+    private const int ThumbnailCacheCapacity = 200;
+    private readonly Dictionary<string, LinkedListNode<CacheEntry>> _cacheMap = new();
+    private readonly LinkedList<CacheEntry> _cacheOrder = new();
+    private readonly object _cacheLock = new();
+
+    private readonly record struct CacheEntry(string Key, BitmapImage Image);
 
     public IEnumerable<string> SupportedExtensions => _supportedExtensions;
 
@@ -46,9 +53,8 @@ public class ImageLoader : IImageLoader
     {
         if (!File.Exists(path)) return null;
 
-        // Use cached thumbnail if available and file hasn't changed
         var cacheKey = $"{path}|{maxSize}";
-        if (_thumbnailCache.TryGetValue(cacheKey, out var cached) && cached != null)
+        if (TryGetCached(cacheKey, out var cached))
         {
             return cached;
         }
@@ -65,9 +71,7 @@ public class ImageLoader : IImageLoader
 
             await bitmapImage.SetSourceAsync(randomAccessStream);
 
-            // Store in cache (simple unbounded cache for now; can be improved with LRU later)
-            _thumbnailCache[cacheKey] = bitmapImage;
-
+            SetCached(cacheKey, bitmapImage);
             return bitmapImage;
         }
         catch (Exception ex)
@@ -96,6 +100,47 @@ public class ImageLoader : IImageLoader
         {
             System.Diagnostics.Trace.TraceError($"GetImageSizeAsync error for {path}: {ex}");
             return null;
+        }
+    }
+
+    private bool TryGetCached(string key, out BitmapImage? image)
+    {
+        lock (_cacheLock)
+        {
+            if (_cacheMap.TryGetValue(key, out var node))
+            {
+                _cacheOrder.Remove(node);
+                _cacheOrder.AddLast(node);
+                image = node.Value.Image;
+                return true;
+            }
+            image = null;
+            return false;
+        }
+    }
+
+    private void SetCached(string key, BitmapImage image)
+    {
+        lock (_cacheLock)
+        {
+            if (_cacheMap.TryGetValue(key, out var existing))
+            {
+                _cacheOrder.Remove(existing);
+                _cacheMap.Remove(key);
+            }
+            else if (_cacheMap.Count >= ThumbnailCacheCapacity)
+            {
+                var oldest = _cacheOrder.First;
+                if (oldest is not null)
+                {
+                    _cacheOrder.RemoveFirst();
+                    _cacheMap.Remove(oldest.Value.Key);
+                }
+            }
+
+            var node = new LinkedListNode<CacheEntry>(new CacheEntry(key, image));
+            _cacheOrder.AddLast(node);
+            _cacheMap[key] = node;
         }
     }
 }

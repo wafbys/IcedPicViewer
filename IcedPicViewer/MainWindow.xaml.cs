@@ -13,6 +13,18 @@ namespace IcedPicViewer;
 public sealed partial class MainWindow : Window
 {
     private const string SettingsFile = "window_settings.txt";
+    private const string AppDataFolder = "IcedPicViewer";
+
+    private static string GetSettingsPath()
+    {
+        // Unpackaged WinUI apps should not write next to the exe (Program Files may be
+        // read-only or flagged by AV). Use %LOCALAPPDATA%\<AppName>\ instead.
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            AppDataFolder);
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, SettingsFile);
+    }
 
     public MainWindow()
     {
@@ -79,9 +91,8 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var exeDir = AppDomain.CurrentDomain.BaseDirectory;
-            var file = Path.Combine(exeDir, SettingsFile);
-            var tempFile = Path.Combine(exeDir, $"{SettingsFile}.tmp");
+            var file = GetSettingsPath();
+            var tempFile = file + ".tmp";
             var content = $"{AppWindow.Position.X},{AppWindow.Position.Y},{AppWindow.Size.Width},{AppWindow.Size.Height}";
 
             File.WriteAllText(tempFile, content);
@@ -99,8 +110,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var exeDir = AppDomain.CurrentDomain.BaseDirectory;
-            var file = Path.Combine(exeDir, SettingsFile);
+            var file = GetSettingsPath();
             if (!File.Exists(file))
             {
                 System.Diagnostics.Trace.TraceWarning("RestoreWindowState: file not found");
