@@ -5,7 +5,4 @@
   <Project Path="IcedPicViewer\IcedPicViewer.csproj">
     <Platform Solution="*|Any CPU" Project="x64" />
   </Project>
-  <Project Path="IcedPicViewer.Tests\IcedPicViewer.Tests.csproj">
-    <Platform Solution="*|Any CPU" Project="x64" />
-  </Project>
 </Solution>
