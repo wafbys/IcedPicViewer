@@ -19,9 +19,6 @@ public partial class ImageItem : ObservableObject
     [ObservableProperty]
     private BitmapImage? _fullImage;
 
-    [ObservableProperty]
-    private bool _isLoading;
-
     public ImageItem(
         string id,
         string name,

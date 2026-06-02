@@ -56,11 +56,6 @@
                                        Stretch="Uniform"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
-                                <ProgressRing IsActive="{Binding IsLoading}"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"
-                                               Width="24"
-                                               Height="24"/>
                                 <Border x:Name="NameOverlay"
                                         Background="#88000000"
                                         CornerRadius="2"

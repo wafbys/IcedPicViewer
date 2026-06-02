@@ -55,6 +55,16 @@ public partial class App : Application
     protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
         _window = new MainWindow();
+        _window.AppWindow.Closing += OnAppWindowClosing;
         _window.Activate();
+    }
+
+    private void OnAppWindowClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        // Dispose DI-owned singletons that hold OS resources (file watcher, cts, semaphore, cache).
+        // IServiceProvider doesn't auto-dispose singletons, so we do it explicitly here.
+        if (_services is null) return;
+        (_services.GetService<GalleryViewModel>() as IDisposable)?.Dispose();
+        (_services.GetService<ImageViewModel>() as IDisposable)?.Dispose();
     }
 }

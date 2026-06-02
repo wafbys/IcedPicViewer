@@ -105,26 +105,31 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         _imageLoader = imageLoader;
         _navigationService = navigationService;
 
-        Images.CollectionChanged += (_, _) =>
-        {
-            TotalCount = Images.Count;
-            NavigatePreviousCommand.NotifyCanExecuteChanged();
-            NavigateNextCommand.NotifyCanExecuteChanged();
-        };
+        // Named handlers (not lambdas) so Dispose can unsubscribe — avoids lambda
+        // captures keeping this singleton alive past the App's lifetime.
+        Images.CollectionChanged += OnImagesCollectionChanged;
+        _galleryViewModel.PropertyChanged += OnGalleryPropertyChanged;
+    }
 
-        // 监听 Gallery 的增量加载状态变化，以便单图模式下的 Next 按钮和 Load More 按钮能正确启用/显示
-        _galleryViewModel.PropertyChanged += (s, e) =>
+    private void OnImagesCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        TotalCount = Images.Count;
+        NavigatePreviousCommand.NotifyCanExecuteChanged();
+        NavigateNextCommand.NotifyCanExecuteChanged();
+    }
+
+    // 监听 Gallery 的增量加载状态变化，以便单图模式下的 Next 按钮和 Load More 按钮能正确启用/显示
+    private void OnGalleryPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(GalleryViewModel.CanLoadMore) ||
+            e.PropertyName == nameof(GalleryViewModel.IsLoadingMore))
         {
-            if (e.PropertyName == nameof(GalleryViewModel.CanLoadMore) ||
-                e.PropertyName == nameof(GalleryViewModel.IsLoadingMore))
-            {
-                LoadMoreImagesCommand.NotifyCanExecuteChanged();
-                NavigateNextCommand.NotifyCanExecuteChanged();
-                OnPropertyChanged(nameof(CanLoadMoreImages));
-                OnPropertyChanged(nameof(IsLoadingMoreImages));
-                OnPropertyChanged(nameof(LoadMoreImagesVisibility));
-            }
-        };
+            LoadMoreImagesCommand.NotifyCanExecuteChanged();
+            NavigateNextCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(CanLoadMoreImages));
+            OnPropertyChanged(nameof(IsLoadingMoreImages));
+            OnPropertyChanged(nameof(LoadMoreImagesVisibility));
+        }
     }
 
     partial void OnCurrentIndexChanged(int value)
@@ -305,6 +310,11 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             _loadCts?.Cancel();
             _loadCts?.Dispose();
             _loadCts = null;
+
+            // Unsubscribe event handlers to break the reference cycle and let
+            // the singleton be collected if the DI container is ever disposed.
+            Images.CollectionChanged -= OnImagesCollectionChanged;
+            _galleryViewModel.PropertyChanged -= OnGalleryPropertyChanged;
         }
         _disposed = true;
     }

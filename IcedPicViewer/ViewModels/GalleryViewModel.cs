@@ -22,14 +22,16 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
     private CancellationTokenSource? _loadCts;
-    private int _loadedThumbnailCount;
     private IDisposable? _fileWatcher;
     private bool _disposed;
 
     // Limit concurrent thumbnail loads
     private readonly SemaphoreSlim _thumbnailLoadSemaphore = new(initialCount: 6, maxCount: 6);
 
-    // For incremental loading while keeping masonry visual
+    // For incremental loading while keeping masonry visual.
+    // Both LoadNextPageAsync (worker thread) and OnFileChanged (dispatcher thread) read/write
+    // this list, so guard it with _remainingLock to avoid race conditions.
+    private readonly object _remainingLock = new();
     private List<string> _remainingFilePaths = new();
     private const int PageSize = 150;
 
@@ -54,13 +56,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private double _lastViewedYOffset = 0;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LoadMoreVisibility))]
+    [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
     private bool _canLoadMore;
-
-    partial void OnCanLoadMoreChanged(bool value)
-    {
-        OnPropertyChanged(nameof(LoadMoreVisibility));
-        LoadMoreCommand.NotifyCanExecuteChanged();
-    }
 
     public Visibility LoadMoreVisibility => CanLoadMore ? Visibility.Visible : Visibility.Collapsed;
 
@@ -235,8 +233,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
             LoadingState = LoadingState.Scanning;
             Images.Clear();
-            _remainingFilePaths.Clear();
-            _loadedThumbnailCount = 0;
+            lock (_remainingLock)
+            {
+                _remainingFilePaths.Clear();
+            }
             TotalCount = 0;
             CanLoadMore = false;
 
@@ -253,7 +253,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            _remainingFilePaths = allPaths;
+            lock (_remainingLock)
+            {
+                _remainingFilePaths = allPaths;
+            }
             TotalCount = allPaths.Count;
 
             // Load first page
@@ -261,7 +264,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
             StartWatching(path);
             LoadingState = LoadingState.Completed;
-            StatusText = $"Loaded {Images.Count} / {TotalCount} images";
+            UpdateStatusText();
         }
         catch (Exception ex)
         {
@@ -284,7 +287,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         try
         {
             await LoadNextPageAsync(ct);
-            StatusText = $"Loaded {Images.Count} / {TotalCount} images";
+            UpdateStatusText();
         }
         finally
         {
@@ -296,16 +299,18 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     private async Task LoadNextPageAsync(CancellationToken ct)
     {
-        if (_remainingFilePaths.Count == 0)
+        List<string> batch;
+        lock (_remainingLock)
         {
-            CanLoadMore = false;
-            return;
+            if (_remainingFilePaths.Count == 0)
+            {
+                CanLoadMore = false;
+                return;
+            }
+            batch = _remainingFilePaths.Take(PageSize).ToList();
+            _remainingFilePaths.RemoveRange(0, batch.Count);
+            CanLoadMore = _remainingFilePaths.Count > 0;
         }
-
-        var batch = _remainingFilePaths.Take(PageSize).ToList();
-        _remainingFilePaths.RemoveRange(0, batch.Count);
-
-        CanLoadMore = _remainingFilePaths.Count > 0;
 
         var itemCount = Images.Count;
 
@@ -337,6 +342,19 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Centralized status text formatter used after collection mutations so the
+    /// "Loaded X / Y images" wording stays consistent across Created / Deleted /
+    /// LoadDirectory / LoadMore paths.
+    /// </summary>
+    private void UpdateStatusText()
+    {
+        var loaded = Images.Count;
+        StatusText = (TotalCount > 0 && TotalCount != loaded)
+            ? $"Loaded {loaded} / {TotalCount} images"
+            : $"Loaded {loaded} images";
+    }
+
     private void StartWatching(string path)
     {
         _fileWatcher?.Dispose();
@@ -347,71 +365,75 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     {
         _dispatcher.TryEnqueue(async () =>
         {
-            switch (info.ChangeType)
+            try
             {
-                case WatchChangeType.Created:
-                    if (!_imageLoader.IsSupportedFormat(info.Path)) return;
-                    if (_imageIndex.ContainsKey(info.Path)) return;
-                    var fileInfo = new FileInfo(info.Path);
-                    if (!fileInfo.Exists) return;
-                    var size = await _imageLoader.GetImageSizeAsync(info.Path, CancellationToken.None);
-                    var newItem = new ImageItem(
-                        id: info.Path,
-                        name: Path.GetFileName(info.Path),
-                        path: info.Path,
-                        fileSize: fileInfo.Length,
-                        modifiedTime: fileInfo.LastWriteTime,
-                        originalWidth: size?.Width ?? 0,
-                        originalHeight: size?.Height ?? 0
-                    );
-                    Images.Add(newItem);
-                    TotalCount++;
-                    StatusText = (TotalCount > 0 && TotalCount != Images.Count)
-                        ? $"Loaded {Images.Count} / {TotalCount} images"
-                        : $"Loaded {Images.Count} images";
-                    await LoadThumbnailAsync(newItem, CancellationToken.None);
-                    break;
+                switch (info.ChangeType)
+                {
+                    case WatchChangeType.Created:
+                        if (!_imageLoader.IsSupportedFormat(info.Path)) return;
+                        if (_imageIndex.ContainsKey(info.Path)) return;
+                        var fileInfo = new FileInfo(info.Path);
+                        if (!fileInfo.Exists) return;
+                        var size = await _imageLoader.GetImageSizeAsync(info.Path, CancellationToken.None);
+                        var newItem = new ImageItem(
+                            id: info.Path,
+                            name: Path.GetFileName(info.Path),
+                            path: info.Path,
+                            fileSize: fileInfo.Length,
+                            modifiedTime: fileInfo.LastWriteTime,
+                            originalWidth: size?.Width ?? 0,
+                            originalHeight: size?.Height ?? 0
+                        );
+                        Images.Add(newItem);
+                        TotalCount++;
+                        UpdateStatusText();
+                        await LoadThumbnailAsync(newItem, CancellationToken.None);
+                        break;
 
-                case WatchChangeType.Deleted:
-                    if (_imageIndex.TryGetValue(info.Path, out var itemToRemove))
-                    {
-                        Images.Remove(itemToRemove);
-                        if (TotalCount > 0)
+                    case WatchChangeType.Deleted:
+                        if (_imageIndex.TryGetValue(info.Path, out var itemToRemove))
                         {
-                            TotalCount--;
+                            Images.Remove(itemToRemove);
+                            if (TotalCount > 0)
+                            {
+                                TotalCount--;
+                            }
+                            lock (_remainingLock)
+                            {
+                                _remainingFilePaths.Remove(info.Path);
+                            }
+                            CanLoadMore = _remainingFilePaths.Count > 0;
+                            UpdateStatusText();
                         }
-                        _remainingFilePaths.Remove(info.Path);
-                        CanLoadMore = _remainingFilePaths.Count > 0;
+                        break;
 
-                        var loaded = Images.Count;
-                        StatusText = (TotalCount > 0 && TotalCount != loaded)
-                            ? $"Loaded {loaded} / {TotalCount} images"
-                            : $"Loaded {loaded} images";
-                    }
-                    break;
+                    case WatchChangeType.Modified:
+                        if (_imageIndex.TryGetValue(info.Path, out var modifiedItem))
+                        {
+                            modifiedItem.Thumbnail = null;
+                            modifiedItem.FullImage = null;
+                            await LoadThumbnailAsync(modifiedItem, CancellationToken.None);
+                        }
+                        break;
 
-                case WatchChangeType.Modified:
-                    if (_imageIndex.TryGetValue(info.Path, out var modifiedItem))
-                    {
-                        modifiedItem.Thumbnail = null;
-                        modifiedItem.FullImage = null;
-                        await LoadThumbnailAsync(modifiedItem, CancellationToken.None);
-                    }
-                    break;
-
-                case WatchChangeType.Renamed:
-                    // The watcher delivers Renamed with NewPath = info.Path, OldPath = info.OldPath.
-                    // We need to rebind the existing item to the new path so the index stays consistent.
-                    if (info.OldPath != null && _imageIndex.TryGetValue(info.OldPath, out var renamedItem))
-                    {
-                        Images.Remove(renamedItem);  // triggers index removal on OldPath
-                        renamedItem.UpdatePath(info.Path, Path.GetFileName(info.Path));
-                        Images.Add(renamedItem);     // triggers index insertion on NewPath
-                        renamedItem.Thumbnail = null;
-                        renamedItem.FullImage = null;
-                        await LoadThumbnailAsync(renamedItem, CancellationToken.None);
-                    }
-                    break;
+                    case WatchChangeType.Renamed:
+                        // The watcher delivers Renamed with NewPath = info.Path, OldPath = info.OldPath.
+                        // We need to rebind the existing item to the new path so the index stays consistent.
+                        if (info.OldPath != null && _imageIndex.TryGetValue(info.OldPath, out var renamedItem))
+                        {
+                            Images.Remove(renamedItem);  // triggers index removal on OldPath
+                            renamedItem.UpdatePath(info.Path, Path.GetFileName(info.Path));
+                            Images.Add(renamedItem);     // triggers index insertion on NewPath
+                            renamedItem.Thumbnail = null;
+                            renamedItem.FullImage = null;
+                            await LoadThumbnailAsync(renamedItem, CancellationToken.None);
+                        }
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceError($"OnFileChanged error for {info.Path} ({info.ChangeType}): {ex}");
             }
         });
     }
@@ -437,19 +459,12 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 _dispatcher.TryEnqueue(() =>
                 {
                     item.Thumbnail = thumbnail;
-                    item.IsLoading = false;
-                    _loadedThumbnailCount++;
                 });
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Trace.TraceError($"LoadThumbnailAsync error for {item.Path}: {ex}");
-            _dispatcher.TryEnqueue(() =>
-            {
-                item.IsLoading = false;
-                _loadedThumbnailCount++;
-            });
         }
         finally
         {
