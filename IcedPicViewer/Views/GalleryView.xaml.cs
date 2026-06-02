@@ -154,8 +154,13 @@ public sealed partial class GalleryView : Page
                 ViewModel.LastViewedYOffset = panel.GetItemYPosition(index);
             }
 
-            _currentImageViewModel = App.GetService<ImageViewModel>();
-            _currentImageViewModel.NavigationChanged += OnImageViewModelNavigationChanged;
+            // ImageViewModel is a Singleton — only subscribe the first time. The
+            // OnNavigatedTo unsubscribe paired with this guard keeps it 1:1.
+            if (_currentImageViewModel == null)
+            {
+                _currentImageViewModel = App.GetService<ImageViewModel>();
+                _currentImageViewModel.NavigationChanged += OnImageViewModelNavigationChanged;
+            }
             await _currentImageViewModel.ShowImageAsync(item);
 
             _navigationService.NavigateTo<ImageViewerView>();
@@ -216,6 +221,10 @@ public sealed partial class GalleryView : Page
     /// </summary>
     private void OnGalleryViewUnloaded(object sender, RoutedEventArgs e)
     {
+        // Clean up resources but DON'T unsubscribe from Unloaded itself — if the
+        // page is reused by the Frame cache, this handler still needs to fire
+        // on subsequent Unloads to clean up resources allocated during the new
+        // Loaded/InitializeComponent cycle.
         MainScrollViewer.ViewChanged -= OnMainScrollViewerViewChanged;
 
         if (_loadMoreDebounceTimer != null)
@@ -224,7 +233,5 @@ public sealed partial class GalleryView : Page
             _loadMoreDebounceTimer.Stop();
             _loadMoreDebounceTimer = null;
         }
-
-        Unloaded -= OnGalleryViewUnloaded;
     }
 }

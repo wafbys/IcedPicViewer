@@ -8,10 +8,10 @@ public partial class ImageItem : ObservableObject
     public string Id { get; private set; }
     public string Name { get; private set; }
     public string Path { get; private set; }
-    public long FileSize { get; private set; }
-    public DateTime ModifiedTime { get; private set; }
-    public int OriginalWidth { get; private set; }
-    public int OriginalHeight { get; private set; }
+    public long FileSize { get; }
+    public DateTime ModifiedTime { get; }
+    public int OriginalWidth { get; }
+    public int OriginalHeight { get; }
 
     [ObservableProperty]
     private BitmapImage? _thumbnail;

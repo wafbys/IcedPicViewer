@@ -41,23 +41,37 @@ public sealed partial class ImageViewerView : Page
     {
         this.InitializeComponent();
         DataContext = App.GetService<ImageViewModel>();
-        Loaded += (_, _) =>
-        {
-            if (DataContext is ImageViewModel vm)
-            {
-                vm.DisplayImageChanged += (_, _) => UpdateMinimapDeferred();
-                vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
-                vm.NavigateNextCommand.NotifyCanExecuteChanged();
-            }
 
-            // Keyboard handling is centralized in MainWindow.RootFrame_KeyDown
-            // to avoid duplication. See MainWindow.xaml.cs for viewer navigation keys.
-        };
+        // Named handlers (not lambdas) so Unloaded can unsubscribe — otherwise
+        // the view would be kept alive by the lambda capture past navigation,
+        // and subsequent DisplayImageChanged firings would hit a defunct visual tree.
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
+    }
 
-        Unloaded += (_, _) =>
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is ImageViewModel vm)
         {
-            // No per-page KeyDown handler anymore (consolidated in MainWindow)
-        };
+            vm.DisplayImageChanged += OnDisplayImageChanged;
+            vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
+            vm.NavigateNextCommand.NotifyCanExecuteChanged();
+        }
+        // Keyboard handling is centralized in MainWindow.RootGrid_KeyDown
+        // to avoid duplication. See MainWindow.xaml.cs for viewer navigation keys.
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is ImageViewModel vm)
+        {
+            vm.DisplayImageChanged -= OnDisplayImageChanged;
+        }
+    }
+
+    private void OnDisplayImageChanged(object? sender, EventArgs e)
+    {
+        UpdateMinimapDeferred();
     }
 
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)

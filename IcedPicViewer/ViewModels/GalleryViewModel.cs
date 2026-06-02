@@ -428,28 +428,30 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                         }
                         break;
 
-                    case WatchChangeType.Modified:
-                        if (_imageIndex.TryGetValue(info.Path, out var modifiedItem))
-                        {
-                            modifiedItem.Thumbnail = null;
-                            modifiedItem.FullImage = null;
-                            await LoadThumbnailAsync(modifiedItem, CancellationToken.None);
-                        }
-                        break;
+                case WatchChangeType.Modified:
+                    if (_imageIndex.TryGetValue(info.Path, out var modifiedItem))
+                    {
+                        modifiedItem.Thumbnail = null;
+                        modifiedItem.FullImage = null;
+                        await LoadThumbnailAsync(modifiedItem, CancellationToken.None);
+                        if (token.IsCancellationRequested) return;
+                    }
+                    break;
 
-                    case WatchChangeType.Renamed:
-                        // The watcher delivers Renamed with NewPath = info.Path, OldPath = info.OldPath.
-                        // We need to rebind the existing item to the new path so the index stays consistent.
-                        if (info.OldPath != null && _imageIndex.TryGetValue(info.OldPath, out var renamedItem))
-                        {
-                            Images.Remove(renamedItem);  // triggers index removal on OldPath
-                            renamedItem.UpdatePath(info.Path, Path.GetFileName(info.Path));
-                            Images.Add(renamedItem);     // triggers index insertion on NewPath
-                            renamedItem.Thumbnail = null;
-                            renamedItem.FullImage = null;
-                            await LoadThumbnailAsync(renamedItem, CancellationToken.None);
-                        }
-                        break;
+                case WatchChangeType.Renamed:
+                    // The watcher delivers Renamed with NewPath = info.Path, OldPath = info.OldPath.
+                    // We need to rebind the existing item to the new path so the index stays consistent.
+                    if (info.OldPath != null && _imageIndex.TryGetValue(info.OldPath, out var renamedItem))
+                    {
+                        Images.Remove(renamedItem);  // triggers index removal on OldPath
+                        renamedItem.UpdatePath(info.Path, Path.GetFileName(info.Path));
+                        Images.Add(renamedItem);     // triggers index insertion on NewPath
+                        renamedItem.Thumbnail = null;
+                        renamedItem.FullImage = null;
+                        await LoadThumbnailAsync(renamedItem, CancellationToken.None);
+                        if (token.IsCancellationRequested) return;
+                    }
+                    break;
                 }
             }
             catch (Exception ex)

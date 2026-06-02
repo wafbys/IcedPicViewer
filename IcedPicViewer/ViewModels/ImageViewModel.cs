@@ -86,7 +86,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<ImageItem> Images => _galleryViewModel.Images;
 
-    public bool CanLoadMoreImages => _galleryViewModel.CanLoadMore;
+    public bool CanLoadMoreImages => _galleryViewModel.CanLoadMore && !_galleryViewModel.IsLoadingMore;
     public bool IsLoadingMoreImages => _galleryViewModel.IsLoadingMore;
     public Visibility LoadMoreImagesVisibility => _galleryViewModel.CanLoadMore ? Visibility.Visible : Visibility.Collapsed;
 
