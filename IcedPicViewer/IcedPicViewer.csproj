@@ -50,7 +50,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.1.3" />
 
     <!-- Static Analysis -->
     <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="*" />
@@ -87,7 +87,8 @@
   <!--
     Copy WindowsAppRuntime.Bootstrap.dll to the build output root.
 
-    With <RuntimeIdentifier>win-x64</RuntimeIdentifier> set, the native
+    Verified still needed on WindowsAppSDK 2.1.3 (2026-05-21). With
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier> set, the native
     bootstrapper lands under runtimes\win-x64\native\ which is not
     searched by the WindowsAppSDK's P/Invoke loader (it only looks in
     the application directory and PATH). Setting
@@ -112,6 +113,10 @@
     Without this, `dotnet publish` produces an exe that crashes on launch (0xC000027B)
     because it cannot find App.xbf / MainWindow.xbf / IcedPicViewer.pri / Assets / Views.
     This target copies those files from the build output to the publish directory.
+
+    Verified still needed on WindowsAppSDK 2.1.3 (2026-05-21). Tested by
+    temporarily removing this target: publish produced only IcedPicViewer.exe
+    with no .xbf / .pri / Assets / Views — would crash on launch.
   -->
   <Target Name="SyncWinUIBuildOutputToPublish"
           AfterTargets="Publish"
