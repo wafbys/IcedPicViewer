@@ -79,44 +79,25 @@
     <!-- Force the WindowsAppSDK bootstrap auto-initializer to be generated.
          The SDK skips it by default when WindowsAppSDKSelfContained=true. -->
     <WindowsAppSdkBootstrapInitialize Condition="'$(WindowsAppSdkBootstrapInitialize)' == ''">true</WindowsAppSdkBootstrapInitialize>
-    <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Standard multi-file publish: produces a folder of .dll / .exe / .xbf / .pri
+         rather than a single self-extracting IcedPicViewer.exe. Easier to debug,
+         faster startup, no IncludeNativeLibrariesForSelfExtract side effects. -->
+    <PublishSingleFile>false</PublishSingleFile>
     <PublishDir>bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\publish\</PublishDir>
   </PropertyGroup>
-
-  <!--
-    Copy WindowsAppRuntime.Bootstrap.dll to the build output root.
-
-    Verified still needed on WindowsAppSDK 2.1.3 (2026-05-21). With
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier> set, the native
-    bootstrapper lands under runtimes\win-x64\native\ which is not
-    searched by the WindowsAppSDK's P/Invoke loader (it only looks in
-    the application directory and PATH). Setting
-    WindowsAppSDKSelfContained=true alone does not flatten the layout
-    for non-publish builds, so we copy explicitly.
-
-  -->
-  <Target Name="CopyWindowsAppRuntimeBootstrapToOutput"
-          AfterTargets="Build"
-          Condition="Exists('$(OutDir)runtimes\win-x64\native\Microsoft.WindowsAppRuntime.Bootstrap.dll')">
-    <ItemGroup>
-      <_WinAppSdkNative Include="$(OutDir)runtimes\win-x64\native\Microsoft.WindowsAppRuntime.Bootstrap.dll" />
-    </ItemGroup>
-    <Copy SourceFiles="@(_WinAppSdkNative)"
-          DestinationFiles="@(_WinAppSdkNative->'$(OutDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-  </Target>
 
   <!--
     Workaround: WindowsAppSDK 2.0's WinUI targets only add XAML/.xbf/.pri/Assets/Views
     to GetCopyToOutputDirectoryItems (build), not GetCopyToPublishDirectoryItems (publish).
     Without this, `dotnet publish` produces an exe that crashes on launch (0xC000027B)
-    because it cannot find App.xbf / MainWindow.xbf / IcedPicViewer.pri / Assets / Views.
-    This target copies those files from the build output to the publish directory.
+    because it cannot find App.xbf / MainWindow.xbf / Assets / Views.
 
-    Verified still needed on WindowsAppSDK 2.1.3 (2026-05-21). Tested by
-    temporarily removing this target: publish produced only IcedPicViewer.exe
-    with no .xbf / .pri / Assets / Views — would crash on launch.
+    Verified still needed on WindowsAppSDK 2.1.3 (2026-05-21), regardless of
+    PublishSingleFile=true/false. Tested by temporarily removing this target
+    in both single-file and multi-file modes: WinUI XAML resources are
+    always missing from the publish output. The bootstrap.dll workaround
+    below was no longer needed after switching to multi-file publish, but
+    this one stays.
   -->
   <Target Name="SyncWinUIBuildOutputToPublish"
           AfterTargets="Publish"
