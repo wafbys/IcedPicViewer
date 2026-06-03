@@ -98,9 +98,28 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 
 > **历史事实**:`CHANGELOG.md` 中 `v0.9.x` 多条 commit 提到"publish 产物能跑"——**这是错误的**,只验证了文件完整性,没真启动过 .exe。实测(`24063cd` 之后)publish 产物在缺 WinAppRuntime 2.0 standalone runtime 的机器上 0xC0000602 退出。本节"必须的前置条件"是基于此实测的诚实结论。
 
+> **PE 解析诊断备忘(2026-06-03)**:`System.Reflection.PortableExecutable` 解析 publish 目录各 native DLL 的 import table,确认 0xC0000602 根因。**用户当前 system 缺 12 个 WinRT/UWP 相关的 api-set DLL**(`system32` + `WinSxS` 都找不到),全部来自 `Microsoft.WindowsAppRuntime.dll` / `Microsoft.WindowsAppRuntime.Bootstrap.dll` / `Microsoft.UI.Xaml.dll` 的 P/Invoke:
+>
+> | 缺失 DLL | 来源 |
+> |---|---|
+> | `api-ms-win-appmodel-runtime-l1-1-1.dll` | WinAppRuntime + Bootstrap(**最核心** — WinRT 入口 `RoGetActivationFactory` 在里面) |
+> | `api-ms-win-core-libraryloader-l1-2-0.dll` | WinAppRuntime + Bootstrap |
+> | `api-ms-win-power-base-l1-1-0.dll` | WinAppRuntime |
+> | `api-ms-win-power-setting-l1-1-0.dll` | XAML + WinAppRuntime |
+> | `api-ms-win-power-setting-l1-1-1.dll` | WinAppRuntime |
+> | `api-ms-win-core-winrt-l1-1-0.dll` | XAML + WinAppRuntime |
+> | `api-ms-win-core-winrt-string-l1-1-0.dll` | XAML + WinAppRuntime |
+> | `api-ms-win-core-winrt-error-l1-1-0.dll` | XAML + WinAppRuntime + Bootstrap |
+> | `api-ms-win-core-winrt-error-l1-1-1.dll` | XAML |
+> | `api-ms-win-ro-typeresolution-l1-1-0.dll` | XAML + WinAppRuntime |
+> | `api-ms-win-core-path-l1-1-0.dll` | XAML + WinAppRuntime |
+> | `api-ms-win-dx-d3dkmt-l1-1-0.dll` | XAML |
+>
+> 装 WinAppRuntime 2.0 standalone installer(aka.ms URL)后,这 12 个 DLL 会部署到 `C:\Windows\System32`,app 启动时 Windows loader 能找到,0xC0000602 消失。**IcedPicViewer.exe 自身 import table 只 12 个基础 KERNEL32/USER32/ole32 等**,所以 .exe 自身能起;问题出在它加载 `Bootstrap.dll` → 链式 P/Invoke 这些缺失 DLL → fail-fast。
+
 > 实现细节见 `IcedPicViewer.csproj` 末尾的自定义 MSBuild target：
 > - `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 2.0/2.1 的 bug：它的 targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`，**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`Assets`/`Views`，启动后立刻崩（`0xC000027B`）。在 2.1.3 + multi-file publish 下仍必须。
-> - `RemoveUnwantedCultures` —— publish 后用 PowerShell 删 `^[a-z]{2}(-[A-Z]{2})?$` 模式的 culture 子目录,产物更干净,体积无实质变化。
+> - `RemoveUnwantedCultures` —— 同时清 `$(OutDir)` 和 `$(PublishDir)` 中 BCP 47 格式的 culture 子目录,实测 publish 产物从 222 MB / 572 文件减到 216 MB / 389 文件(86 个 culture 目录消失)。
 > - ~~`CopyWindowsAppRuntimeBootstrapToOutput`~~ —— 已在 2.1.3 升级时永久删除(只在 `PublishSingleFile=true` 时需要,改用 multi-file publish 后自然不需要)。
 
 ## 常见 AI 易犯错误（请主动避免）
