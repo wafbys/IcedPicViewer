@@ -124,9 +124,16 @@
 
     AfterTargets="Build;Publish" 同时覆盖 build 和 publish 两阶段,避免 build 产物
     (bin\Release\...) 残留 76 个 culture 目录、只有 publish 产物干净的'半清理'状态。
+
+    Build 时只清 $(OutDir);publish 时还要清 $(PublishDir) —— 这两个目录都包含 .NET
+    自带的 culture satellite 资源,只清一个会留 ~86 个 culture 目录在 publish 目录里。
   -->
   <Target Name="RemoveUnwantedCultures" AfterTargets="Build;Publish">
-    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(OutDir)' -Directory | Where-Object { $_.Name -match '^[a-zA-Z]{2,3}(-[A-Za-z]{2,4})?(-[A-Za-z]{2,})?$' } | Remove-Item -Recurse -Force&quot;" />
-    <Message Text="已删除 $(OutDir) 中的多语言支持文件夹 (af-ZA 等)" Importance="high" />
+    <PropertyGroup>
+      <_CultureDirsToClean>$(OutDir)</_CultureDirsToClean>
+      <_CultureDirsToClean Condition="'$(PublishDir)' != '' AND '$(PublishDir)' != '$(OutDir)'">$(OutDir);$(PublishDir)</_CultureDirsToClean>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -Command &quot;@('$(OutDir)','$(PublishDir)') | Where-Object { $_ -ne '' -and (Test-Path $_) } | ForEach-Object { Get-ChildItem $_ -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[a-zA-Z]{2,3}(-[A-Za-z]{2,4})?(-[A-Za-z]{2,})?$' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }&quot;" />
+    <Message Text="已删除 $(OutDir) 和 $(PublishDir) 中的多语言支持文件夹 (af-ZA 等)" Importance="high" />
   </Target>
 </Project>
