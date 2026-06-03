@@ -118,12 +118,15 @@
   </Target>
 
   <!--
-    彻底删除 publish 输出中的所有多语言支持 satellite 文件夹 (af-ZA, en-us, zh-CN 等所有文化目录)。
-    本应用未使用任何多语言支持（无 .resw 本地化资源），这些文件夹仅来自框架，删除后发布目录更干净、体积更小。
+    彻底删除 bin/obj/publish 输出中的所有多语言支持 satellite 文件夹 (af-ZA, en-us, zh-CN 等所有文化目录)。
+    本应用未使用任何多语言支持（无 .resw 本地化资源），这些文件夹仅来自框架，删除后输出目录更干净、体积更小。
     使用 PowerShell 识别所有匹配文化名称模式的子目录并删除。
+
+    AfterTargets="Build;Publish" 同时覆盖 build 和 publish 两阶段,避免 build 产物
+    (bin\Release\...) 残留 76 个 culture 目录、只有 publish 产物干净的'半清理'状态。
   -->
-  <Target Name="RemoveUnwantedCultures" AfterTargets="Publish">
-    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(PublishDir)' -Directory | Where-Object { $_.Name -match '^[a-z]{2}(-[A-Z]{2})?$' } | Remove-Item -Recurse -Force&quot;" />
-    <Message Text="已彻底删除 publish 输出中的所有多语言支持文件夹 (af-ZA 等)" Importance="high" />
+  <Target Name="RemoveUnwantedCultures" AfterTargets="Build;Publish">
+    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(OutDir)' -Directory | Where-Object { $_.Name -match '^[a-zA-Z]{2,3}(-[A-Za-z]{2,4})?(-[A-Za-z]{2,})?$' } | Remove-Item -Recurse -Force&quot;" />
+    <Message Text="已删除 $(OutDir) 中的多语言支持文件夹 (af-ZA 等)" Importance="high" />
   </Target>
 </Project>
