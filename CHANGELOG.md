@@ -1,5 +1,21 @@
 # 更新日志
 
+## v0.11.0 (2026-06-03)
+
+**主题:修 0xC0000602 启动崩溃 + 改 framework-dependent 发布模式**
+
+`v0.9.2` 引入的 `self-contained=true` 模式实际**不能直接跑** —— WinAppSDK 2.1.3 self-contained 部署的 native DLL (`CoreMessagingXP.dll` v10.0.27200.1019、`dwmcorei.dll`、`dcomp.dll`、`Microsoft.UI.*` 等) 比 Win 11 25H2 GA 的 OS build `26200` 还新,DLL 加载时做 OS build check → `STATUS_FAIL_FAST_EXCEPTION` (0xC0000602) → `Event Log`: "Faulting module: CoreMessagingXP.dll, version: 10.0.27200.1019"。
+
+**改动**:
+- `IcedPicViewer.csproj`: `SelfContained` 和 `WindowsAppSDKSelfContained` 都从 `true` 改 `false`,改用 framework-dependent 模式。loader 走 OS 自带的 `CoreMessagingXP.dll` v10.0.27108.1016,check 通过,app 能起能浏览图片(2026-06-03 用户实测确认)。
+- 改后目标机**必须装**:.NET 10 runtime + Windows App Runtime 2.1.3 standalone。
+- publish 体积从 216 MB / 389 文件 → **83 MB / 110 文件**(几乎减半)。
+- `RemoveUnwantedCultures` target 同步清 `$(OutDir)` 和 `$(PublishDir)`(framework-dependent 模式下 publish/ 仍然有 culture 目录残留,需要清)。
+- `AGENTS.md` 追加 PE 解析诊断备忘 + framework-dependent 模式根因 + fix 路径。
+- `README.md` 重写部署清单:删"self-contained 模式不完整"过时说明,加 .NET 10 runtime 前置条件。
+
+**期间误判**:之前以为根因是 `api-ms-win-appmodel-runtime-l1-1-1.dll` 等 12 个 API Set DLL 缺失,实测 `GetModuleHandle`/`LoadLibraryEx` 验证 `apisetschema.dll` 全部能 forward 解析,这些 DLL 物理不存在 system32 不代表加载失败。**误导性诊断,已记录到 `AGENTS.md` 备忘段供后人参考**。
+
 ## v0.10.0 (2026-06-02)
 
 **主题: 删除测试项目 + 架构精简为仅 x64**
