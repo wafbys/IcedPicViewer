@@ -64,18 +64,29 @@
 
   <!--
     Publish defaults so that a plain `dotnet publish -c Release -p:Platform=x64`
-    (no extra -p: parameters) produces a self-contained, redistributable
-    folder at bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\publish\
-    that does NOT require the Windows App Runtime or .NET runtime to be
-    installed on the target machine. Output is ~220 MB and bundles both
-    the .NET runtime and the WindowsAppSDK native runtime.
+    (no extra -p: parameters) produces a framework-dependent folder at
+    bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\publish\
+    that requires the .NET 10 runtime AND Windows App Runtime 2.1.3
+    (or compatible) on the target machine.
+
+    We use **framework-dependent** mode (not self-contained) on purpose:
+    WindowsAppSDK 2.1.3 self-contained bundles native DLLs (CoreMessagingXP.dll,
+    dwmcorei.dll, dcomp.dll, ...) at build 10.0.27200.1019, but Win 11 25H2 GA
+    is build 26200 — these DLLs fail-fast on load with STATUS_FAIL_FAST_EXCEPTION
+    (0xC0000602) because the DLLs are NEWER than the OS. In framework-dependent
+    mode the loader uses the OS's own versions from System32 / WinSxS.
+
+    Output is ~30 MB (no .NET runtime bundled). Target machine prerequisites:
+      1. .NET 10 runtime
+      2. Windows App Runtime 2.1.3 (installed via standalone installer:
+         https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe)
 
     The same defaults also apply to `dotnet build`.
   -->
   <PropertyGroup>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
-    <WindowsAppSDKSelfContained Condition="'$(WindowsAppSDKSelfContained)' == ''">true</WindowsAppSDKSelfContained>
+    <SelfContained>false</SelfContained>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <!-- Force the WindowsAppSDK bootstrap auto-initializer to be generated.
          The SDK skips it by default when WindowsAppSDKSelfContained=true. -->
     <WindowsAppSdkBootstrapInitialize Condition="'$(WindowsAppSdkBootstrapInitialize)' == ''">true</WindowsAppSdkBootstrapInitialize>

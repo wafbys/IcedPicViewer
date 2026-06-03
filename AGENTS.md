@@ -122,6 +122,17 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 > - `RemoveUnwantedCultures` —— 同时清 `$(OutDir)` 和 `$(PublishDir)` 中 BCP 47 格式的 culture 子目录,实测 publish 产物从 222 MB / 572 文件减到 216 MB / 389 文件(86 个 culture 目录消失)。
 > - ~~`CopyWindowsAppRuntimeBootstrapToOutput`~~ —— 已在 2.1.3 升级时永久删除(只在 `PublishSingleFile=true` 时需要,改用 multi-file publish 后自然不需要)。
 
+> **Publish 模式:framework-dependent,不是 self-contained (2026-06-03 改)**。
+>
+> 之前 `SelfContained=true` + `WindowsAppSDKSelfContained=true` 会把 WinAppSDK 2.1.3 的 native DLL(`CoreMessagingXP.dll` v10.0.27200.1019、`dwmcorei.dll`、`dcomp.dll`、`Microsoft.UI.Input.dll`、`Microsoft.Internal.FrameworkUdk.dll`、`Microsoft.UI.Windowing.Core.dll` 等)都部署到 publish 目录。**这些 DLL 比用户的 OS 还新**——用户 OS 是 Win 11 25H2 GA `build 26200`,这些 DLL 来自 build `27200`。DLL 加载时做 OS build check → `STATUS_FAIL_FAST_EXCEPTION` (`0xC0000602`) → `Event Log` 记录 `Faulting module: CoreMessagingXP.dll, version: 10.0.27200.1019`。
+>
+> **改成 framework-dependent**(`SelfContained=false` + `WindowsAppSDKSelfContained=false`)后:
+> - publish 产物不再带那些 27200 的 native DLL(loader 改走 `System32` / `WinSxS`,OS 自带 `CoreMessagingXP.dll` v10.0.27108.1016 接管)
+> - 目标机**必须装**:
+>   1. .NET 10 runtime(`coreclr.dll` / `hostfxr.dll` 不再 bundled)
+>   2. Windows App Runtime 2.1.3 standalone(`Microsoft.WindowsAppRuntime.dll` 不再 bundled)—— installer URL 同上
+> - publish 产物体积从 **216 MB / 389 文件** 减到 **83 MB / 110 文件**
+
 ## 常见 AI 易犯错误（请主动避免）
 
 - 看到问题就自己发明新抽象或新服务。

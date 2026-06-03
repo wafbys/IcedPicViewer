@@ -54,23 +54,22 @@
 - v0.2.0 - 键盘导航、图片信息显示、窗口状态记忆
 - v0.1.0-alpha - 初始版本
 
-## 构建自包含发布
+## 构建发布
 
-项目已清理为仅 x64、无多语言支持（无 af-ZA 等文件夹）、无测试项目。
+项目已清理为仅 x64、无多语言支持(无 af-ZA 等文件夹)、无测试项目。
 
-**前置条件(重要!)**:本应用是 unpackaged WinUI 3 app,需要**目标机器已安装 Windows App Runtime 2.0 standalone runtime**(SDK 2.0.1/2.1.3 的 self-contained 模式不完整,无法自包含 WindowsAppRuntime 的所有 native DLL)。下载:
+**前置条件(目标机器必须装两个 runtime,本工程用 framework-dependent 模式不 bundled)**:
 
-```
-https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
-```
+1. **.NET 10 Runtime**(x64)—— [https://dotnet.microsoft.com/download/dotnet/10.0](https://dotnet.microsoft.com/download/dotnet/10.0) 选 "Desktop Runtime" 或 "ASP.NET Core Runtime"(x64)
+2. **Windows App Runtime 2.1.3 standalone** —— [https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe](https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe)
 
-装好后 `C:\Windows\System32` 会出现 `api-ms-win-appmodel-runtime-l1-1-1.dll` 等 WindowsAppSDK 依赖 DLL,unpackaged app 才能正常启动。MSIX 安装的 WindowsAppRuntime 在 `C:\Program Files\WindowsApps\`,unpackaged app 访问不到,**不算**前置条件满足。
+> **为什么不是 self-contained?** SDK 2.1.3 带的 native DLL(`CoreMessagingXP.dll` 等)版本 `10.0.27200.1019` 比 Win 11 25H2 GA 的 `build 26200` 还新,DLL 加载时做 OS build check → `0xC0000602` (STATUS_FAIL_FAST_EXCEPTION)。Framework-dependent 模式下 loader 走 OS 自带的 `CoreMessagingXP.dll` v10.0.27108.1016,check 通过。MSIX 安装的 WindowsAppRuntime 在 `C:\Program Files\WindowsApps\`,unpackaged app 访问不到,**不算**前置条件满足。
 
 ```powershell
 cd IcedPicViewer
 dotnet publish -c Release -p:Platform=x64
 ```
 
-产物在 `bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\publish\IcedPicViewer.exe`(~214 MB,标准多文件布局)。
+产物在 `bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\publish\IcedPicViewer.exe`(**~83 MB / 110 文件**,标准多文件布局)。
 
 `IcedPicViewer.exe` 本身仅 ~284 KB(启动器),所有 .NET / WinUI / 资源文件在同目录独立存在,方便调试与替换。发布目录干净,无多余语言文件夹。
