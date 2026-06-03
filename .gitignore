@@ -41,6 +41,9 @@ BundleArtifacts/
 # Publish output
 publish/
 PublishScripts/
+# Visual Studio publish profiles (per-developer, regenerate on demand)
+*.pubxml
+Properties/PublishProfiles/
 
 # Code analysis and tooling
 _ReSharper*/
