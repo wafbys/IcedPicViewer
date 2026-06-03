@@ -1,9 +1,6 @@
 {
   "profiles": {
-    "IcedPicViewer (Package)": {
-      "commandName": "MsixPackage"
-    },
-    "IcedPicViewer (Unpackaged)": {
+    "IcedPicViewer": {
       "commandName": "Project"
     }
   }
