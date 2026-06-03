@@ -69,21 +69,34 @@
 $Platform = 'x64'
 ```
 
-**构建**：
+**构建**:
 ```powershell
 dotnet build -c Debug -p:Platform=$Platform
 ```
 
-**运行（推荐，带包身份）**：
+**运行(推荐,带包身份)**:
 ```powershell
 dotnet run -c Debug -p:Platform=$Platform
 ```
 
-**发布（自包含可分发的产物）**：
+**发布(自包含可分发的产物)**:
 ```powershell
 dotnet publish -c Release -p:Platform=$Platform
 ```
-产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`，~220 MB，包含 .NET 运行时和 WindowsAppSDK 运行时，**不依赖系统安装 Windows App Runtime**。发布目录干净，无任何 af-ZA、en-us 等多语言支持文件夹（已彻底删除所有 satellite 语言资源）。双击 `IcedPicViewer.exe` 即可启动。别人 fresh clone 这份代码、装好 .NET 10 SDK 后跑这个命令就能直接产出可分发的 exe。
+产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`,~214 MB,包含 .NET 运行时 + WindowsAppSDK runtime(`.dll` 形式),但不完整 self-contained WindowsAppSDK 的所有 native dependencies。
+
+**必须的前置条件**:**目标机器已安装 Windows App Runtime 2.0 standalone runtime**。WinAppSDK 2.0+ 的 self-contained 模式不完整(`api-ms-win-appmodel-runtime-l1-1-1.dll` 等 DLL 不会被 SDK 嵌入 publish 产物),unpackaged app 启动时必须从 `C:\Windows\System32` 找到这些 DLL。安装包:
+```
+https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
+```
+
+**部署清单**(给别人用时):
+1. 目标机器先装 .NET 10 SDK
+2. 目标机器装 Windows App Runtime 2.0 standalone runtime(上面链接)
+3. 然后跑 `dotnet publish -c Release -p:Platform=x64` 得产物
+4. 把 `publish\` 目录复制到目标机器,双击 `IcedPicViewer.exe`
+
+> **历史事实**:`CHANGELOG.md` 中 `v0.9.x` 多条 commit 提到"publish 产物能跑"——**这是错误的**,只验证了文件完整性,没真启动过 .exe。实测(`24063cd` 之后)publish 产物在缺 WinAppRuntime 2.0 standalone runtime 的机器上 0xC0000602 退出。本节"必须的前置条件"是基于此实测的诚实结论。
 
 > 实现细节见 `IcedPicViewer.csproj` 末尾的自定义 MSBuild target：
 > - `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 2.0/2.1 的 bug：它的 targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`，**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`Assets`/`Views`，启动后立刻崩（`0xC000027B`）。在 2.1.3 + multi-file publish 下仍必须。
