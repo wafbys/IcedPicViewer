@@ -3,6 +3,6 @@
     <Platform Name="x64" />
   </Configurations>
   <Project Path="IcedPicViewer\IcedPicViewer.csproj">
-    <Platform Solution="*|Any CPU" Project="x64" />
+    <Platform Solution="*|x64" Project="x64" />
   </Project>
 </Solution>
