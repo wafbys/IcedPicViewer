@@ -82,11 +82,21 @@
               Margin="0,0,16,16" Visibility="Collapsed">
             <Border Background="#88000000" CornerRadius="4" Padding="4">
                 <Grid>
-                    <Image x:Name="MinimapImage" Stretch="Uniform"
-                           PointerPressed="MinimapImage_PointerPressed"
-                           PointerMoved="MinimapImage_PointerMoved"
-                           PointerReleased="MinimapImage_PointerReleased"/>
-                    <Canvas x:Name="MinimapViewport"/>
+                    <Image x:Name="MinimapImage" Stretch="Uniform" />
+                    <!--
+                        MinimapViewport is the pointer target (not MinimapImage).
+                        Reasoning: Image.Stretch=Uniform leaves transparent padding
+                        around the picture, and a moving mouse over that padding
+                        never reached Image.PointerMoved. With Background="Transparent"
+                        the Canvas hit-tests its full 150x120 area, and routed
+                        events bubble up here from the viewport Rectangle too.
+                    -->
+                    <Canvas x:Name="MinimapViewport"
+                            Background="Transparent"
+                            Width="150" Height="120"
+                            PointerPressed="MinimapImage_PointerPressed"
+                            PointerMoved="MinimapImage_PointerMoved"
+                            PointerReleased="MinimapImage_PointerReleased"/>
                 </Grid>
             </Border>
         </Grid>
