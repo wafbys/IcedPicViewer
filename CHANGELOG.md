@@ -28,7 +28,7 @@ Open Folder 选目录后,会自动把目录中所有压缩包内的图片也展�
   - `DeleteImageAsync` 入口判断 `Source.IsInArchive` → **弹 `ContentDialog` 说明原因**(标题"无法删除",正文带文件名 + 建议到文件资源管理器处理整个压缩包),而非静默改 `StatusText`(用户已反馈原实现无任何提示)。
   - `LoadThumbnailAsync` 的 mtime 缓存检查对压缩包条目跳过(压缩包 mtime 已在 `ModifiedTime` 字段,但条目级失效需要重读整个压缩包,保留旧缩略图更轻量)。
 - `ViewModels/ImageViewModel.cs`: `LoadFullImageAsync` 用 `item.Source`;`ImagePath` 派生属性显示 `Source.ToString()`(普通文件 = 路径;压缩包条目 = `path!entry`)。
-- `Views/GalleryView.xaml.cs` + `Views/ImageViewerView.xaml.cs`: `OpenFileLocation_Click` 对压缩包条目改为打开压缩包所在**父目录**(Explorer 不能 `/select` 一个 zip 内的条目)。
+- `Views/GalleryView.xaml.cs` + `Views/ImageViewerView.xaml.cs`: `OpenFileLocation_Click` 统一走 `explorer /select "{source.Path}"`,**普通文件高亮该文件,压缩包条目高亮压缩包本身**(Explorer 不能选 zip 内条目,但能高亮 zip 文件,用户立刻看到图来自哪个压缩包)。
 - `ViewModels/GalleryViewModel.AddArchiveEntriesAsync` / `HandleRenamedAsync` 中对 `ArchiveHelper.ListEntries` 的调用走 `Task.Run` 避免阻塞 dispatcher。
 - 编译期 baseline: 0 errors / 17 warnings,全部是 pre-existing MVVMTK0045(关于 `[ObservableProperty]` 在 WinRT 场景的 AOT 兼容建议,本次改动未引入新 warning,未触及这些字段)。
 
@@ -48,9 +48,15 @@ Open Folder 选目录后,会自动把目录中所有压缩包内的图片也展�
 1. 准备测试目录:几张直接图片 + 1-2 个 zip(含 jpg/png/webp) + 1 个损坏 zip + 1 个加密 zip。
 2. Open Folder → 瀑布流显示所有图片(直接 + 压缩包内平铺),缩略图正常。状态栏:`Loaded N images — 1 file skipped (bad.zip: unsupported or corrupt archive)` 之类。
 3. 双击压缩包内图片 → 单图模式全尺寸**正常显示**(v0.12.0 修复了 `InputStreamOverStream` stuck loading 导致的黑屏)。
-4. 右键压缩包内图片 → 弹 `ContentDialog` 标题"无法删除",确认按钮关闭;打开文件位置打开父目录。
+4. 右键压缩包内图片 → 弹 `ContentDialog` 标题"无法删除",确认按钮关闭;打开文件位置 → `explorer /select` 高亮**压缩包本身**。
 5. 滚动到底 → 增量加载对压缩包条目同样工作。
 6. 删除 / 重命名压缩包文件 → FileWatcher 联动正常,失败时也会进状态栏。
+
+**v0.12.0 发布后 polish**(同一 commit 链内的后续修复,无新版本号):
+
+- `Models/ImageItem.cs` + `Views/GalleryView.xaml`: 瀑布流 overlay 加第三行 `DisplayLocation`(`#999` 字体色, `TextTrimming="CharacterEllipsis"`, `ToolTipService.ToolTip` 绑定同样字符串供 hover 看完整路径)—— 压缩包条目显示**压缩包文件名**, 普通文件显示**父目录路径**。overlay 现在三行:文件名 / `W×H · 大小` / 位置。
+- `Views/GalleryView.xaml.cs` + `Views/ImageViewerView.xaml.cs`: 之前的"压缩包条目打开父目录"实现改回 `explorer /select "{source.Path}"` —— 用户反馈"应定位到压缩包文件名上"更直接,选中文件比打开空目录更有用。
+- `IcedPicViewer.csproj` (`SyncWinUIBuildOutputToPublish` target): 修自我繁殖 bug。原 target 用 `$(OutDir)**\*.xbf` 递归搜,但 `$(PublishDir) = $(OutDir)/publish/`,所以每轮 publish 都会把 `OutDir\publish\*.xbf` 当成新文件再拷成 `OutDir\publish\publish\*.xbf`(`SkipUnchangedFiles=true` 会跳过内容相同的部分,但若中途 publish 失败留下 stale 文件,`SkipUnchangedFiles` 比对不通过,新文件就真写进去了)。改法: `**\*.xbf` / `**\*.pri` 加 `Exclude="$(OutDir)publish\**"`, `Views\` / `Assets\` / `Microsoft.UI.Xaml\` 子目录的显式 `Include` 仍正常工作。验证: 之前 110 个文件(v0.11.0 状态,含 `publish\publish\` 残留), 现在 94 个文件 / 82.9 MB。
 
 ## v0.11.0 (2026-06-03)
 

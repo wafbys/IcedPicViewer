@@ -9,10 +9,11 @@
 - 增量加载 + 滚动到底部自动加载更多（首次只加载前 150 张，支持手动/自动继续加载）
 - 图片查看（Fit / 1:1 模式切换）
 - 键盘导航（左右箭头切换图片，ESC 关闭）
-- 图片信息显示（尺寸、文件大小）
+- 图片信息显示（文件名、尺寸、文件大小、所在目录 / 压缩包）
 - GIF 动画支持
 - 窗口状态记忆（关闭后重新打开恢复位置和大小）
 - 删除图片（右键菜单 / Delete 键删除，支持回收站）
+- **读取压缩包内图片**（ZIP / RAR / 7Z + tar.gz/bz2/xz）：Open Folder 后压缩包内图片与普通图片一起展平到瀑布流中；损坏 / 加密的压缩包在状态栏报告
 
 ## 操作指南
 
@@ -43,9 +44,14 @@
 
 - **本地磁盘图片**：直接移至回收站，不弹出确认对话框
 - **网络路径图片**（如 \\server\share）：弹出确认对话框，确认为网络路径后执行删除
+- **压缩包内图片**：**不支持删除**。点击删除会弹出 ContentDialog 标题"无法删除"并说明原因；如需删除，请到文件资源管理器中处理整个压缩包（本工程不实现"重写压缩包以移除某 entry"功能，代价大）
 
 ## 版本
 
+- v0.12.0 - 读取压缩包内图片 (ZIP/RAR/7Z) + 状态栏错误汇总 + 压缩包内图不可删 + overlay 显示位置 + publish target 自我繁殖 bug 修复
+- v0.11.0 - 修 0xC0000602 启动崩溃 + 改 framework-dependent 发布模式
+- v0.10.0 - 删除测试项目 + 架构精简为仅 x64
+- v0.9.2 - 修复 dotnet publish 产物无法启动
 - v0.7.0 - 滚动到底部自动加载更多 + Load More 按钮修复（保留瀑布流视觉）
 - v0.6.0 - 增量加载（首次 150 张 + 手动 Load More）
 - v0.5.0 - 双击打开图片、悬停显示文件名、右键打开文件位置、修复键盘焦点问题
@@ -70,6 +76,6 @@ cd IcedPicViewer
 dotnet publish -c Release -p:Platform=x64
 ```
 
-产物在 `bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\publish\IcedPicViewer.exe`(**~83 MB / 110 文件**,标准多文件布局)。
+产物在 `bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\publish\IcedPicViewer.exe`(**~83 MB / 94 文件**,标准多文件布局;`Views\` 子目录保留 `GalleryView.xbf` / `ImageViewerView.xbf`,`publish\publish\` 嵌套已修)。
 
 `IcedPicViewer.exe` 本身仅 ~284 KB(启动器),所有 .NET / WinUI / 资源文件在同目录独立存在,方便调试与替换。发布目录干净,无多余语言文件夹。
