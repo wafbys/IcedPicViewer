@@ -23,7 +23,25 @@ public sealed partial class ImageViewerView : Page
     {
         if (DataContext is ImageViewModel vm && vm.CurrentImage != null)
         {
-            var filePath = vm.CurrentImage.Path;
+            var source = vm.CurrentImage.Source;
+            if (source.IsInArchive)
+            {
+                // Explorer cannot select an entry inside a zip; fall back to
+                // opening the archive's parent folder so the user can at
+                // least find the archive file.
+                var parent = System.IO.Path.GetDirectoryName(source.Path);
+                if (!string.IsNullOrEmpty(parent))
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = parent,
+                        UseShellExecute = true
+                    });
+                }
+                return;
+            }
+
+            var filePath = source.Path;
             if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
             {
                 var startInfo = new System.Diagnostics.ProcessStartInfo

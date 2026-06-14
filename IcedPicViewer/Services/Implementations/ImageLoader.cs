@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using IcedPicViewer.Models;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Storage.Streams;
@@ -13,7 +14,9 @@ namespace IcedPicViewer.Services.Implementations;
 
 public class ImageLoader : IImageLoader
 {
-    private static readonly HashSet<string> _supportedExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico", ".avif", ".heic"];
+    private static readonly HashSet<string> _supportedExtensions =
+        [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
+         ".tiff", ".tif", ".ico", ".avif", ".heic"];
 
     // Bounded LRU cache for thumbnails. Cap is intentionally modest: a 400px BitmapImage
     // averages ~150-400 KB, so 200 entries ≈ 30-80 MB worst case instead of "unbounded".
@@ -32,46 +35,79 @@ public class ImageLoader : IImageLoader
         return _supportedExtensions.Contains(ext);
     }
 
-    public async Task<Stream?> LoadImageStreamAsync(string path, CancellationToken ct = default)
+    public async Task<Stream?> LoadImageStreamAsync(ImageSource source, CancellationToken ct = default)
     {
-        if (!File.Exists(path)) return null;
+        ct.ThrowIfCancellationRequested();
 
+        if (source.IsInArchive)
+        {
+            try
+            {
+                return ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"LoadImageStreamAsync archive error for {source}: {ex.Message}");
+                return null;
+            }
+        }
+
+        if (!File.Exists(source.Path)) return null;
         try
         {
             // Caller owns the stream and is responsible for disposing it.
             // No intermediate byte[] buffer — keeps large images (e.g. RAW) off the LOH.
             var fileStream = new FileStream(
-                path,
+                source.Path,
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
                 bufferSize: 4096,
                 useAsync: true);
-            // Touch ct so callers passing a token can still cancel before the first read.
-            ct.ThrowIfCancellationRequested();
             return await Task.FromResult(fileStream);
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"LoadImageStreamAsync error for {path}: {ex}");
+            Trace.TraceError($"LoadImageStreamAsync error for {source}: {ex.Message}");
             return null;
         }
     }
 
-    public async Task<BitmapImage?> LoadThumbnailAsync(string path, int maxSize, CancellationToken ct = default)
+    public async Task<BitmapImage?> LoadThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default)
     {
-        if (!File.Exists(path)) return null;
-
-        var cacheKey = $"{path}|{maxSize}";
+        var cacheKey = $"{source}|{maxSize}";
         if (TryGetCached(cacheKey, out var cached))
         {
             return cached;
         }
 
+        if (source.IsInArchive)
+        {
+            return await LoadThumbnailFromArchiveAsync(source, maxSize, cacheKey, ct);
+        }
+
+        if (!File.Exists(source.Path)) return null;
+        return await LoadThumbnailFromFileAsync(source.Path, maxSize, cacheKey, ct);
+    }
+
+    public async Task<(int Width, int Height)?> GetImageSizeAsync(ImageSource source, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (source.IsInArchive)
+        {
+            return await GetSizeFromArchiveAsync(source, ct);
+        }
+
+        if (!File.Exists(source.Path)) return null;
+        return await GetSizeFromFileAsync(source.Path, ct);
+    }
+
+    private async Task<BitmapImage?> LoadThumbnailFromFileAsync(string path, int maxSize, string cacheKey, CancellationToken ct)
+    {
         try
         {
-            var bitmapImage = new BitmapImage();
-            bitmapImage.DecodePixelWidth = maxSize;
+            var bitmapImage = new BitmapImage { DecodePixelWidth = maxSize };
 
             using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
             using var randomAccessStream = new InMemoryRandomAccessStream();
@@ -85,15 +121,37 @@ public class ImageLoader : IImageLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"LoadThumbnailAsync error for {path}: {ex}");
+            Trace.TraceError($"LoadThumbnailAsync error for {path}: {ex.Message}");
             return null;
         }
     }
 
-    public async Task<(int Width, int Height)?> GetImageSizeAsync(string path, CancellationToken ct = default)
+    private async Task<BitmapImage?> LoadThumbnailFromArchiveAsync(ImageSource source, int maxSize, string cacheKey, CancellationToken ct)
     {
-        if (!File.Exists(path)) return null;
+        try
+        {
+            var bitmapImage = new BitmapImage { DecodePixelWidth = maxSize };
 
+            using (var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!))
+            using (var randomAccessStream = new InMemoryRandomAccessStream())
+            {
+                await entryStream.CopyToAsync(randomAccessStream.AsStreamForWrite(), ct);
+                randomAccessStream.Seek(0);
+                await bitmapImage.SetSourceAsync(randomAccessStream);
+            }
+
+            SetCached(cacheKey, bitmapImage);
+            return bitmapImage;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"LoadThumbnailAsync archive error for {source}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static async Task<(int Width, int Height)?> GetSizeFromFileAsync(string path, CancellationToken ct)
+    {
         try
         {
             var bitmapImage = new BitmapImage();
@@ -107,7 +165,28 @@ public class ImageLoader : IImageLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"GetImageSizeAsync error for {path}: {ex}");
+            Trace.TraceError($"GetImageSizeAsync error for {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static async Task<(int Width, int Height)?> GetSizeFromArchiveAsync(ImageSource source, CancellationToken ct)
+    {
+        try
+        {
+            var bitmapImage = new BitmapImage();
+            using (var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!))
+            using (var randomAccessStream = new InMemoryRandomAccessStream())
+            {
+                await entryStream.CopyToAsync(randomAccessStream.AsStreamForWrite(), ct);
+                randomAccessStream.Seek(0);
+                await bitmapImage.SetSourceAsync(randomAccessStream);
+            }
+            return (bitmapImage.PixelWidth, bitmapImage.PixelHeight);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"GetImageSizeAsync archive error for {source}: {ex.Message}");
             return null;
         }
     }

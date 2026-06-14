@@ -126,7 +126,26 @@ public sealed partial class GalleryView : Page
     {
         if (_selectedItemForDelete == null) return;
 
-        var filePath = _selectedItemForDelete.Path;
+        var source = _selectedItemForDelete.Source;
+        if (source.IsInArchive)
+        {
+            // For archive entries we cannot "select" the entry inside the
+            // archive (Explorer does not understand zip contents). Open the
+            // archive's parent folder instead, so the user can at least see
+            // the .zip/.rar/.7z that holds the image.
+            var parent = System.IO.Path.GetDirectoryName(source.Path);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = parent,
+                    UseShellExecute = true
+                });
+            }
+            return;
+        }
+
+        var filePath = source.Path;
         if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
         {
             var startInfo = new System.Diagnostics.ProcessStartInfo

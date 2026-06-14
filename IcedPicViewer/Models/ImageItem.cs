@@ -1,3 +1,6 @@
+// Copyright (c) IcedPicViewer. All rights reserved.
+
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml.Media.Imaging;
 
@@ -5,9 +8,9 @@ namespace IcedPicViewer.Models;
 
 public partial class ImageItem : ObservableObject
 {
+    public ImageSource Source { get; private set; }
     public string Id { get; private set; }
     public string Name { get; private set; }
-    public string Path { get; private set; }
     public long FileSize { get; }
     public DateTime ModifiedTime { get; }
     public int OriginalWidth { get; }
@@ -20,17 +23,17 @@ public partial class ImageItem : ObservableObject
     private BitmapImage? _fullImage;
 
     public ImageItem(
-        string id,
-        string name,
-        string path,
+        ImageSource source,
         long fileSize,
         DateTime modifiedTime,
         int originalWidth,
         int originalHeight)
     {
-        Id = id;
-        Name = name;
-        Path = path;
+        Source = source;
+        Id = source.ToString();
+        Name = source.IsInArchive
+            ? Path.GetFileName(source.ArchiveEntry!)
+            : Path.GetFileName(source.Path);
         FileSize = fileSize;
         ModifiedTime = modifiedTime;
         OriginalWidth = originalWidth;
@@ -60,13 +63,15 @@ public partial class ImageItem : ObservableObject
     /// <summary>
     /// Rebind this item to a new on-disk path. Used when the FileSystemWatcher
     /// reports a rename — keeps the same ImageItem instance but updates its
-    /// identity, name, and path. Callers are responsible for re-inserting the
-    /// item into any collection so indexes refresh.
+    /// identity, name, and source. Callers are responsible for re-inserting
+    /// the item into any collection so indexes refresh.
     /// </summary>
-    public void UpdatePath(string newPath, string newName)
+    public void UpdateSource(ImageSource newSource)
     {
-        Id = newPath;
-        Name = newName;
-        Path = newPath;
+        Source = newSource;
+        Id = newSource.ToString();
+        Name = newSource.IsInArchive
+            ? Path.GetFileName(newSource.ArchiveEntry!)
+            : Path.GetFileName(newSource.Path);
     }
 }

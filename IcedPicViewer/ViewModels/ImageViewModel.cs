@@ -47,7 +47,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     public int ActualHeight => DisplayActualHeight > 0 ? DisplayActualHeight : CurrentImage?.OriginalHeight ?? 0;
 
-    public string ImagePath => CurrentImage?.Path ?? string.Empty;
+    public string ImagePath => CurrentImage?.Source.ToString() ?? string.Empty;
 
     partial void OnDisplayImageChanged(BitmapImage? value)
     {
@@ -262,7 +262,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         IsLoading = true;
         try
         {
-            using var stream = await _imageLoader.LoadImageStreamAsync(item.Path, ct);
+            using var stream = await _imageLoader.LoadImageStreamAsync(item.Source, ct);
 
             if (ct.IsCancellationRequested)
             {

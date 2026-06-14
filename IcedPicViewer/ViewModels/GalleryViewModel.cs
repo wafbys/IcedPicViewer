@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Models;
+using IcedPicViewer.Services.Implementations;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -33,13 +34,24 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     // Both LoadNextPageAsync (worker thread) and OnFileChanged (dispatcher thread) read/write
     // this list, so guard it with _remainingLock to avoid race conditions.
     private readonly object _remainingLock = new();
-    private List<string> _remainingFilePaths = new();
+    private List<ImageSource> _remainingFilePaths = new();
     private const int PageSize = 150;
 
-    // O(1) path → item lookup. Mirrors the Images collection; maintained via
-    // the CollectionChanged handler in the constructor. Windows paths are
-    // case-insensitive, so use OrdinalIgnoreCase.
-    private readonly Dictionary<string, ImageItem> _imageIndex = new(StringComparer.OrdinalIgnoreCase);
+    // O(1) source-id → item lookup. Mirrors the Images collection; maintained
+    // via the CollectionChanged handler in the constructor. Keys are
+    // ImageSource.ToString(), which is case-sensitive for archive entries
+    // (archive keys preserve the original case) and case-insensitive-friendly
+    // for loose files (Windows paths are case-insensitive, but the conflict
+    // would only occur if two files differ only in case, which FileSystem
+    // itself disallows on Windows).
+    private readonly Dictionary<string, ImageItem> _imageIndex = new(StringComparer.Ordinal);
+
+    // Files that the scanner encountered but could not read (e.g. a corrupt
+    // .zip with a valid extension). The scanner is fire-and-forget for
+    // these — we surface the count + first-failure in the status bar so the
+    // user can identify which file is the problem.
+    private readonly List<ScanError> _scanErrors = new();
+    private readonly IProgress<ScanError> _scanErrorProgress;
 
     [ObservableProperty]
     private LoadingState _loadingState;
@@ -82,7 +94,13 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         _imageLoader = imageLoader;
         _folderPicker = folderPicker;
 
-        // Keep the path → item index in sync with the observable collection.
+        // Progress<T> captures the sync context of the thread that created
+        // it (the UI thread here), so the callback is auto-dispatched back
+        // to the UI thread — safe to mutate StatusText / _scanErrors
+        // without explicit marshalling.
+        _scanErrorProgress = new Progress<ScanError>(err => _scanErrors.Add(err));
+
+        // Keep the source-id → item index in sync with the observable collection.
         // Avoids O(n) FirstOrDefault scans in OnFileChanged when collections grow.
         Images.CollectionChanged += OnImagesCollectionChanged;
     }
@@ -98,7 +116,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             foreach (ImageItem item in e.OldItems)
             {
-                _imageIndex.Remove(item.Path);
+                _imageIndex.Remove(item.Id);
             }
         }
 
@@ -106,7 +124,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             foreach (ImageItem item in e.NewItems)
             {
-                _imageIndex[item.Path] = item;
+                _imageIndex[item.Id] = item;
             }
         }
     }
@@ -153,7 +171,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             {
                 TotalCount--;
             }
-            _remainingFilePaths.Remove(item.Path);
+            _remainingFilePaths.RemoveAll(s => s.ToString() == item.Id);
             CanLoadMore = _remainingFilePaths.Count > 0;
 
             var loaded = Images.Count;
@@ -167,13 +185,33 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     public async Task DeleteImageAsync(ImageItem item)
     {
-        if (!File.Exists(item.Path)) return;
+        // Refuse to delete entries that live inside an archive: doing so would
+        // require rewriting the entire archive, and we do not implement that.
+        // Surface a real dialog rather than a silent status-bar message so the
+        // user understands why the click had no effect.
+        if (item.Source.IsInArchive)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "无法删除",
+                Content = $"压缩包内的图片 \"{item.Name}\" 不支持删除。\n\n" +
+                          $"如需删除，请在文件资源管理器中处理整个压缩包（{Path.GetFileName(item.Source.Path)}）。",
+                CloseButtonText = "确定",
+                DefaultButton = ContentDialogButton.Close
+            };
+            dialog.XamlRoot = App.MainWindow?.Content.XamlRoot;
+            await dialog.ShowAsync();
+            return;
+        }
+
+        var filePath = item.Source.Path;
+        if (!File.Exists(filePath)) return;
 
         bool useRecycleBin;
         try
         {
             useRecycleBin = DriveInfo.GetDrives()
-                .FirstOrDefault(d => d.Name == Path.GetPathRoot(item.Path))?.DriveType != DriveType.Network;
+                .FirstOrDefault(d => d.Name == Path.GetPathRoot(filePath))?.DriveType != DriveType.Network;
         }
         catch
         {
@@ -201,13 +239,13 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             if (useRecycleBin)
             {
                 Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
-                    item.Path,
+                    filePath,
                     Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
                     Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
             }
             else
             {
-                File.Delete(item.Path);
+                File.Delete(filePath);
             }
         }
         catch (Exception ex)
@@ -242,13 +280,19 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             }
             TotalCount = 0;
             CanLoadMore = false;
+            _scanErrors.Clear();
 
-            // First pass: discover all files (usually fast)
-            var allPaths = new List<string>();
-            await foreach (var filePath in _scanner.ScanAsync(path, recursive: true, extensions: _imageLoader.SupportedExtensions, ct: linkedCts.Token))
+            // First pass: discover all images (usually fast)
+            var allSources = new List<ImageSource>();
+            await foreach (var source in _scanner.ScanAsync(
+                path,
+                recursive: true,
+                extensions: _imageLoader.SupportedExtensions,
+                errorReporter: _scanErrorProgress,
+                ct: linkedCts.Token))
             {
                 if (linkedCts.Token.IsCancellationRequested) break;
-                allPaths.Add(filePath);
+                allSources.Add(source);
             }
 
             if (linkedCts.Token.IsCancellationRequested)
@@ -258,9 +302,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
             lock (_remainingLock)
             {
-                _remainingFilePaths = allPaths;
+                _remainingFilePaths = allSources;
             }
-            TotalCount = allPaths.Count;
+            TotalCount = allSources.Count;
 
             // Load first page
             await LoadNextPageAsync(linkedCts.Token);
@@ -298,7 +342,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     private async Task LoadNextPageAsync(CancellationToken ct)
     {
-        List<string> batch;
+        List<ImageSource> batch;
         lock (_remainingLock)
         {
             if (_remainingFilePaths.Count == 0)
@@ -311,12 +355,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             CanLoadMore = _remainingFilePaths.Count > 0;
         }
 
-        foreach (var filePath in batch)
+        foreach (var source in batch)
         {
             if (ct.IsCancellationRequested) break;
 
-            var fileInfo = new FileInfo(filePath);
-            var size = await _imageLoader.GetImageSizeAsync(filePath, ct);
+            (long size, DateTime mtime) = await GetSourceMetadataAsync(source, ct);
 
             // If a new LoadDirectoryAsync fired while we were awaiting above,
             // ct is now cancelled — abandon the rest of the batch. Items already
@@ -324,14 +367,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             if (ct.IsCancellationRequested) break;
 
             var item = new ImageItem(
-                id: filePath,
-                name: Path.GetFileName(filePath),
-                path: filePath,
-                fileSize: fileInfo.Exists ? fileInfo.Length : 0,
-                modifiedTime: fileInfo.Exists ? fileInfo.LastWriteTime : DateTime.MinValue,
-                originalWidth: size?.Width ?? 0,
-                originalHeight: size?.Height ?? 0
-            );
+                source: source,
+                fileSize: size,
+                modifiedTime: mtime,
+                originalWidth: 0,
+                originalHeight: 0);
 
             _dispatcher.TryEnqueue(() =>
             {
@@ -347,16 +387,71 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
+    /// Returns the (uncompressed size, modification time) for the given
+    /// source. For loose files this is just FileInfo. For archive entries
+    /// the size comes from the archive's central directory; the modification
+    /// time is the archive file's mtime (entry-level mtime is not reliably
+    /// exposed by SharpCompress and is uninteresting for cache invalidation
+    /// when the archive file itself is the source of truth).
+    /// </summary>
+    private static Task<(long Size, DateTime ModifiedTime)> GetSourceMetadataAsync(ImageSource source, CancellationToken ct)
+    {
+        if (!source.IsInArchive)
+        {
+            var info = new FileInfo(source.Path);
+            return Task.FromResult(
+                (info.Exists ? info.Length : 0L,
+                 info.Exists ? info.LastWriteTime : DateTime.MinValue));
+        }
+
+        return Task.Run(() =>
+        {
+            try
+            {
+                var archiveInfo = new FileInfo(source.Path);
+                var entries = ArchiveHelper.ListEntries(source.Path, extensionFilter: null);
+                foreach (var entry in entries)
+                {
+                    if (entry.Key == source.ArchiveEntry)
+                    {
+                        return (entry.UncompressedSize, archiveInfo.Exists ? archiveInfo.LastWriteTime : DateTime.MinValue);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"GetSourceMetadataAsync archive error for {source}: {ex.Message}");
+            }
+            return (0L, DateTime.MinValue);
+        }, ct);
+    }
+
+    /// <summary>
     /// Centralized status text formatter used after collection mutations so the
     /// "Loaded X / Y images" wording stays consistent across Created / Deleted /
-    /// LoadDirectory / LoadMore paths.
+    /// LoadDirectory / LoadMore paths. If the scanner reported any unreadable
+    /// files (typically a corrupt or unsupported archive), append a short
+    /// summary so the user knows which file to investigate.
     /// </summary>
     private void UpdateStatusText()
     {
         var loaded = Images.Count;
-        StatusText = (TotalCount > 0 && TotalCount != loaded)
+        string baseText = (TotalCount > 0 && TotalCount != loaded)
             ? $"Loaded {loaded} / {TotalCount} images"
             : $"Loaded {loaded} images";
+
+        if (_scanErrors.Count == 0)
+        {
+            StatusText = baseText;
+            return;
+        }
+
+        // Show the count + the first offender. Filename only — the full path
+        // is usually too long for the status bar.
+        var first = Path.GetFileName(_scanErrors[0].Path);
+        StatusText = _scanErrors.Count == 1
+            ? $"{baseText} — 1 file skipped ({first}: {_scanErrors[0].Reason})"
+            : $"{baseText} — {_scanErrors.Count} files skipped (first: {first})";
     }
 
     private void StartWatching(string path)
@@ -372,7 +467,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // network share dropped, etc.) — just surface the failure to the user
             // and keep the gallery working.
             _fileWatcher = null;
-            Trace.TraceError($"StartWatching failed for {path}: {ex}");
+            Trace.TraceError($"StartWatching failed for {path}: {ex.Message}");
             StatusText = $"File monitoring unavailable: {ex.Message}";
         }
     }
@@ -392,84 +487,235 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 switch (info.ChangeType)
                 {
                     case WatchChangeType.Created:
-                        if (!_imageLoader.IsSupportedFormat(info.Path)) return;
-                        if (_imageIndex.ContainsKey(info.Path)) return;
-                        var fileInfo = new FileInfo(info.Path);
-                        if (!fileInfo.Exists) return;
-                        var size = await _imageLoader.GetImageSizeAsync(info.Path, CancellationToken.None);
-                        var newItem = new ImageItem(
-                            id: info.Path,
-                            name: Path.GetFileName(info.Path),
-                            path: info.Path,
-                            fileSize: fileInfo.Length,
-                            modifiedTime: fileInfo.LastWriteTime,
-                            originalWidth: size?.Width ?? 0,
-                            originalHeight: size?.Height ?? 0
-                        );
-                        Images.Add(newItem);
-                        TotalCount++;
-                        UpdateStatusText();
-                        await LoadThumbnailAsync(newItem, CancellationToken.None);
+                        await HandleCreatedAsync(info, token);
                         break;
 
                     case WatchChangeType.Deleted:
-                        if (_imageIndex.TryGetValue(info.Path, out var itemToRemove))
-                        {
-                            Images.Remove(itemToRemove);
-                            if (TotalCount > 0)
-                            {
-                                TotalCount--;
-                            }
-                            lock (_remainingLock)
-                            {
-                                _remainingFilePaths.Remove(info.Path);
-                            }
-                            CanLoadMore = _remainingFilePaths.Count > 0;
-                            UpdateStatusText();
-                        }
+                        HandleDeleted(info);
                         break;
 
-                case WatchChangeType.Modified:
-                    if (_imageIndex.TryGetValue(info.Path, out var modifiedItem))
-                    {
-                        modifiedItem.Thumbnail = null;
-                        modifiedItem.FullImage = null;
-                        await LoadThumbnailAsync(modifiedItem, CancellationToken.None);
-                        if (token.IsCancellationRequested) return;
-                    }
-                    break;
+                    case WatchChangeType.Modified:
+                        await HandleModifiedAsync(info, token);
+                        break;
 
-                case WatchChangeType.Renamed:
-                    // The watcher delivers Renamed with NewPath = info.Path, OldPath = info.OldPath.
-                    // We need to rebind the existing item to the new path so the index stays consistent.
-                    if (info.OldPath != null && _imageIndex.TryGetValue(info.OldPath, out var renamedItem))
-                    {
-                        Images.Remove(renamedItem);  // triggers index removal on OldPath
-                        renamedItem.UpdatePath(info.Path, Path.GetFileName(info.Path));
-                        Images.Add(renamedItem);     // triggers index insertion on NewPath
-                        renamedItem.Thumbnail = null;
-                        renamedItem.FullImage = null;
-                        await LoadThumbnailAsync(renamedItem, CancellationToken.None);
-                        if (token.IsCancellationRequested) return;
-                    }
-                    break;
+                    case WatchChangeType.Renamed:
+                        await HandleRenamedAsync(info, token);
+                        break;
                 }
             }
             catch (Exception ex)
             {
-                Trace.TraceError($"OnFileChanged error for {info.Path} ({info.ChangeType}): {ex}");
+                Trace.TraceError($"OnFileChanged error for {info.Path} ({info.ChangeType}): {ex.Message}");
             }
         });
+    }
+
+    private async Task HandleCreatedAsync(FileChangeInfo info, CancellationToken token)
+    {
+        if (!File.Exists(info.Path)) return;
+
+        if (ArchiveHelper.IsArchiveFileName(info.Path) && ArchiveHelper.IsArchive(info.Path))
+        {
+            // A new archive appeared: open it and add every image entry to the gallery.
+            var (newItems, error) = await AddArchiveEntriesAsync(info.Path, token);
+            if (error is not null)
+            {
+                _scanErrors.Add(error);
+                UpdateStatusText();
+            }
+            if (newItems.Count > 0)
+            {
+                TotalCount += newItems.Count;
+                UpdateStatusText();
+                foreach (var newItem in newItems)
+                {
+                    _ = LoadThumbnailAsync(newItem, CancellationToken.None);
+                }
+            }
+            return;
+        }
+
+        if (!_imageLoader.IsSupportedFormat(info.Path)) return;
+        if (_imageIndex.ContainsKey(ImageSource.FromFile(info.Path).ToString())) return;
+
+        var (size, mtime) = await GetSourceMetadataAsync(ImageSource.FromFile(info.Path), token);
+        if (token.IsCancellationRequested) return;
+
+        var item = new ImageItem(
+            source: ImageSource.FromFile(info.Path),
+            fileSize: size,
+            modifiedTime: mtime,
+            originalWidth: 0,
+            originalHeight: 0);
+
+        Images.Add(item);
+        TotalCount++;
+        UpdateStatusText();
+        await LoadThumbnailAsync(item, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Enumerates image entries in the given archive and creates an
+    /// <see cref="ImageItem"/> for each. Returns the list of items plus an
+    /// optional <see cref="ScanError"/> if the archive could not be read at
+    /// all (caller surfaces it in the status bar alongside initial scan
+    /// errors).
+    /// </summary>
+    private async Task<(List<ImageItem> Items, ScanError? Error)> AddArchiveEntriesAsync(
+        string archivePath, CancellationToken token)
+    {
+        var result = new List<ImageItem>();
+        try
+        {
+            var archiveInfo = new FileInfo(archivePath);
+            var mtime = archiveInfo.Exists ? archiveInfo.LastWriteTime : DateTime.MinValue;
+
+            await Task.Run(() =>
+            {
+                var entries = ArchiveHelper.ListEntries(archivePath, _imageLoader.SupportedExtensions
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase));
+                foreach (var entry in entries)
+                {
+                    if (token.IsCancellationRequested) break;
+                    var source = ImageSource.FromArchive(archivePath, entry.Key);
+                    if (_imageIndex.ContainsKey(source.ToString())) continue;
+                    result.Add(new ImageItem(
+                        source: source,
+                        fileSize: entry.UncompressedSize,
+                        modifiedTime: mtime,
+                        originalWidth: 0,
+                        originalHeight: 0));
+                }
+            }, token);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"AddArchiveEntriesAsync error for {archivePath}: {ex.Message}");
+            return (result, new ScanError(archivePath, ClassifyArchiveError(ex)));
+        }
+        return (result, null);
+    }
+
+    /// <summary>
+    /// Maps a SharpCompress / IO exception to a short reason suitable for
+    /// the status bar. Same logic as the scanner-side classifier; duplicated
+    /// here because this code path (FileSystemWatcher → add new archive)
+    /// never goes through the scanner.
+    /// </summary>
+    private static string ClassifyArchiveError(Exception ex) => ex switch
+    {
+        FileNotFoundException => "file missing",
+        IOException => "I/O error",
+        UnauthorizedAccessException => "access denied",
+        _ => "unsupported or corrupt archive"
+    };
+
+    private void HandleDeleted(FileChangeInfo info)
+    {
+        // Direct image deletion (e.g. a loose .jpg removed): match by id.
+        var directId = ImageSource.FromFile(info.Path).ToString();
+        if (_imageIndex.TryGetValue(directId, out var directItem))
+        {
+            Images.Remove(directItem);
+            if (TotalCount > 0) TotalCount--;
+            lock (_remainingLock)
+            {
+                _remainingFilePaths.RemoveAll(s => s.ToString() == directId);
+            }
+            CanLoadMore = _remainingFilePaths.Count > 0;
+            UpdateStatusText();
+            return;
+        }
+
+        // Archive deletion: remove every entry whose source points at the
+        // gone archive. Match the Source.Path (case-insensitive to mirror
+        // Windows file lookup).
+        var toRemove = _imageIndex.Values
+            .Where(item => string.Equals(item.Source.Path, info.Path, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (toRemove.Count == 0) return;
+
+        foreach (var item in toRemove)
+        {
+            Images.Remove(item);
+        }
+        if (TotalCount >= toRemove.Count) TotalCount -= toRemove.Count;
+        UpdateStatusText();
+    }
+
+    private async Task HandleModifiedAsync(FileChangeInfo info, CancellationToken token)
+    {
+        // The watcher only reports the file path, not which archive entry
+        // changed, so Modified on an archive is too coarse to act on — the
+        // safest behaviour is to leave the existing thumbnails alone.
+        if (ArchiveHelper.IsArchiveFileName(info.Path)) return;
+
+        var id = ImageSource.FromFile(info.Path).ToString();
+        if (!_imageIndex.TryGetValue(id, out var modifiedItem)) return;
+        modifiedItem.Thumbnail = null;
+        modifiedItem.FullImage = null;
+        await LoadThumbnailAsync(modifiedItem, CancellationToken.None);
+        if (token.IsCancellationRequested) return;
+    }
+
+    private async Task HandleRenamedAsync(FileChangeInfo info, CancellationToken token)
+    {
+        // Archive renames: the new archive may contain the same entries
+        // (likely, if it was a simple rename) — easiest correct behaviour is
+        // to drop the entries from the old path and re-add from the new path.
+        if (info.OldPath != null && ArchiveHelper.IsArchiveFileName(info.OldPath))
+        {
+            var oldPathItems = _imageIndex.Values
+                .Where(item => string.Equals(item.Source.Path, info.OldPath, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var item in oldPathItems)
+            {
+                Images.Remove(item);
+            }
+            if (TotalCount >= oldPathItems.Count) TotalCount -= oldPathItems.Count;
+
+            if (File.Exists(info.Path) && ArchiveHelper.IsArchive(info.Path))
+            {
+                var (newItems, error) = await AddArchiveEntriesAsync(info.Path, token);
+                if (error is not null)
+                {
+                    _scanErrors.Add(error);
+                }
+                TotalCount += newItems.Count;
+                foreach (var newItem in newItems)
+                {
+                    _ = LoadThumbnailAsync(newItem, CancellationToken.None);
+                }
+            }
+            UpdateStatusText();
+            return;
+        }
+
+        if (info.OldPath == null) return;
+        var oldId = ImageSource.FromFile(info.OldPath).ToString();
+        if (!_imageIndex.TryGetValue(oldId, out var renamedItem)) return;
+
+        Images.Remove(renamedItem);  // triggers index removal on OldPath
+        renamedItem.UpdateSource(ImageSource.FromFile(info.Path));
+        Images.Add(renamedItem);     // triggers index insertion on NewPath
+        renamedItem.Thumbnail = null;
+        renamedItem.FullImage = null;
+        await LoadThumbnailAsync(renamedItem, CancellationToken.None);
+        if (token.IsCancellationRequested) return;
+        UpdateStatusText();
     }
 
     private async Task LoadThumbnailAsync(ImageItem item, CancellationToken ct)
     {
         if (item.Thumbnail != null)
         {
-            var fileInfo = new FileInfo(item.Path);
-            if (fileInfo.Exists && fileInfo.LastWriteTime == item.ModifiedTime)
+            if (!item.Source.IsInArchive && File.Exists(item.Source.Path))
             {
-                return;
+                var fileInfo = new FileInfo(item.Source.Path);
+                if (fileInfo.LastWriteTime == item.ModifiedTime)
+                {
+                    return;
+                }
             }
             item.Thumbnail = null;
         }
@@ -477,7 +723,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         await _thumbnailLoadSemaphore.WaitAsync(ct);
         try
         {
-            var thumbnail = await _imageLoader.LoadThumbnailAsync(item.Path, 400, ct);
+            var thumbnail = await _imageLoader.LoadThumbnailAsync(item.Source, 400, ct);
             if (thumbnail != null)
             {
                 _dispatcher.TryEnqueue(() =>
@@ -488,7 +734,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"LoadThumbnailAsync error for {item.Path}: {ex}");
+            Trace.TraceError($"LoadThumbnailAsync error for {item.Id}: {ex.Message}");
         }
         finally
         {

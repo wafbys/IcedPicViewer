@@ -1,5 +1,57 @@
 # 更新日志
 
+## v0.12.0 (2026-06-14)
+
+**主题:支持读取压缩包中的图片(ZIP / RAR / 7Z + tar.gz/bz2/xz)**
+
+Open Folder 选目录后,会自动把目录中所有压缩包内的图片也展平到瀑布流中,与普通图片一起浏览。不需要新按钮、不需要新页面,XAML 绑定不动。
+
+**改动**:
+
+- `IcedPicViewer.csproj`: 新增 `SharpCompress 0.49.1` PackageReference(纯 C#,无 native 依赖,framework-dependent publish 不受影响)。
+- `Models/ImageSource.cs` (新): `readonly record struct`,统一表达"图片来源"——普通文件(`Path`)或压缩包条目(`Path` = 压缩包路径, `ArchiveEntry` = 条目内路径)。`ToString()` 输出 `path` 或 `path!entry` 作为唯一 Id + 缓存 key。
+- `Models/ImageItem.cs`: `Path` 字段升级为 `Source: ImageSource`。`Name` 压缩包条目显示条目文件名(`photo.jpg` 而非 `photo.jpg (inside my.zip)`),保持瀑布流简洁。`FileSize` 对压缩包条目显示解压后大小(用户更关心图本身多大);`ModifiedTime` 用压缩包文件 mtime 作为失效信号。`UpdatePath` → `UpdateSource(ImageSource)`。
+- `Services/Implementations/ArchiveHelper.cs` (新): 静态类,封装 SharpCompress 的 `ReaderFactory.OpenReader` + `ArchiveFactory.IsArchive`。`ListEntries` 走 `ReaderFactory`(兼容 7z / solid RAR 顺序读);`OpenEntryStream` **直接物化到 `MemoryStream`** 返回(避免 `BitmapImage` 在 `InputStreamOverStream` 上解码陷入 stuck loading 状态导致黑屏)。`IsArchive` 用 magic byte 嗅探,损坏文件 → 返回 false,被扫描器自动跳过。
+- `Services/Implementations/ImageLoader.cs` + `Interfaces/IImageLoader.cs`: 三个方法签名 `string path` → `ImageSource source`,内部分支处理普通文件 vs 压缩包条目。压缩包缩略图/尺寸走"解压 → 拷到 `InMemoryRandomAccessStream` → BitmapImage.SetSourceAsync",和文件分支同套路;LRU 缓存 key 改为 `source.ToString()`,条目级隔离。
+- `Services/Implementations/DirectoryScanner.cs` + `Interfaces/IDirectoryScanner.cs`: `ScanAsync` 返回类型 `IAsyncEnumerable<string>` → `IAsyncEnumerable<ImageSource>`。扫描时遇到扩展名在 `ArchiveHelper.ArchiveExtensions` 中(`.zip`/`.rar`/`.7z`/`.tar`/`.tgz` + 复合 `.tar.gz`/`.tar.bz2`/`.tar.xz`/`.tar.zst`)且 magic byte 匹配的文件,打开并枚举条目。新增 `IProgress<ScanError>?` 参数,扫描过程中遇到读不了的文件(损坏/加密/格式不支持)通过 `ScanError(Path, Reason)` 上报,`GalleryViewModel` 在状态栏汇总"跳过了 N 个文件,首个:xxx.zip"。
+- `Services/Interfaces/ScanError.cs` (新): 简单的 `record` (`Path`, `Reason`),`Reason` 是 `ClassifyArchiveError` 映射的简短描述(`"unsupported or corrupt archive"` / `"I/O error"` / `"file missing"` / `"access denied"`),不暴露 SharpCompress 的技术消息。
+- `ViewModels/GalleryViewModel.cs`: 大改。
+  - `_remainingFilePaths` 类型 `List<string>` → `List<ImageSource>`。
+  - `_imageIndex` 改用 `StringComparer.Ordinal`(压缩包 entry key 大小写敏感,Windows 路径系统本身已防重名)。
+  - 新增 `_scanErrors` + `_scanErrorProgress` 字段,`UpdateStatusText` 把跳过的文件数 + 首个文件名拼到状态栏。
+  - `LoadNextPageAsync` 用新增的 `GetSourceMetadataAsync` helper(普通文件用 `FileInfo`,压缩包条目走 `ArchiveHelper.ListEntries` 查 uncompressed size + 用压缩包 mtime)。
+  - `OnFileChanged` 拆成 4 个 `Handle*Async` 方法,加压缩包分支:
+    - **Created**: 若是新压缩包 → `AddArchiveEntriesAsync` 打开 + 加所有条目(失败也报告到 `_scanErrors`);若是新图片 → 现有逻辑。
+    - **Deleted**: 先按 `Id` 直接匹配(普通图片);未命中则遍历 `_imageIndex` 找 `Source.Path` 匹配的所有条目(整个压缩包被删)。
+    - **Modified**: 压缩包文件忽略(FileSystemWatcher 粒度太粗,无法定位到具体 entry;安全行为是保留旧缩略图)。
+    - **Renamed**: 压缩包重命名 → 删旧 + 重新扫描新路径;普通文件 → 现有 `UpdateSource` 逻辑。
+  - `DeleteImageAsync` 入口判断 `Source.IsInArchive` → **弹 `ContentDialog` 说明原因**(标题"无法删除",正文带文件名 + 建议到文件资源管理器处理整个压缩包),而非静默改 `StatusText`(用户已反馈原实现无任何提示)。
+  - `LoadThumbnailAsync` 的 mtime 缓存检查对压缩包条目跳过(压缩包 mtime 已在 `ModifiedTime` 字段,但条目级失效需要重读整个压缩包,保留旧缩略图更轻量)。
+- `ViewModels/ImageViewModel.cs`: `LoadFullImageAsync` 用 `item.Source`;`ImagePath` 派生属性显示 `Source.ToString()`(普通文件 = 路径;压缩包条目 = `path!entry`)。
+- `Views/GalleryView.xaml.cs` + `Views/ImageViewerView.xaml.cs`: `OpenFileLocation_Click` 对压缩包条目改为打开压缩包所在**父目录**(Explorer 不能 `/select` 一个 zip 内的条目)。
+- `ViewModels/GalleryViewModel.AddArchiveEntriesAsync` / `HandleRenamedAsync` 中对 `ArchiveHelper.ListEntries` 的调用走 `Task.Run` 避免阻塞 dispatcher。
+- 编译期 baseline: 0 errors / 17 warnings,全部是 pre-existing MVVMTK0045(关于 `[ObservableProperty]` 在 WinRT 场景的 AOT 兼容建议,本次改动未引入新 warning,未触及这些字段)。
+
+**已决定的取舍**:
+
+- **不支持嵌套压缩包**(`a.zip` 里的 `b.zip`):`ArchiveHelper.ListEntries` 的扩展名过滤只放图片扩展名,zip 扩展名被过滤掉,自然不递归。如未来需要,把过滤集合扩展即可。
+- **不支持加密压缩包**:SharpCompress 抛 `EncryptedArchiveException` → `ArchiveHelper.ListEntries` 内部 try-catch 记录 + 跳过(整个压缩包静默跳过,不打断扫描)。
+- **不重写压缩包**(删除压缩包内的条目):`DeleteImageAsync` 入口**弹 `ContentDialog` 拒绝**,状态栏会被覆盖,所以不依赖静默 `StatusText`。
+- **压缩包文件的 Modified 事件忽略**:粒度太粗,改一个 entry 也要重读整个压缩包才能确认。
+- **`OpenEntryStream` 物化到 `MemoryStream`**:`BitmapImage.SetSourceAsync` 在 `InputStreamOverStream`(非 seekable 的 `IRandomAccessStream` 包装)上有观察到 stuck loading 状态(用户报告"打开压缩包内图片黑屏"),直接物化保证给 WIC 解码器一个 seekable 源,代价是解压后字节数的一次性内存占用(典型 1-20 MB,可接受)。
+- **不缓存 archive 句柄**:每次 `LoadThumbnailAsync` / `GetSizeAsync` 都新开 archive + 关闭。对于 < 100 张图的压缩包,中央目录读取 + 关闭成本很低(微秒级);超过 1000 张图的大压缩包,后续版本可加 LRU 句柄池。
+- **不压缩 LRU 缓存的 archive entry key 重复问题**:`source.ToString()` 用 `!` 分隔,跟 Windows 文件路径里几乎不存在的 `!` 字符不冲突,即使冲突也是不同源,缓存隔离正确。
+- **ScanError 只在状态栏展示首个 + 计数**:不弹窗,避免每个坏文件都打扰用户;不写 log 文件,避免产生大量输出。
+
+**手动验证清单**(未跑——环境是 headless 终端,WinUI app 需要交互):
+
+1. 准备测试目录:几张直接图片 + 1-2 个 zip(含 jpg/png/webp) + 1 个损坏 zip + 1 个加密 zip。
+2. Open Folder → 瀑布流显示所有图片(直接 + 压缩包内平铺),缩略图正常。状态栏:`Loaded N images — 1 file skipped (bad.zip: unsupported or corrupt archive)` 之类。
+3. 双击压缩包内图片 → 单图模式全尺寸**正常显示**(v0.12.0 修复了 `InputStreamOverStream` stuck loading 导致的黑屏)。
+4. 右键压缩包内图片 → 弹 `ContentDialog` 标题"无法删除",确认按钮关闭;打开文件位置打开父目录。
+5. 滚动到底 → 增量加载对压缩包条目同样工作。
+6. 删除 / 重命名压缩包文件 → FileWatcher 联动正常,失败时也会进状态栏。
+
 ## v0.11.0 (2026-06-03)
 
 **主题:修 0xC0000602 启动崩溃 + 改 framework-dependent 发布模式**

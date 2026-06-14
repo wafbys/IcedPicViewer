@@ -52,6 +52,14 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
 
+    <!--
+      Archive support: ZIP + RAR + 7Z (and tar/gz) read-only access for scanning
+      picture files inside archives. Pure managed, no native dependencies, so the
+      framework-dependent publish profile is unaffected. Per SharpCompress docs
+      we use ArchiveFactory.Open(ArchiveType) overloads or let the factory sniff.
+    -->
+    <PackageReference Include="SharpCompress" Version="0.49.1" />
+
     <!-- Static Analysis -->
     <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="*" />
   </ItemGroup>
