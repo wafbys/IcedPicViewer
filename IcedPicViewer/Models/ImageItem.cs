@@ -61,6 +61,27 @@ public partial class ImageItem : ObservableObject
         : "Unknown";
 
     /// <summary>
+    /// Where this image physically lives, formatted for the masonry overlay:
+    ///   - loose file: parent directory (e.g. <c>C:\Users\foo\photos\sub</c>)
+    ///   - archive entry: the archive's own filename (e.g. <c>photos.zip</c>),
+    ///     since the entry path inside the archive is not a real on-disk path
+    ///     and showing the archive's full path makes the overlay too long
+    ///     to be useful in a small tile.
+    /// </summary>
+    public string DisplayLocation
+    {
+        get
+        {
+            if (Source.IsInArchive)
+            {
+                return Path.GetFileName(Source.Path);
+            }
+            var dir = Path.GetDirectoryName(Source.Path);
+            return string.IsNullOrEmpty(dir) ? "" : dir;
+        }
+    }
+
+    /// <summary>
     /// Rebind this item to a new on-disk path. Used when the FileSystemWatcher
     /// reports a rename — keeps the same ImageItem instance but updates its
     /// identity, name, and source. Callers are responsible for re-inserting

@@ -127,24 +127,11 @@ public sealed partial class GalleryView : Page
         if (_selectedItemForDelete == null) return;
 
         var source = _selectedItemForDelete.Source;
-        if (source.IsInArchive)
-        {
-            // For archive entries we cannot "select" the entry inside the
-            // archive (Explorer does not understand zip contents). Open the
-            // archive's parent folder instead, so the user can at least see
-            // the .zip/.rar/.7z that holds the image.
-            var parent = System.IO.Path.GetDirectoryName(source.Path);
-            if (!string.IsNullOrEmpty(parent))
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = parent,
-                    UseShellExecute = true
-                });
-            }
-            return;
-        }
-
+        // For archive entries we can't select the entry itself (Explorer
+        // doesn't understand zip/rar/7z contents), so highlight the
+        // containing archive file instead. The user immediately sees
+        // which .zip / .rar / .7z the image is inside, which is the
+        // actionable "where is this file" answer.
         var filePath = source.Path;
         if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
         {

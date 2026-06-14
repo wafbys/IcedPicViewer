@@ -120,8 +120,23 @@
   -->
   <Target Name="SyncWinUIBuildOutputToPublish" AfterTargets="Publish" Condition="'$(WindowsPackageType)' == 'None' and Exists('$(OutDir)') and '$(PublishDir)' != ''">
     <ItemGroup>
-      <_WinUIPublishFiles Include="$(OutDir)**\*.xbf" />
-      <_WinUIPublishFiles Include="$(OutDir)**\*.pri" />
+      <!--
+        The recursive `**\*.xbf` / `**\*.pri` globs are required to catch
+        view XAMLs that live under `Views\` (so %(RecursiveDir) is
+        `\Views\` and the Copy destination ends up as
+        $(PublishDir)\Views\...). $(PublishDir) in this project is
+        $(OutDir)\publish\, so the globs WOULD also include files in
+        that `publish\` subdir after the first run — and the Copy
+        destination would re-write them at $(PublishDir)\publish\...
+        (self-amplifying nesting bug, observed 2026-06-14).
+
+        Fix: explicitly Exclude the publish\ subdir from the globs.
+        Subdirs (Assets/, Views/, Microsoft.UI.Xaml/) are still listed
+        below for clarity and to give them their own skip-if-missing
+        guards, even though the recursive globs already cover them.
+      -->
+      <_WinUIPublishFiles Include="$(OutDir)**\*.xbf" Exclude="$(OutDir)publish\**" />
+      <_WinUIPublishFiles Include="$(OutDir)**\*.pri" Exclude="$(OutDir)publish\**" />
       <_WinUIPublishFiles Include="$(OutDir)Assets\**\*" Condition="Exists('$(OutDir)Assets')" />
       <_WinUIPublishFiles Include="$(OutDir)Views\**\*" Condition="Exists('$(OutDir)Views')" />
       <_WinUIPublishFiles Include="$(OutDir)Microsoft.UI.Xaml\**\*" Condition="Exists('$(OutDir)Microsoft.UI.Xaml')" />

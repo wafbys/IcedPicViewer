@@ -24,23 +24,12 @@ public sealed partial class ImageViewerView : Page
         if (DataContext is ImageViewModel vm && vm.CurrentImage != null)
         {
             var source = vm.CurrentImage.Source;
-            if (source.IsInArchive)
-            {
-                // Explorer cannot select an entry inside a zip; fall back to
-                // opening the archive's parent folder so the user can at
-                // least find the archive file.
-                var parent = System.IO.Path.GetDirectoryName(source.Path);
-                if (!string.IsNullOrEmpty(parent))
-                {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = parent,
-                        UseShellExecute = true
-                    });
-                }
-                return;
-            }
-
+            // For archive entries we can't select the entry itself
+            // (Explorer doesn't understand zip/rar/7z contents), so
+            // highlight the containing archive file instead. The user
+            // immediately sees which .zip / .rar / .7z the image is
+            // inside, which is the actionable "where is this file"
+            // answer.
             var filePath = source.Path;
             if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
             {

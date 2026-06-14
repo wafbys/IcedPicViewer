@@ -77,6 +77,12 @@
                                             <Run Text=" · "/>
                                             <Run Text="{Binding FileSizeText}"/>
                                         </TextBlock>
+                                        <TextBlock Text="{Binding DisplayLocation}"
+                                                   Foreground="#999"
+                                                   FontSize="10"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   MaxWidth="200"
+                                                   ToolTipService.ToolTip="{Binding DisplayLocation}"/>
                                     </StackPanel>
                                 </Border>
                             </Grid>
