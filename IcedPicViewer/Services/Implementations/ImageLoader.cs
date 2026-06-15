@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml.Media.Imaging;
-using Windows.Storage.Streams;
 
 namespace IcedPicViewer.Services.Implementations;
 
@@ -109,12 +108,11 @@ public class ImageLoader : IImageLoader
         {
             var bitmapImage = new BitmapImage { DecodePixelWidth = maxSize };
 
+            // Stream the file directly to the WIC decoder. With DecodePixelWidth
+            // set, the decoder pulls only enough bytes to produce the target
+            // resolution — no need to buffer the whole image into RAM.
             using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
-            using var randomAccessStream = new InMemoryRandomAccessStream();
-            await fileStream.CopyToAsync(randomAccessStream.AsStreamForWrite(), ct);
-            randomAccessStream.Seek(0);
-
-            await bitmapImage.SetSourceAsync(randomAccessStream);
+            await bitmapImage.SetSourceAsync(fileStream.AsRandomAccessStream());
 
             SetCached(cacheKey, bitmapImage);
             return bitmapImage;
@@ -132,13 +130,13 @@ public class ImageLoader : IImageLoader
         {
             var bitmapImage = new BitmapImage { DecodePixelWidth = maxSize };
 
-            using (var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!))
-            using (var randomAccessStream = new InMemoryRandomAccessStream())
-            {
-                await entryStream.CopyToAsync(randomAccessStream.AsStreamForWrite(), ct);
-                randomAccessStream.Seek(0);
-                await bitmapImage.SetSourceAsync(randomAccessStream);
-            }
+            // ArchiveHelper.OpenEntryStream already materialises the entry into
+            // a seekable MemoryStream (SharpCompress's stream is forward-only
+            // and a non-seekable IRandomAccessStream makes BitmapImage render
+            // black). Pass it straight through; DecodePixelWidth keeps WIC
+            // from decoding the full-resolution image into managed memory.
+            using var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
+            await bitmapImage.SetSourceAsync(entryStream.AsRandomAccessStream());
 
             SetCached(cacheKey, bitmapImage);
             return bitmapImage;
@@ -156,11 +154,7 @@ public class ImageLoader : IImageLoader
         {
             var bitmapImage = new BitmapImage();
             using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
-            using var randomAccessStream = new InMemoryRandomAccessStream();
-            await fileStream.CopyToAsync(randomAccessStream.AsStreamForWrite(), ct);
-            randomAccessStream.Seek(0);
-            await bitmapImage.SetSourceAsync(randomAccessStream);
-
+            await bitmapImage.SetSourceAsync(fileStream.AsRandomAccessStream());
             return (bitmapImage.PixelWidth, bitmapImage.PixelHeight);
         }
         catch (Exception ex)
@@ -175,13 +169,8 @@ public class ImageLoader : IImageLoader
         try
         {
             var bitmapImage = new BitmapImage();
-            using (var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!))
-            using (var randomAccessStream = new InMemoryRandomAccessStream())
-            {
-                await entryStream.CopyToAsync(randomAccessStream.AsStreamForWrite(), ct);
-                randomAccessStream.Seek(0);
-                await bitmapImage.SetSourceAsync(randomAccessStream);
-            }
+            using var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
+            await bitmapImage.SetSourceAsync(entryStream.AsRandomAccessStream());
             return (bitmapImage.PixelWidth, bitmapImage.PixelHeight);
         }
         catch (Exception ex)
