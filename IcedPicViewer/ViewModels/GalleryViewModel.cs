@@ -12,7 +12,6 @@ using IcedPicViewer.Services.Implementations;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 
 namespace IcedPicViewer.ViewModels;
 
@@ -21,6 +20,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private readonly IDirectoryScanner _scanner;
     private readonly IImageLoader _imageLoader;
     private readonly IFolderPickerService _folderPicker;
+    private readonly IDialogService _dialogService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
     private CancellationTokenSource? _loadCts;
@@ -88,11 +88,13 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     public GalleryViewModel(
         IDirectoryScanner scanner,
         IImageLoader imageLoader,
-        IFolderPickerService folderPicker)
+        IFolderPickerService folderPicker,
+        IDialogService dialogService)
     {
         _scanner = scanner;
         _imageLoader = imageLoader;
         _folderPicker = folderPicker;
+        _dialogService = dialogService;
 
         // Progress<T> captures the sync context of the thread that created
         // it (the UI thread here), so the callback is auto-dispatched back
@@ -191,16 +193,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         // user understands why the click had no effect.
         if (item.Source.IsInArchive)
         {
-            var dialog = new ContentDialog
-            {
-                Title = "无法删除",
-                Content = $"压缩包内的图片 \"{item.Name}\" 不支持删除。\n\n" +
-                          $"如需删除，请在文件资源管理器中处理整个压缩包（{Path.GetFileName(item.Source.Path)}）。",
-                CloseButtonText = "确定",
-                DefaultButton = ContentDialogButton.Close
-            };
-            dialog.XamlRoot = App.MainWindow?.Content.XamlRoot;
-            await dialog.ShowAsync();
+            await _dialogService.ShowInfoAsync(
+                "无法删除",
+                $"压缩包内的图片 \"{item.Name}\" 不支持删除。\n\n" +
+                $"如需删除，请在文件资源管理器中处理整个压缩包（{Path.GetFileName(item.Source.Path)}）。",
+                closeButtonText: "确定");
             return;
         }
 
@@ -220,18 +217,13 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
         if (!useRecycleBin)
         {
-            var dialog = new ContentDialog
-            {
-                Title = "确认删除",
-                Content = $"确定要永久删除 \"{item.Name}\" 吗？此操作无法撤销。",
-                PrimaryButtonText = "删除",
-                CloseButtonText = "取消",
-                DefaultButton = ContentDialogButton.Close
-            };
-
-            dialog.XamlRoot = App.MainWindow?.Content.XamlRoot;
-            var result = await dialog.ShowAsync();
-            if (result != ContentDialogResult.Primary) return;
+            var confirmed = await _dialogService.ShowConfirmAsync(
+                "确认删除",
+                $"确定要永久删除 \"{item.Name}\" 吗？此操作无法撤销。",
+                primaryButtonText: "删除",
+                closeButtonText: "取消",
+                defaultIsPrimary: false);
+            if (!confirmed) return;
         }
 
         try
