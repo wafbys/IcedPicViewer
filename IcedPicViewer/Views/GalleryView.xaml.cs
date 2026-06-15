@@ -227,10 +227,9 @@ public sealed partial class GalleryView : Page
     /// </summary>
     private void OnGalleryViewUnloaded(object sender, RoutedEventArgs e)
     {
-        // Clean up resources but DON'T unsubscribe from Unloaded itself — if the
-        // page is reused by the Frame cache, this handler still needs to fire
-        // on subsequent Unloads to clean up resources allocated during the new
-        // Loaded/InitializeComponent cycle.
+        // RootFrame 在本项目里没有配置 CacheSize，所以页面不会被 Frame 缓存复用
+        // —— 一旦 Unloaded 触发就应该彻底解订，避免 GalleryView 自身被 Frame
+        // 通过 Unloaded 事件保持强引用，连带泄漏 ViewModel 和 DispatcherQueueTimer。
         MainScrollViewer.ViewChanged -= OnMainScrollViewerViewChanged;
 
         if (_loadMoreDebounceTimer != null)
@@ -239,5 +238,7 @@ public sealed partial class GalleryView : Page
             _loadMoreDebounceTimer.Stop();
             _loadMoreDebounceTimer = null;
         }
+
+        Unloaded -= OnGalleryViewUnloaded;
     }
 }
