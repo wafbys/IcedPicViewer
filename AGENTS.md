@@ -96,11 +96,11 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 3. 然后跑 `dotnet publish -c Release -p:Platform=x64` 得产物
 4. 把 `publish\` 目录复制到目标机器,双击 `IcedPicViewer.exe`
 
-> ⚠️ **OS 兼容性警告 (2026-06-15 加)**:实测发现用户的开发机(OS build 10.0.26100.x,Win 11 24H2)**所有 WinAppRuntime 1.6+ 都跑不起来**(framework-dependent 和 self-contained 都崩),因为所有 WinAppRuntime 1.6+ 的 `CoreMessagingXP.dll` 等 native DLL build 都是 27xxx(1.6: 27106, 1.7: 27107, 1.8: 27108, 2.2: 27200),DLL 加载时 OS build check 触发 `STATUS_FAIL_FAST_EXCEPTION` (0xC0000602)。
+> ⚠️ **OS 兼容性警告 (2026-06-15 加,2026-06-15 修正)**:实测发现用户的开发机(OS build 10.0.26200.8655,Win 11 25H2)**所有 WinAppRuntime 1.6+ 都跑不起来**(framework-dependent 和 self-contained 都崩),因为所有 WinAppRuntime 1.6+ 的 `CoreMessagingXP.dll` 等 native DLL build 都是 27xxx(1.6: 27106, 1.7: 27107, 1.8: 27108, 2.2: 27200),DLL 加载时 OS build check 触发 `STATUS_FAIL_FAST_EXCEPTION` (0xC0000602)。
 >
-> 用户的开发机只能跑 WinAppSDK **1.5 或更早**(那些版本的 native DLL 是 build 26xxx 时代,跟 26100 匹配)。但 1.5 缺 `Microsoft.Windows.Storage.Pickers.FolderPicker`、1.4 缺 `TitleBar.IconSource`,要降 WinAppSDK 得改代码。
+> 用户的开发机只能跑 WinAppSDK **1.5 或更早**(那些版本的 native DLL 是 build 26xxx 时代,跟 26200 匹配)。但 1.5 缺 `Microsoft.Windows.Storage.Pickers.FolderPicker`、1.4 缺 `TitleBar.IconSource`,要降 WinAppSDK 得改代码。
 >
-> **部署给别人用时建议**:先确认目标机器的 OS build ≥ 27xxx(即 Win 11 Insider build 或更新)。正式 Win 11 24H2 (build 26100)用户也得升级到 25H2 之后才能跑这个 app。
+> **部署给别人用时建议**:先确认目标机器的 OS build ≥ 27xxx(即 Win 11 Insider build 或更新)。正式 Win 11 24H2 (build 26100.x)用户也得升级到 25H2 (build 26200.x) 之后才能跑这个 app,但 25H2 OS 上 DLL build 仍然比 OS 新,实际要 Win 11 26H1/26H2 (build 27xxx) 才能跑。
 
 > **历史事实**:`CHANGELOG.md` 中 `v0.9.x` 多条 commit 提到"publish 产物能跑"——**这是错误的**,只验证了文件完整性,没真启动过 .exe。实测(`24063cd` 之后)publish 产物在缺 WinAppRuntime 2.x standalone runtime 的机器上 0xC0000602 退出。本节"必须的前置条件"是基于此实测的诚实结论。
 
@@ -130,7 +130,7 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 
 > **Publish 模式:framework-dependent (2026-06-15 最终结论)**。
 >
-> 之前 `SelfContained=true` + `WindowsAppSDKSelfContained=true` 会把 WinAppSDK 2.1.3 的 native DLL(`CoreMessagingXP.dll` v10.0.27200.1019、`dwmcorei.dll`、`dcomp.dll`、`Microsoft.UI.Input.dll`、`Microsoft.Internal.FrameworkUdk.dll`、`Microsoft.UI.Windowing.Core.dll` 等)都部署到 publish 目录。**这些 DLL 比用户的 OS 还新**——用户 OS 是 Win 11 24H2 `build 26100.x`,这些 DLL 来自 build `27xxx`。DLL 加载时做 OS build check → `STATUS_FAIL_FAST_EXCEPTION` (`0xC0000602`) → `Event Log` 记录 `Faulting module: CoreMessagingXP.dll, version: 10.0.27200.1024`。
+> 之前 `SelfContained=true` + `WindowsAppSDKSelfContained=true` 会把 WinAppSDK 2.1.3 的 native DLL(`CoreMessagingXP.dll` v10.0.27200.1019、`dwmcorei.dll`、`dcomp.dll`、`Microsoft.UI.Input.dll`、`Microsoft.Internal.FrameworkUdk.dll`、`Microsoft.UI.Windowing.Core.dll` 等)都部署到 publish 目录。**这些 DLL 比用户的 OS 还新**——用户 OS 是 Win 11 25H2 `build 26200.8655`,这些 DLL 来自 build `27xxx`。DLL 加载时做 OS build check → `STATUS_FAIL_FAST_EXCEPTION` (`0xC0000602`) → `Event Log` 记录 `Faulting module: CoreMessagingXP.dll, version: 10.0.27200.1024`。
 >
 > 2.1.3 → 2.2.0 升级**没修复这个 bug**(实测 `dd0a7bd`,5 秒 "Still running" 是 false positive,实际 ~4 秒就崩了 0xC0000602)。已 revert 见 `0840109`。
 >
@@ -138,12 +138,12 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 >
 > | WinAppRuntime | CoreMessagingXP.dll | 用户 OS build |
 > |---|---|---|
-> | 1.6 | 10.0.27106 | 用户 OS = **10.0.26100.8328** |
+> | 1.6 | 10.0.27106 | 用户 OS = **10.0.26200.8655** |
 > | 1.7 | 10.0.27107 | |
 > | 1.8 | 10.0.27108 | |
 > | 2.2 (当前) | 10.0.27200 | |
 >
-> **所有 WinAppRuntime 1.6+ 的 native DLL build 都比用户 OS 26100 新**。无论 framework-dependent 还是 self-contained,在这台机器上都会 fail-fast。
+> **所有 WinAppRuntime 1.6+ 的 native DLL build 都比用户 OS 26200 新**。无论 framework-dependent 还是 self-contained,在这台机器上都会 fail-fast。
 >
 > **维持 framework-dependent**(83 MB)的原因:
 > - self-contained 在该 OS 上同样炸,没必要 +135 MB
@@ -156,6 +156,16 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 >   1. .NET 10 runtime(`coreclr.dll` / `hostfxr.dll` 不再 bundled)
 >   2. Windows App Runtime 2.2 standalone(`Microsoft.WindowsAppRuntime.dll` 不再 bundled)—— installer URL 同上
 > - publish 产物体积 **83 MB / 110 文件**
+>
+> **2026-06-15 追加诚实记录 —— "framework-dependent" 名不副实**:
+> 设了 `SelfContained=false` + `WindowsAppSDKSelfContained=false` 后,publish 产物体积确实 83 MB(没把 .NET runtime 和 WinAppSDK runtime 整套 bundled 进来),**但 CoreMessagingXP.dll / Microsoft.UI.Xaml.dll / Microsoft.WindowsAppRuntime.dll 等 native DLL 仍然在 publish 目录里**。`SyncWinUIBuildOutputToPublish` target 只是把它们从 OutDir 复制到 PublishDir;DLL 本身是 NuGet restore 时 Microsoft.WindowsAppSDK.* 子包放进 OutDir 的,删不掉。
+>
+> Loader 同目录有 DLL 就优先用,**不走 WindowsApps bootstrap 路径**。所以即使我们 `WindowsAppSDKSelfContained=false`,OS build check 仍然看 publish 目录里的 DLL 27200,跟 self-contained 一样的下场。
+>
+> "framework-dependent" 实际只省了 .NET runtime 那一份,WinAppSDK native DLL 仍然 bundled。3be0326 那个 "framework-dependent 应该能用" 的结论**前提就错了**,得连带修正:
+> - 真正的"framework-dependent"(让 loader bootstrap 走 WindowsApps)需要阻止 NuGet 把 native DLL 放 OutDir。WinAppSDK 2.2.0 没提供这个开关
+> - 想要 83 MB 体积 + 真正不依赖系统 DLL,**目前没有干净的选项**——除非直接降 WinAppSDK 到 1.5 之前
+> - 所以本机无论怎么配 publish 都跑不起来,**就是 OS 26200 + WinAppSDK native DLL 27200 的硬冲突**
 
 ## 常见 AI 易犯错误（请主动避免）
 
