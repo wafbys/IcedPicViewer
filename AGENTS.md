@@ -69,128 +69,101 @@
 $Platform = 'x64'
 ```
 
-**构建**:
+**构建** (产出 AppX 布局到 `bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\AppX\`):
 ```powershell
 dotnet build -c Debug -p:Platform=$Platform
 ```
 
-**运行(推荐,带包身份)**:
+**运行** (注册 debug package identity 后启动;**这是开发期间唯一的正确启动方式**):
 ```powershell
 dotnet run -c Debug -p:Platform=$Platform
 ```
 
-**发布(自包含可分发的产物)**:
+⚠️ **不要直接双击 `bin\.../IcedPicViewer.exe`**。MSIX-packaged 模式下 .exe 需要 package identity 才能找到 framework package 注册的 WinRT 类,直接跑会 `REGDB_E_CLASSNOTREG`,在 `DeploymentManagerCS.AutoInitialize.get_Options()` 静态构造函数里就崩。`dotnet run` 通过 `Microsoft.Windows.SDK.BuildTools.WinApp` 调用 `winapp.exe launch` 注册 debug identity 后才启。
+
+**发布** (产出 sideloadable .msix):
 ```powershell
 dotnet publish -c Release -p:Platform=$Platform
 ```
-产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`,~83 MB(framework-dependent,**不含** .NET 运行时和 WinAppSDK runtime)。
-
-**必须的前置条件**:**目标机器已安装 .NET 10 runtime + Windows App Runtime 2.2 standalone**。WinAppSDK 2.0+ 的 self-contained 模式不完整(`api-ms-win-appmodel-runtime-l1-1-1.dll` 等 DLL 不会被 SDK 嵌入 publish 产物),unpackaged app 启动时必须从 `C:\Windows\System32` 找到这些 DLL。SDK 版本和 runtime 版本必须**严格匹配** — 升级 SDK 到 2.2 后,目标机也得用 2.2 runtime,旧的 2.1.x runtime 会导致启动报版本不匹配。安装包 URL 始终指向 2.0+ 的最新:
-```
-https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
-```
+产物在 `bin\$(Platform)\Release\$(TargetFramework)\win-x64\AppPackages\` 下的 `IcedPicViewer_0.12.0.0_x64.msix`(还有几个 dependency .msix 一起)。
 
 **部署清单**(给别人用时):
-1. 目标机器先装 .NET 10 SDK
-2. 目标机器装 Windows App Runtime 2.2 standalone runtime(上面链接)
-3. 然后跑 `dotnet publish -c Release -p:Platform=x64` 得产物
-4. 把 `publish\` 目录复制到目标机器,双击 `IcedPicViewer.exe`
+1. 目标机器先装 .NET 10 runtime
+2. 把 .msix 拖到目标机器双击安装(sideload);Windows 自动装上 framework package 依赖
+3. 不需要单独装 Windows App Runtime standalone installer(MSIX manifest 声明了 framework package 依赖)
 
-> ⚠️ **OS 兼容性警告 (2026-06-15 加,2026-06-15 再次修正 —— 2026-06-15 自我纠错)**:用户的开发机是 **正版的 Windows 11 25H2**(CurrentBuild 26200.8655,BuildLabEx `26100.1.amd64fre.ge_release.240331-1435` —— 这是 24H2 原始平台被 25H2 Enablement Package 激活后保留的正常 BuildLab,**不是被 hack 改过版本号**)。详见下方"2026-06-15 我把 25H2 误判为假版本"段的诚实记录。
->
-> 在这台正版 25H2 上,**所有 WinAppRuntime 1.6+ 都跑不起来**(framework-dependent 和 self-contained 都崩),根本原因是 **OS build check fail-fast**:
->
-> WinAppRuntime 1.6+ 的 `CoreMessagingXP.dll` 等 native DLL build 是 27xxx(1.6: 27106, 1.7: 27107, 1.8: 27108, 2.2: 27200),而 **Enablement Package 机制下,25H2 的核心二进制(kernel32.dll、apisetschema.dll 等)停留在 26100 平台**。DLL 加载时做 OS build check,看到 "DLL build 27xxx > OS 平台 26100",触发 `STATUS_FAIL_FAST_EXCEPTION` (0xC0000602)。这是**Microsoft 的 Enablement Package 设计与 WinAppSDK 1.6+ 的 native DLL build 不兼容**的硬冲突,**不是单边 bug**。
->
-> 用户的开发机只能跑 WinAppSDK **1.5 或更早**(那些版本的 native DLL 是 build 26xxx 时代,跟 26100 平台匹配)。但 1.5 缺 `Microsoft.Windows.Storage.Pickers.FolderPicker`、1.4 缺 `TitleBar.IconSource`,要降 WinAppSDK 得改代码。
->
-> **部署给别人用时建议**:**先在自己机器上验证 app 能跑再发布**。任何 Win 11 24H2/25H2 用户都跑不起来,需要 OS 升到 build 27xxx(Win 11 26H1/26H2 之类)。**别假设"最新 OS 一定能跑"**——Microsoft 的 Enablement Package 设计导致 25H2 的 native binary 平台停留在 26100,跟 WinAppSDK 1.6+ 的 build 号范围不重叠。
->
-> 0xC000027B 的另一个错误: 当从 WindowsApps 路径加载 Microsoft.UI.Xaml.dll 时也可能出现 0xC000027B(`Application.Start` 时)。可能跟 OS build check 不是同一个根因,可能是 WinUI 3.2 + 25H2 平台的另一种 compat 问题。Microsoft 25H2 跟 WinAppSDK 1.6+ 的具体 compat 矩阵微软没公开说明。
+---
 
-> **历史事实**:`CHANGELOG.md` 中 `v0.9.x` 多条 commit 提到"publish 产物能跑"——**这是错误的**,只验证了文件完整性,没真启动过 .exe。实测(`24063cd` 之后)publish 产物在缺 WinAppRuntime 2.x standalone runtime 的机器上 0xC0000602 退出。本节"必须的前置条件"是基于此实测的诚实结论。
+### 部署模式:为什么用 MSIX packaged,不是 unpackaged
 
-> **PE 解析诊断备忘(2026-06-03,WinAppSDK 2.1.3 时代)**:`System.Reflection.PortableExecutable` 解析 publish 目录各 native DLL 的 import table,确认 0xC0000602 根因。**早期诊断曾认为 system 缺 12 个 WinRT/UWP 相关的 api-set DLL**(`system32` + `WinSxS` 都找不到)。但 2026-06-15 用 PowerShell 实际 LoadLibrary 测试后**推翻这个结论**——`apisetschema.dll` 在 System32(v10.0.26100.8521)且所有 12 个 api-set DLL **都能成功加载**(api-set 是虚拟 forwarder,由 schema 解析 serve,系统盘上"找不到文件"是正常现象,不是缺失)。grep 0 match 是因为 schema 用二进制编码不是字面字符串。
->
-> 之前列的"缺失 DLL"表:
->
-> | API set | 来源 |
-> |---|---|
-> | `api-ms-win-appmodel-runtime-l1-1-1.dll` | WinAppRuntime + Bootstrap |
-> | `api-ms-win-core-libraryloader-l1-2-0.dll` | WinAppRuntime + Bootstrap |
-> | `api-ms-win-power-base-l1-1-0.dll` | WinAppRuntime |
-> | `api-ms-win-power-setting-l1-1-0.dll` | XAML + WinAppRuntime |
-> | `api-ms-win-power-setting-l1-1-1.dll` | WinAppRuntime |
-> | `api-ms-win-core-winrt-l1-1-0.dll` | XAML + WinAppRuntime |
-> | `api-ms-win-core-winrt-string-l1-1-0.dll` | XAML + WinAppRuntime |
-> | `api-ms-win-core-winrt-error-l1-1-0.dll` | XAML + WinAppRuntime + Bootstrap |
-> | `api-ms-win-core-winrt-error-l1-1-1.dll` | XAML |
-> | `api-ms-win-ro-typeresolution-l1-1-0.dll` | XAML + WinAppRuntime |
-> | `api-ms-win-core-path-l1-1-0.dll` | XAML + WinAppRuntime |
-> | `api-ms-win-dx-d3dkmt-l1-1-0.dll` | XAML |
->
-> 这些 **是** Microsoft.UI.Xaml.dll 的 import,**不**意味着 DLL 缺——只是意味着 apisetschema.dll 需要有对应条目来解析 serve(实测它有)。
->
-> 装 WinAppRuntime standalone installer(aka.ms URL)后,本来期望这 12 个 DLL 会被部署到 `C:\Windows\System32`,但实测即使 elevated 跑 installer 它们**也不会**被复制到 System32——因为它们本就是虚拟的,由 apisetschema 在需要时生成。0xC0000602 跟"api-set 部署到 System32"**完全无关**,真正的根因是上一段说的 OS build check 冲突。
-> 装 WinAppRuntime standalone installer(aka.ms URL)后,这 12 个 DLL 会部署到 `C:\Windows\System32`,app 启动时 Windows loader 能找到,0xC0000602 消失。**IcedPicViewer.exe 自身 import table 只 12 个基础 KERNEL32/USER32/ole32 等**,所以 .exe 自身能起;问题出在它加载 `Bootstrap.dll` → 链式 P/Invoke 这些缺失 DLL → fail-fast。
+**本项目 (IcedPicViewer)**:MSIX packaged(`WindowsPackageType` 不设 → 默认 MSIX)。配套:
+- `Package.appxmanifest` 在项目根,声明 framework package 依赖
+- `Microsoft.Windows.SDK.BuildTools.WinApp` NuGet → `dotnet run` 走 `winapp.exe launch` 注册 debug identity
+- 无需 `Bootstrapper` 注册表项、无需 standalone installer
 
-> 实现细节见 `IcedPicViewer.csproj` 末尾的自定义 MSBuild target：
-> - `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 的 bug：它的 WinUI targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`，**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`Assets`/`Views`，启动后立刻崩（`0xC000027B`）。**在 2.2.0 下已重新验证仍必须**（2026-06-15，临时注释掉 target 后 publish 产物缺 15 个文件：所有 `.xbf` / `.pri` / 11 个 tile & icon PNG；微软 2.2.0 没修这个 bug）。**不可删**。
-> - `RemoveUnwantedCultures` —— 同时清 `$(OutDir)` 和 `$(PublishDir)` 中 BCP 47 格式的 culture 子目录,实测 publish 产物从 222 MB / 572 文件减到 216 MB / 389 文件(86 个 culture 目录消失)。
-> - ~~`CopyWindowsAppRuntimeBootstrapToOutput`~~ —— 已在 2.1.3 升级时永久删除(只在 `PublishSingleFile=true` 时需要,改用 multi-file publish 后自然不需要)。
+**unpackaged 模式(2026-06-15 之前用过,已弃)**:
+- 需要目标机装 WinAppRuntime standalone + 写 Bootstrapper 注册表项
+- 用户开发机缺这个,Bootstrap API 检测到 runtime 缺就弹错
+- 即使装上后还会撞下面那个 XAML 资源 bug
 
-> **Publish 模式:framework-dependent (2026-06-15 最终结论)**。
->
-> 之前 `SelfContained=true` + `WindowsAppSDKSelfContained=true` 会把 WinAppSDK 2.1.3 的 native DLL(`CoreMessagingXP.dll` v10.0.27200.1019、`dwmcorei.dll`、`dcomp.dll`、`Microsoft.UI.Input.dll`、`Microsoft.Internal.FrameworkUdk.dll`、`Microsoft.UI.Windowing.Core.dll` 等)都部署到 publish 目录。**这些 DLL 比用户的 OS 还新**——用户 OS 是 Win 11 25H2 `build 26200.8655`,这些 DLL 来自 build `27xxx`。DLL 加载时做 OS build check → `STATUS_FAIL_FAST_EXCEPTION` (`0xC0000602`) → `Event Log` 记录 `Faulting module: CoreMessagingXP.dll, version: 10.0.27200.1024`。
->
-> 2.1.3 → 2.2.0 升级**没修复这个 bug**(实测 `dd0a7bd`,5 秒 "Still running" 是 false positive,实际 ~4 秒就崩了 0xC0000602)。已 revert 见 `0840109`。
->
-> 列出本机所有已装 WinAppRuntime 的 `CoreMessagingXP.dll` 版本:
->
-> | WinAppRuntime | CoreMessagingXP.dll | 用户 OS build |
-> |---|---|---|
-> | 1.6 | 10.0.27106 | 用户 OS = **10.0.26200.8655** |
-> | 1.7 | 10.0.27107 | |
-> | 1.8 | 10.0.27108 | |
-> | 2.2 (当前) | 10.0.27200 | |
->
-> **所有 WinAppRuntime 1.6+ 的 native DLL build 都比用户 OS 26200 新**。无论 framework-dependent 还是 self-contained,在这台机器上都会 fail-fast。
->
-> **维持 framework-dependent**(83 MB)的原因:
-> - self-contained 在该 OS 上同样炸,没必要 +135 MB
-> - 部署到**别的 OS ≥ 27106 的机器**上时,framework-dependent 体积优势仍在
-> - 任何要真正用本机测试的话,必须先升 OS 到 27xxx(Win 11 Insider 25H2/26H1 之类的),见顶部"OS 兼容性警告"
->
-> 改成 framework-dependent(`SelfContained=false` + `WindowsAppSDKSelfContained=false`)后:
-> - publish 产物不再带那些 27xxx 的 native DLL(loader 改走 `System32` / `WinSxS`)
-> - 目标机**必须装**:
->   1. .NET 10 runtime(`coreclr.dll` / `hostfxr.dll` 不再 bundled)
->   2. Windows App Runtime 2.2 standalone(`Microsoft.WindowsAppRuntime.dll` 不再 bundled)—— installer URL 同上
-> - publish 产物体积 **83 MB / 110 文件**
->
-> **2026-06-15 追加诚实记录 —— "framework-dependent" 名不副实**:
-> 设了 `SelfContained=false` + `WindowsAppSDKSelfContained=false` 后,publish 产物体积确实 83 MB(没把 .NET runtime 和 WinAppSDK runtime 整套 bundled 进来),**但 CoreMessagingXP.dll / Microsoft.UI.Xaml.dll / Microsoft.WindowsAppRuntime.dll 等 native DLL 仍然在 publish 目录里**。`SyncWinUIBuildOutputToPublish` target 只是把它们从 OutDir 复制到 PublishDir;DLL 本身是 NuGet restore 时 Microsoft.WindowsAppSDK.* 子包放进 OutDir 的,删不掉。
->
-> Loader 同目录有 DLL 就优先用,**不走 WindowsApps bootstrap 路径**。所以即使我们 `WindowsAppSDKSelfContained=false`,OS build check 仍然看 publish 目录里的 DLL 27200,跟 self-contained 一样的下场。
->
-> "framework-dependent" 实际只省了 .NET runtime 那一份,WinAppSDK native DLL 仍然 bundled。3be0326 那个 "framework-dependent 应该能用" 的结论**前提就错了**,得连带修正:
-> - 真正的"framework-dependent"(让 loader bootstrap 走 WindowsApps)需要阻止 NuGet 把 native DLL 放 OutDir。WinAppSDK 2.2.0 没提供这个开关
-> - 想要 83 MB 体积 + 真正不依赖系统 DLL,**目前没有干净的选项**——除非直接降 WinAppSDK 到 1.5 之前
-> - 所以本机无论怎么配 publish 都跑不起来,**就是 OS 26100/26200 (Enablement Package 平台) + WinAppSDK native DLL 27200 的硬冲突**
+**关键 insight**:MSIX packaged 路径用 framework package 通过 appxmanifest 解析,完全绕开 Bootstrapper;MSIX 部署也比"拷文件夹 + 装 standalone"对用户更友好。
 
-> **2026-06-15 我把 25H2 误判为假版本 —— 诚实记录**:
-> 用户纠正我"BuildLabEx 是 26100 + kernel32 是 26100 不能说明 25H2 是假版本",Microsoft 官方从 2025 年开始大量用 **Enablement Package** 方式发 H2 更新:
-> - 24H2 和 25H2 共享同一个 servicing branch
-> - 25H2 的核心二进制(ntoskrnl.exe、kernel32.dll、apisetschema.dll 等)停留在 26100 平台
-> - KB5054156 等 Enablement Package 解锁 25H2 特性
-> - 看到 CurrentBuild=26200 + DisplayVersion=25H2 + BuildLabEx=26100.1.ge_release.240331-1435 **就是正版的 25H2**,不是被 hack 改版本号
-> - ProductName 注册表仍显示 "Windows 10 Pro" 也是从 21H2 起的兼容性老毛病,不能当证据
->
-> 我错误地**把"底层平台是 24H2"等同于"25H2 是假的"**,这个过度解读已经写进 a68b467 之前的 commit。本次修正:
-> - 顶部"OS 兼容性警告"段已删"是 24H2 假装的 25H2"的说法
-> - 改成"正版 25H2 + Enablement Package 机制"的正确描述
-> - **症状(apiset schema 缺 + native DLL 27200 > 平台 26100)仍然成立**,但解释改成"Enablement Package 设计 + WinAppSDK 1.6+ native DLL build 不兼容",不是"25H2 bug"也不是"假版本"
-> - 教训:技术细节正确 ≠ 整体解读正确。看到"老 platform + 新 build 号"组合时,先查 Microsoft 是否官方用 Enablement Package,不要急着下"假版本"结论
+---
+
+### 已知坑:`XamlControlsResources` 必须在 App.xaml 显式 merge
+
+`Microsoft.UI.Xaml.Controls.XamlControlsResources` 是 WinUI 3 Fluent 2 theme resource dictionary。`TitleBar` 等控件的 default style 内部引用 `TabViewButtonBackground` 等 theme resources,只有 merge 了这个 dictionary 才能找到。
+
+**不能删**。commit `2b3030e "App.xaml: 删除冗余的 XamlControlsResources"` 是基于错误推理("WinUI 3 不用这个")——实际后果:启动时 `MainWindow.InitializeComponent()` 抛 `XamlParseException: Cannot find a Resource with the Name/Key TabViewButtonBackground`,MainWindow 起不来。`App.xaml` 必须保留:
+
+```xml
+<Application.Resources>
+    <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+            <controls:XamlControlsResources />
+        </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+</Application.Resources>
+```
+
+---
+
+### 历史教训 —— "OS 硬冲突"理论是过度诊断 (2026-06-15 自我纠错)
+
+之前 `AGENTS.md` 大段写"WinAppSDK 2.2.0 在 Win 11 25H2 上 native DLL build 27xxx > OS 平台 26100 → fail-fast,本机跑不起来"——**整套理论是错的**。证伪方式:
+
+- `C:\Users\YF\WAFBYS\Src\Playground\`(同一 SDK 2.2.0, MSIX packaged)在本机**完美运行**(`Playground.exe` 启动 6s 还在跑,MainWindow 正常)
+- IcedPicViewer 改成 MSIX packaged(本 commit)后**也完美运行**(`IcedPicViewer.exe` 启动 25s 还活着,MainWindow 显示正常,无 unhandled exception)
+
+**真实问题从来不是 OS build check**,是**unpackaged 模式缺 Standalone installer**。一旦走 MSIX packaged,framework package 走 appxmanifest 解析,跟 OS build 没关系。
+
+**技术细节正确 ≠ 整体解读正确**:
+- 用户的开发机是 **正版的 Windows 11 25H2**(CurrentBuild 26200.8655,BuildLabEx `26100.1.amd64fre.ge_release.240331-1435` —— 24H2 原始平台被 25H2 Enablement Package 激活后保留的正常 BuildLab,**不是被 hack 改过版本号**)
+- Microsoft 官方从 2025 年开始大量用 **Enablement Package** 方式发 H2 更新:24H2 和 25H2 共享同一 servicing branch,25H2 核心二进制(ntoskrnl.exe、kernel32.dll、apisetschema.dll 等)停留在 26100 平台,KB5054156 等 Enablement Package 解锁 25H2 特性
+- 看到 CurrentBuild=26200 + DisplayVersion=25H2 + BuildLabEx=26100.1.ge_release.240331-1435 **就是正版的 25H2**,不是被 hack 改版本号;ProductName 注册表仍显示 "Windows 10 Pro" 也是从 21H2 起的兼容性老毛病,不能当证据
+
+**教训**:
+- 看到"老 platform + 新 build 号"组合时,先想 Microsoft 是否用 Enablement Package(25H2 确实用了),不要急着下"假版本"或"OS 不兼容"结论
+- 测试假设时,**找一个反例**(同 SDK 跑的别人项目)就能证伪一个普适性结论
+- 复杂系统里症状可以叠加;同一个错误码可能由完全不同原因触发,**诊断时要锁定到具体调用栈**
+
+---
+
+### 关于 api-set schema 的有用事实(2026-06-15 验证,保留)
+
+`api-ms-win-*.dll` 系列(api-set)是**虚拟 forwarder**,由 `apisetschema.dll` 解析 serve。`System32` 里"找不到文件"是正常现象,不是缺失;grep 字符串 0 match 是因为 schema 用二进制编码。要验证某 api-set 是否真的可用,正确做法是 PowerShell `[System.Runtime.InteropServices.NativeLibrary]::Load("api-ms-win-xxx.dll")`,而不是看文件存不存在。
+
+之前对 IcedPicViewer 0xC0000602 错误的"api-set 缺失"猜测**已推翻**;这个事实本身仍然有用(下次不要被"找不到 api-set DLL"表象误导)。
+
+---
+
+### 实现细节
+
+`IcedPicViewer.csproj` 末尾的自定义 MSBuild target:
+- `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 的 bug:它的 WinUI targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`,**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 **unpackaged** publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`Assets`/`Views`,启动后立刻崩(0xC000027B)。
+  - **当前 (MSIX packaged) 下是 no-op**,因为 `Condition="'$(WindowsPackageType)' == 'None'"` 不满足
+  - 保留 target 作为"如果以后要切回 unpackaged 部署"的兜底;微软 2.2.0 仍未修这个 bug
+- `RemoveUnwantedCultures` —— 同时清 `$(OutDir)` 和 `$(PublishDir)` 中 BCP 47 格式的 culture 子目录,实测 publish 产物从 222 MB / 572 文件减到 216 MB / 389 文件(86 个 culture 目录消失)。Build 和 Publish 两阶段都跑。
 
 ## 常见 AI 易犯错误（请主动避免）
 

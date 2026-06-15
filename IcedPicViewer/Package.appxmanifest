@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -11,7 +11,7 @@
   <Identity
     Name="BE1B75C2-BBA1-4C9E-9746-EA268E694F3D"
     Publisher="CN=AppPublisher"
-    Version="1.0.0.0" />
+    Version="0.12.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="BE1B75C2-BBA1-4C9E-9746-EA268E694F3D" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
@@ -48,6 +48,11 @@
   </Applications>
 
   <Capabilities>
+    <!--
+      runFullTrust: IcedPicViewer 扫描用户任意选择的图片文件夹、读取各种格式,
+      这需要传统 Win32 应用级别的文件系统访问。MSIX 沙箱默认不允许,
+      必须显式声明 runFullTrust 才能跳出沙箱。
+    -->
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>
 </Package>
