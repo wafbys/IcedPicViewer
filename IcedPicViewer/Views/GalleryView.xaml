@@ -4,10 +4,12 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:IcedPicViewer"
     xmlns:controls="using:IcedPicViewer.Controls"
-    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:models="using:IcedPicViewer.Models"
+    xmlns:vm="using:IcedPicViewer.ViewModels"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
+    x:DataType="vm:GalleryViewModel"
     Background="Transparent">
 
     <Grid>
@@ -19,7 +21,9 @@
 
         <Grid Grid.Row="0" Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
-                <Button Content="Open Folder" Command="{Binding OpenFolderCommand}" Padding="12,6"/>
+                <Button Content="Open Folder"
+                        Command="{x:Bind ViewModel.OpenFolderCommand}"
+                        Padding="12,6"/>
             </StackPanel>
         </Grid>
 
@@ -29,14 +33,14 @@
                       HorizontalScrollBarVisibility="Disabled">
             <!-- Using the original working MasonryPanel to restore the exact waterfall visual the user requested.
                  Note: This is non-virtualizing. Virtualization work is tracked separately. -->
-            <ItemsControl x:Name="MainItemsControl" ItemsSource="{Binding Images}">
+            <ItemsControl x:Name="MainItemsControl" ItemsSource="{x:Bind ViewModel.Images, Mode=OneWay}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <controls:MasonryPanel ItemWidth="220" ItemSpacing="8"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
-                    <DataTemplate>
+                    <DataTemplate x:DataType="models:ImageItem">
                         <Border Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
                                 CornerRadius="4"
                                 Margin="0"
@@ -52,7 +56,7 @@
                                 </MenuFlyout>
                             </Border.ContextFlyout>
                             <Grid MinHeight="120">
-                                <Image Source="{Binding Thumbnail}"
+                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}"
                                        Stretch="Uniform"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"/>
@@ -65,7 +69,7 @@
                                         Margin="0,0,0,8"
                                         Visibility="Collapsed">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding Name}"
+                                        <TextBlock Text="{x:Bind Name, Mode=OneWay}"
                                                    Foreground="White"
                                                    FontSize="12"
                                                    TextTrimming="CharacterEllipsis"
@@ -73,16 +77,16 @@
                                         <TextBlock Foreground="#CCC"
                                                    FontSize="10"
                                                    MaxWidth="200">
-                                            <Run Text="{Binding OriginalSizeText}"/>
+                                            <Run Text="{x:Bind OriginalSizeText, Mode=OneTime}"/>
                                             <Run Text=" · "/>
-                                            <Run Text="{Binding FileSizeText}"/>
+                                            <Run Text="{x:Bind FileSizeText, Mode=OneTime}"/>
                                         </TextBlock>
-                                        <TextBlock Text="{Binding DisplayLocation}"
+                                        <TextBlock Text="{x:Bind DisplayLocation, Mode=OneWay}"
                                                    Foreground="#999"
                                                    FontSize="10"
                                                    TextTrimming="CharacterEllipsis"
                                                    MaxWidth="200"
-                                                   ToolTipService.ToolTip="{Binding DisplayLocation}"/>
+                                                   ToolTipService.ToolTip="{x:Bind DisplayLocation, Mode=OneWay}"/>
                                     </StackPanel>
                                 </Border>
                             </Grid>
@@ -94,12 +98,12 @@
 
         <Grid Grid.Row="2" Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
-                <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" VerticalAlignment="Center" FontSize="12"/>
 
                 <!-- Incremental loading button to reduce initial lag while keeping masonry visual -->
                 <Button Content="Load More"
-                        Command="{Binding LoadMoreCommand}"
-                        Visibility="{Binding LoadMoreVisibility}"
+                        Command="{x:Bind ViewModel.LoadMoreCommand}"
+                        Visibility="{x:Bind ViewModel.LoadMoreVisibility, Mode=OneWay}"
                         Margin="12,0,0,0"
                         Padding="8,4"/>
             </StackPanel>
