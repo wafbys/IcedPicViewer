@@ -14,6 +14,12 @@ namespace IcedPicViewer.Views;
 
 public sealed partial class ImageViewerView : Page
 {
+    // Exposed for x:Bind in the page-level markup. Constructor-assigned so
+    // it's safe to read in OnLoaded (which fires after the ctor). DI gives
+    // the same singleton that GalleryView prepared via ShowImageAsync, so
+    // state (CurrentImage, CurrentIndex, ...) survives across navigations.
+    public ImageViewModel ViewModel { get; }
+
     private bool _isFitMode = true;
     private double _minimapWidth = 150;
     private double _minimapHeight = 120;
@@ -21,9 +27,9 @@ public sealed partial class ImageViewerView : Page
 
     private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
     {
-        if (DataContext is ImageViewModel vm && vm.CurrentImage != null)
+        if (ViewModel.CurrentImage != null)
         {
-            var source = vm.CurrentImage.Source;
+            var source = ViewModel.CurrentImage.Source;
             // For archive entries we can't select the entry itself
             // (Explorer doesn't understand zip/rar/7z contents), so
             // highlight the containing archive file instead. The user
@@ -47,7 +53,7 @@ public sealed partial class ImageViewerView : Page
     public ImageViewerView()
     {
         this.InitializeComponent();
-        DataContext = App.GetService<ImageViewModel>();
+        ViewModel = App.GetService<ImageViewModel>();
 
         // Named handlers (not lambdas) so Unloaded can unsubscribe — otherwise
         // the view would be kept alive by the lambda capture past navigation,
@@ -58,22 +64,17 @@ public sealed partial class ImageViewerView : Page
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (DataContext is ImageViewModel vm)
-        {
-            vm.DisplayImageChanged += OnDisplayImageChanged;
-            vm.NavigatePreviousCommand.NotifyCanExecuteChanged();
-            vm.NavigateNextCommand.NotifyCanExecuteChanged();
-        }
+        ViewModel.DisplayImageChanged += OnDisplayImageChanged;
+        ViewModel.NavigatePreviousCommand.NotifyCanExecuteChanged();
+        ViewModel.NavigateNextCommand.NotifyCanExecuteChanged();
+
         // Keyboard handling is centralized in MainWindow.RootGrid_KeyDown
         // to avoid duplication. See MainWindow.xaml.cs for viewer navigation keys.
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        if (DataContext is ImageViewModel vm)
-        {
-            vm.DisplayImageChanged -= OnDisplayImageChanged;
-        }
+        ViewModel.DisplayImageChanged -= OnDisplayImageChanged;
     }
 
     private void OnDisplayImageChanged(object? sender, EventArgs e)

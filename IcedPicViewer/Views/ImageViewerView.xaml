@@ -12,7 +12,7 @@
         <Grid.ContextFlyout>
             <MenuFlyout>
                 <MenuFlyoutItem Text="打开文件位置" Click="OpenFileLocation_Click"/>
-                <MenuFlyoutItem Text="删除" Command="{Binding DeleteCommand}"/>
+                <MenuFlyoutItem Text="删除" Command="{x:Bind ViewModel.DeleteCommand}"/>
             </MenuFlyout>
         </Grid.ContextFlyout>
         <Grid.RowDefinitions>
@@ -27,41 +27,45 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
-                <Button Content="Close" Command="{Binding CloseCommand}" Padding="12,6"/>
-                <TextBlock Text="{Binding CurrentImage.Name}" VerticalAlignment="Center" Foreground="White" Margin="16,0" TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                <Button Content="Close" Command="{x:Bind ViewModel.CloseCommand}" Padding="12,6"/>
+                <TextBlock Text="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"
+                           VerticalAlignment="Center" Foreground="White" Margin="16,0"
+                           TextTrimming="CharacterEllipsis" MaxWidth="200"/>
                 <TextBlock VerticalAlignment="Center" Foreground="#AAA" Margin="8,0" FontSize="12">
-                    <Run Text="{Binding ActualWidth}"/>
+                    <Run Text="{x:Bind ViewModel.ActualWidth, Mode=OneWay}"/>
                     <Run Text="×"/>
-                    <Run Text="{Binding ActualHeight}"/>
+                    <Run Text="{x:Bind ViewModel.ActualHeight, Mode=OneWay}"/>
                 </TextBlock>
                 <TextBlock VerticalAlignment="Center" Foreground="#AAA" Margin="8,0" FontSize="12">
-                    <Run Text="{Binding CurrentImage.FileSizeText}"/>
+                    <Run Text="{x:Bind ViewModel.CurrentImage.FileSizeText, Mode=OneWay}"/>
                 </TextBlock>
-                <TextBlock Text="{Binding ImagePath}" VerticalAlignment="Center" Foreground="#666" Margin="16,0" FontSize="11" TextTrimming="CharacterEllipsis" MaxWidth="400"/>
+                <TextBlock Text="{x:Bind ViewModel.ImagePath, Mode=OneWay}"
+                           VerticalAlignment="Center" Foreground="#666" Margin="16,0" FontSize="11"
+                           TextTrimming="CharacterEllipsis" MaxWidth="400"/>
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
-                <Button Content="&lt;" Command="{Binding NavigatePreviousCommand}" Width="36" Height="36" FontSize="18" Margin="4,0"/>
+                <Button Content="&lt;" Command="{x:Bind ViewModel.NavigatePreviousCommand}" Width="36" Height="36" FontSize="18" Margin="4,0"/>
                 <TextBlock VerticalAlignment="Center" Foreground="White" Margin="8,0">
-                    <Run Text="{Binding DisplayIndex}"/>
+                    <Run Text="{x:Bind ViewModel.DisplayIndex, Mode=OneWay}"/>
                     <Run Text="/"/>
-                    <Run Text="{Binding TotalCount}"/>
+                    <Run Text="{x:Bind ViewModel.TotalCount, Mode=OneWay}"/>
                 </TextBlock>
-                <Button Content="&gt;" Command="{Binding NavigateNextCommand}" Width="36" Height="36" FontSize="18" Margin="4,0"/>
+                <Button Content="&gt;" Command="{x:Bind ViewModel.NavigateNextCommand}" Width="36" Height="36" FontSize="18" Margin="4,0"/>
 
                 <!-- 单图模式下的 Load More（支持到底自动加载更多） -->
                 <Button Content="Load More"
-                        Command="{Binding LoadMoreImagesCommand}"
-                        Visibility="{Binding LoadMoreImagesVisibility}"
+                        Command="{x:Bind ViewModel.LoadMoreImagesCommand}"
+                        Visibility="{x:Bind ViewModel.LoadMoreImagesVisibility, Mode=OneWay}"
                         Margin="12,0,0,0"
-                        Padding="8,4"/> 
+                        Padding="8,4"/>
 
                 <Button x:Name="FitModeBtn" Content="Fit" Click="FitModeBtn_Click" MinWidth="50" Height="36" FontSize="12" Margin="16,0,0,0" Padding="8,0"/>
             </StackPanel>
         </Grid>
 
         <Viewbox x:Name="FitContainer" Grid.Row="1" Stretch="Uniform">
-            <Image Source="{Binding DisplayImage}" Stretch="Uniform"/>
+            <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}" Stretch="Uniform"/>
         </Viewbox>
 
         <ScrollViewer x:Name="ActualSizeContainer" Grid.Row="1"
@@ -70,7 +74,7 @@
                       ViewChanged="ActualSizeContainer_ViewChanged"
                       SizeChanged="ActualSizeContainer_SizeChanged"
                       Visibility="Collapsed">
-            <Image x:Name="ActualSizeImage" Source="{Binding DisplayImage}"
+            <Image x:Name="ActualSizeImage" Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
                    Stretch="None"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    Loaded="ActualSizeImage_Loaded"
@@ -102,7 +106,7 @@
         </Grid>
 
         <ProgressRing Grid.Row="1"
-                      IsActive="{Binding IsLoading}"
+                      IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
                       HorizontalAlignment="Center"
                       VerticalAlignment="Center"
                       Width="48"
