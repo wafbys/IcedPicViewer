@@ -83,18 +83,12 @@ dotnet run -c Debug -p:Platform=$Platform
 ```powershell
 dotnet publish -c Release -p:Platform=$Platform
 ```
-产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`,~83 MB(framework-dependent,**不含** .NET 运行时和 WinAppSDK runtime)。
-
-**必须的前置条件**:**目标机器已安装 .NET 10 runtime + Windows App Runtime 2.2 standalone**。WinAppSDK 2.0+ 的 self-contained 模式不完整(`api-ms-win-appmodel-runtime-l1-1-1.dll` 等 DLL 不会被 SDK 嵌入 publish 产物),unpackaged app 启动时必须从 `C:\Windows\System32` 找到这些 DLL。SDK 版本和 runtime 版本必须**严格匹配** — 升级 SDK 到 2.2 后,目标机也得用 2.2 runtime,旧的 2.1.x runtime 会导致启动报版本不匹配。安装包 URL 始终指向 2.0+ 的最新:
-```
-https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
-```
+产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`,~218 MB(framework-dependent 模式的 ~83 MB 在 2026-06-15 弃用,见下方"Publish 模式"段)。
 
 **部署清单**(给别人用时):
-1. 目标机器先装 .NET 10 SDK
-2. 目标机器装 Windows App Runtime 2.2 standalone runtime(上面链接)
-3. 然后跑 `dotnet publish -c Release -p:Platform=x64` 得产物
-4. 把 `publish\` 目录复制到目标机器,双击 `IcedPicViewer.exe`
+1. 跑 `dotnet publish -c Release -p:Platform=x64` 得产物
+2. 把 `publish\` 目录复制到目标机器,双击 `IcedPicViewer.exe`
+3. **目标机器无需装 .NET runtime,无需装 WinAppRuntime**——self-contained 全部 bundled
 
 > **历史事实**:`CHANGELOG.md` 中 `v0.9.x` 多条 commit 提到"publish 产物能跑"——**这是错误的**,只验证了文件完整性,没真启动过 .exe。实测(`24063cd` 之后)publish 产物在缺 WinAppRuntime 2.x standalone runtime 的机器上 0xC0000602 退出。本节"必须的前置条件"是基于此实测的诚实结论。
 
@@ -122,16 +116,14 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 > - `RemoveUnwantedCultures` —— 同时清 `$(OutDir)` 和 `$(PublishDir)` 中 BCP 47 格式的 culture 子目录,实测 publish 产物从 222 MB / 572 文件减到 216 MB / 389 文件(86 个 culture 目录消失)。
 > - ~~`CopyWindowsAppRuntimeBootstrapToOutput`~~ —— 已在 2.1.3 升级时永久删除(只在 `PublishSingleFile=true` 时需要,改用 multi-file publish 后自然不需要)。
 
-> **Publish 模式:framework-dependent,不是 self-contained (2026-06-03 改)**。
+> **Publish 模式:self-contained (2026-06-15 改回)**。
 >
-> 之前 `SelfContained=true` + `WindowsAppSDKSelfContained=true` 会把 WinAppSDK 2.1.3 的 native DLL(`CoreMessagingXP.dll` v10.0.27200.1019、`dwmcorei.dll`、`dcomp.dll`、`Microsoft.UI.Input.dll`、`Microsoft.Internal.FrameworkUdk.dll`、`Microsoft.UI.Windowing.Core.dll` 等)都部署到 publish 目录。**这些 DLL 比用户的 OS 还新**——用户 OS 是 Win 11 25H2 GA `build 26200`,这些 DLL 来自 build `27200`。DLL 加载时做 OS build check → `STATUS_FAIL_FAST_EXCEPTION` (`0xC0000602`) → `Event Log` 记录 `Faulting module: CoreMessagingXP.dll, version: 10.0.27200.1019`。
+> **历史路径**:
+> - 2026-06-03 之前:self-contained (WinAppSDK 2.1.3) — native DLL build 27200 比 OS build 26200 新,触发 OS build check,`STATUS_FAIL_FAST_EXCEPTION` (0xC0000602)。
+> - 2026-06-03:改 framework-dependent (83 MB) — 规避 2.1.3 build mismatch,但依赖系统 apiset schema。这台机器的 schema 缺 8+ WinRT api-set,启动 0xC000027B(在 `Microsoft.UI.Xaml.dll` 内 fail)。
+> - 2026-06-15:改回 self-contained (218 MB) — **WinAppSDK 2.2.0 自带 native DLL 不再触发 OS build check**(实测 OK,用户机器 build 26200,2.2 runtime DLL build 27108 / 10.0.26100.x,反而比 OS 旧,正好)。完全自包含,**不依赖**系统 apiset schema,部署即可用。
 >
-> **改成 framework-dependent**(`SelfContained=false` + `WindowsAppSDKSelfContained=false`)后:
-> - publish 产物不再带那些 27200 的 native DLL(loader 改走 `System32` / `WinSxS`,OS 自带 `CoreMessagingXP.dll` v10.0.27108.1016 接管)
-> - 目标机**必须装**:
->   1. .NET 10 runtime(`coreclr.dll` / `hostfxr.dll` 不再 bundled)
->   2. Windows App Runtime 2.2 standalone(`Microsoft.WindowsAppRuntime.dll` 不再 bundled)—— installer URL 同上
-> - publish 产物体积从 **216 MB / 389 文件** 减到 **83 MB / 110 文件**
+> 体积多 135 MB 是"不依赖用户系统健康"的代价。在这台反复撞 apiset 问题的机器上,是正确取舍。
 
 ## 常见 AI 易犯错误（请主动避免）
 
