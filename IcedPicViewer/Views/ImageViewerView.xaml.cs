@@ -98,12 +98,16 @@ public sealed partial class ImageViewerView : Page
         });
     }
 
-    private async void UpdateMinimapDeferred()
+    private void UpdateMinimapDeferred()
     {
         if (!_isFitMode)
         {
-            await Task.Delay(50);
-            UpdateMinimap();
+            // Defer one dispatcher tick so the new image's layout pass
+            // completes before we read ViewportWidth/Offset from the
+            // ScrollViewer. Replaces the older Task.Delay(50) hack —
+            // dispatcher tick (~16 ms at 60 fps) is faster and correct
+            // (it fires AFTER layout, not on a wall-clock guess).
+            DispatcherQueue.GetForCurrentThread().TryEnqueue(UpdateMinimap);
         }
     }
 

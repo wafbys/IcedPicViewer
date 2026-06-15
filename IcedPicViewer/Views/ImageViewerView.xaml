@@ -45,13 +45,21 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
-                <Button Content="&lt;" Command="{x:Bind ViewModel.NavigatePreviousCommand}" Width="36" Height="36" FontSize="18" Margin="4,0"/>
+                <Button Content="&lt;"
+                        Command="{x:Bind ViewModel.NavigatePreviousCommand}"
+                        Width="36" Height="36" FontSize="18" Margin="4,0"
+                        AutomationProperties.Name="上一张"
+                        AutomationProperties.AccessibilityView="Control"/>
                 <TextBlock VerticalAlignment="Center" Foreground="White" Margin="8,0">
                     <Run Text="{x:Bind ViewModel.DisplayIndex, Mode=OneWay}"/>
                     <Run Text="/"/>
                     <Run Text="{x:Bind ViewModel.TotalCount, Mode=OneWay}"/>
                 </TextBlock>
-                <Button Content="&gt;" Command="{x:Bind ViewModel.NavigateNextCommand}" Width="36" Height="36" FontSize="18" Margin="4,0"/>
+                <Button Content="&gt;"
+                        Command="{x:Bind ViewModel.NavigateNextCommand}"
+                        Width="36" Height="36" FontSize="18" Margin="4,0"
+                        AutomationProperties.Name="下一张"
+                        AutomationProperties.AccessibilityView="Control"/>
 
                 <!-- 单图模式下的 Load More（支持到底自动加载更多） -->
                 <Button Content="Load More"
@@ -60,12 +68,16 @@
                         Margin="12,0,0,0"
                         Padding="8,4"/>
 
-                <Button x:Name="FitModeBtn" Content="Fit" Click="FitModeBtn_Click" MinWidth="50" Height="36" FontSize="12" Margin="16,0,0,0" Padding="8,0"/>
+                <Button x:Name="FitModeBtn" Content="Fit" Click="FitModeBtn_Click"
+                        MinWidth="50" Height="36" FontSize="12" Margin="16,0,0,0" Padding="8,0"
+                        AutomationProperties.Name="切换适应/原始大小"/>
             </StackPanel>
         </Grid>
 
         <Viewbox x:Name="FitContainer" Grid.Row="1" Stretch="Uniform">
-            <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}" Stretch="Uniform"/>
+            <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
+                   Stretch="Uniform"
+                   AutomationProperties.Name="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"/>
         </Viewbox>
 
         <ScrollViewer x:Name="ActualSizeContainer" Grid.Row="1"

@@ -122,6 +122,23 @@ public sealed partial class GalleryView : Page
         }
     }
 
+    /// <summary>
+    /// Touch / pen tap on a thumbnail toggles the info overlay. PointerEntered
+    /// never fires on touch (no hover concept), so without this the overlay
+    /// would be unreachable on a touch-only device. Mouse also fires Tapped,
+    /// which is harmless — PointerExited hides the overlay when the cursor
+    /// leaves the tile anyway.
+    /// </summary>
+    private void ImageItem_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.FindName("NameOverlay") is FrameworkElement overlay)
+        {
+            overlay.Visibility = overlay.Visibility == Visibility.Visible
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+    }
+
     private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedItemForDelete == null) return;

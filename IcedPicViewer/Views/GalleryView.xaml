@@ -47,8 +47,11 @@
                                 Padding="4"
                                 DoubleTapped="ImageItem_DoubleTapped"
                                 RightTapped="ImageItem_RightTapped"
+                                Tapped="ImageItem_Tapped"
                                 PointerEntered="ImageItem_PointerEntered"
-                                PointerExited="ImageItem_PointerExited">
+                                PointerExited="ImageItem_PointerExited"
+                                AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"
+                                AutomationProperties.HelpText="{x:Bind DisplayLocation, Mode=OneWay}">
                             <Border.ContextFlyout>
                                 <MenuFlyout>
                                     <MenuFlyoutItem Text="打开文件位置" Click="OpenFileLocation_Click"/>
