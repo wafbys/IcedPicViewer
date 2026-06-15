@@ -48,36 +48,23 @@
 
   <ItemGroup>
     <!--
-      Floating versions: 跟随作者意图"总是最新"。每个包的浮动宽度按 breaking
-      change 风险选:
-      - Microsoft.WindowsAppSDK: "2.*"    — 锁 major 2.x (跨 major API 大改)
-      - Microsoft.Extensions.Hosting: "[10.0.0,11.0.0)" — 锁 .NET 10 一代
-      - Microsoft.Windows.SDK.BuildTools: "10.0.26200.*" — 锁同 OS SDK 代 (TFM=26200)
-      - CommunityToolkit.Mvvm: "8.*"   — 锁 major (8.x stable)
-      - SharpCompress / .NetAnalyzers: "*" — 历史无 breaking 风险
-
-      Restore 时 nuget 会拉每个浮动的最新 stable 版本。CI / 其他开发者 build
-      可能拉到不同的小版本 — 这是 floating 的代价,需要 CI 锁 transitive 依赖
-      或用 lock file (`packages.lock.json`) 复现。
+      固定版本号,严格遵循微软官方"SDK/runtime 版本必须严格对应"建议:
+      - Microsoft.WindowsAppSDK 2.2.0 ↔ 目标机必须装 Windows App Runtime 2.2 standalone
+      - 跨版本会启动报版本不匹配错误 (0x80004005 / "Microsoft.WindowsAppRuntime not found")
+      - 微软文档示例永远用固定版本号,不用 floating
     -->
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="[10.0.0,11.0.0)" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.*" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.*" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
 
     <!--
       Archive support: ZIP + RAR + 7Z (and tar/gz) read-only access for scanning
       picture files inside archives. Pure managed, no native dependencies, so the
       framework-dependent publish profile is unaffected. Per SharpCompress docs
       we use ArchiveFactory.Open(ArchiveType) overloads or let the factory sniff.
-
-      Pinned to 0.x: SharpCompress 1.0.0 (released 2026) is a major rewrite —
-      ReaderFactory.OpenReader renamed to Open, signature changed to require
-      ReaderOptions, IEntry/ArchiveEntry API restructured. Floating to * would
-      silently break ArchiveHelper.cs. Upgrade to 1.x is a separate refactor
-      (rewrite ArchiveHelper.cs against new API), tracked separately.
     -->
-    <PackageReference Include="SharpCompress" Version="[0.49.0,1.0.0)" />
+    <PackageReference Include="SharpCompress" Version="0.49.1" />
 
     <!-- Static Analysis -->
     <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="*" />
@@ -120,6 +107,8 @@
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <!-- Force the WindowsAppSDK bootstrap auto-initializer to be generated.
+         The SDK skips it by default when WindowsAppSDKSelfContained=true. -->
     <!-- Force the WindowsAppSDK bootstrap auto-initializer to be generated.
          The SDK skips it by default when WindowsAppSDKSelfContained=true. -->
     <WindowsAppSdkBootstrapInitialize Condition="'$(WindowsAppSdkBootstrapInitialize)' == ''">true</WindowsAppSdkBootstrapInitialize>

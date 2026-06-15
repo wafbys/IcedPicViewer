@@ -6,6 +6,9 @@ using IcedPicViewer.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.Windows.ApplicationModel.DynamicDependency;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace IcedPicViewer;
 
@@ -18,12 +21,54 @@ public partial class App : Application
 
     public App()
     {
+        // Microsoft official guidance: rely on the auto-generated
+        // WindowsAppSDK bootstrap initializer (driven by csproj's
+        // WindowsAppSdkBootstrapInitialize=true). It pins the runtime to
+        // Microsoft.WindowsAppSDK 2.2.0 and the matching WindowsAppRuntime
+        // 2.2 package on the target machine. If the runtime is missing or
+        // the wrong version, the bootstrap throws and the process aborts
+        // BEFORE App() runs — we can't intercept that from here, but the
+        // user gets a system-level error pointing at the package.
+        // https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/use-windows-app-sdk-run-time
+        //
+        // We also subscribe to UnhandledException so we can show a friendly
+        // dialog with the runtime installer URL if XAML init still fails
+        // (e.g. on Insider builds where the runtime's OS build check trips).
+        UnhandledException += OnUnhandledException;
+
         InitializeComponent();
 
         var services = new ServiceCollection();
         ConfigureServices(services);
         _services = services.BuildServiceProvider();
     }
+
+    private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+    {
+        // Last-resort friendly error: catches anything that escapes the
+        // normal error handling — including the OS build check fail-fast
+        // (which WinUI surfaces as a CLR COMException during Application.Start).
+        try
+        {
+            var caption = "IcedPicViewer failed to start";
+            var message =
+                "IcedPicViewer requires the Windows App Runtime 2.2 standalone installer.\n\n" +
+                "Download and run:\n" +
+                "https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe\n\n" +
+                "Then re-launch this app.\n\n" +
+                "If the issue persists, your Windows build may not be supported.\n\n" +
+                "Details: " + e.Message;
+            _ = MessageBoxW(IntPtr.Zero, message, caption,
+                0x00000010 /* MB_ICONERROR */ | 0x00040000 /* MB_SETFOREGROUND */);
+        }
+        catch
+        {
+            Trace.TraceError($"Unhandled exception: {e.Exception}");
+        }
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
     private static void ConfigureServices(IServiceCollection services)
     {
