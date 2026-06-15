@@ -72,41 +72,35 @@
 
   <!--
     Publish defaults so that a plain `dotnet publish -c Release -p:Platform=x64`
-    (no extra -p: parameters) produces a self-contained folder at
+    (no extra -p: parameters) produces a framework-dependent folder at
     bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\publish\
-    that runs on any Win 11 24H2+ machine with zero system dependencies
-    (no .NET 10 runtime, no WinAppRuntime, no apiset schema fixes needed).
+    that requires the .NET 10 runtime AND Windows App Runtime 2.2
+    (or compatible) on the target machine.
 
-    We use **self-contained** mode for portability: the publish output
-    bundles both the .NET 10 runtime AND WindowsAppSDK 2.2 native DLLs
-    (CoreMessagingXP.dll, dwmcorei.dll, dcomp.dll, Microsoft.UI.Xaml.dll,
-    Microsoft.Internal.FrameworkUdk.dll, etc.). Output is ~218 MB / 389 files.
+    We use **framework-dependent** mode (not self-contained) on purpose:
+    WindowsAppSDK self-contained bundles native DLLs (CoreMessagingXP.dll,
+    dwmcorei.dll, dcomp.dll, ...) at a build NEWER than the user's OS, and
+    those DLLs fail-fast on load with STATUS_FAIL_FAST_EXCEPTION (0xC0000602)
+    because the DLLs are newer than the OS — observed in WinAppSDK 2.1.3
+    (native DLLs at build 10.0.27200.1019 vs Win 11 25H2 GA build 26200).
+    In framework-dependent mode the loader uses the OS's own versions from
+    System32 / WinSxS, so the version mismatch is bypassed.
 
-    The earlier framework-dependent attempt (2026-06-03) was abandoned:
-    the user's system was missing 8+ WinRT api-set DLLs in the apiset
-    schema (api-ms-win-core-winrt-l1-1-0.dll, etc.), which framework-
-    dependent mode cannot work around (loader resolves them via the OS
-    apisetschema.dll, not from the publish folder). Switching to self-
-    contained bundles all WinAppSDK native DLLs in-process, so the loader
-    never has to ask the OS for them.
+    Output is ~30 MB (no .NET runtime bundled). Target machine prerequisites:
+      1. .NET 10 runtime
+      2. Windows App Runtime 2.2 (installed via standalone installer, latest
+         2.2.x build; the aka.ms URL always redirects to the current latest):
+         https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
+         SDK and runtime versions MUST match — SDK 2.2 with runtime 2.1.x
+         fails at startup with a "0x80004005" or "Microsoft.WindowsAppRuntime
+         not found" error.
 
-    WinAppSDK 2.1.3 self-contained was rejected earlier because the
-    bundled native DLLs were at OS build 10.0.27200.1019 (newer than the
-    user's Win 11 25H2 GA at build 26200) and triggered STATUS_FAIL_FAST_
-    EXCEPTION (0xC0000602). Verified on 2026-06-15: WinAppSDK 2.2.0
-    self-contained runs cleanly on the same machine (user system build
-    26200, runtime DLLs at build 27108 / 10.0.26100.x — older than OS,
-    no build check failure). The 2.1.3 issue is no longer relevant.
-
-    Trade-off vs framework-dependent: ~218 MB vs ~83 MB. The extra 135 MB
-    is the price of not depending on the user's system being a healthy
-    Win 11 install. Given the recurring apiset schema problems, that's
-    the right trade.
+    The same defaults also apply to `dotnet build`.
   -->
   <PropertyGroup>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>false</SelfContained>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <!-- Force the WindowsAppSDK bootstrap auto-initializer to be generated.
          The SDK skips it by default when WindowsAppSDKSelfContained=true. -->
     <WindowsAppSdkBootstrapInitialize Condition="'$(WindowsAppSdkBootstrapInitialize)' == ''">true</WindowsAppSdkBootstrapInitialize>
