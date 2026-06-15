@@ -8,6 +8,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 
@@ -226,14 +227,13 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
         TotalCount = Images.Count;
         DisplayImage = null;
-        await LoadFullImageAsync(CurrentImage, _loadCts?.Token ?? CancellationToken.None);
+        ResetLoadCts();
+        await LoadFullImageAsync(CurrentImage, _loadCts!.Token);
     }
 
     public async Task ShowImageAsync(ImageItem item)
     {
-        _loadCts?.Cancel();
-        _loadCts?.Dispose();
-        _loadCts = new CancellationTokenSource();
+        ResetLoadCts();
 
         // Clear the previous image immediately so the user doesn't see a stale
         // bitmap while the new one is decoding. The ProgressRing overlay in
@@ -246,7 +246,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         TotalCount = Images.Count;
         ZoomLevel = 1.0;
 
-        await LoadFullImageAsync(item, _loadCts.Token);
+        await LoadFullImageAsync(item, _loadCts!.Token);
     }
 
     private async Task LoadFullImageAsync(ImageItem item, CancellationToken ct)
@@ -280,8 +280,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException)
         {
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceError($"LoadFullImageAsync error for {item?.Id}: {ex.Message}");
         }
         finally
         {
@@ -295,8 +296,26 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         {
             CurrentImage = Images[CurrentIndex];
             ZoomLevel = 1.0;
-            await LoadFullImageAsync(CurrentImage, _loadCts?.Token ?? CancellationToken.None);
+            // Always rebuild cts here too: a stale token from a previously
+            // cancelled load would either suppress this new load (if the
+            // token is cancelled) or leak the old in-flight task (if not).
+            ResetLoadCts();
+            await LoadFullImageAsync(CurrentImage, _loadCts!.Token);
         }
+    }
+
+    /// <summary>
+    /// Cancels any in-flight full-image load and swaps in a fresh cts. Callers
+    /// must read <c>_loadCts.Token</c> immediately after (use null-forgiving),
+    /// then pass it to <see cref="LoadFullImageAsync"/>. <see cref="Close"/>
+    /// uses a different destroy-then-null pattern because it tears the VM
+    /// down entirely.
+    /// </summary>
+    private void ResetLoadCts()
+    {
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = new CancellationTokenSource();
     }
 
     private bool _disposed;
