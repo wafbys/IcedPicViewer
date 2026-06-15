@@ -83,22 +83,22 @@ dotnet run -c Debug -p:Platform=$Platform
 ```powershell
 dotnet publish -c Release -p:Platform=$Platform
 ```
-产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`,~214 MB,包含 .NET 运行时 + WindowsAppSDK runtime(`.dll` 形式),但不完整 self-contained WindowsAppSDK 的所有 native dependencies。
+产物在 `IcedPicViewer\bin\$(Platform)\Release\$(TargetFramework)\win-x64\publish\`,~83 MB(framework-dependent,**不含** .NET 运行时和 WinAppSDK runtime)。
 
-**必须的前置条件**:**目标机器已安装 Windows App Runtime 2.0 standalone runtime**。WinAppSDK 2.0+ 的 self-contained 模式不完整(`api-ms-win-appmodel-runtime-l1-1-1.dll` 等 DLL 不会被 SDK 嵌入 publish 产物),unpackaged app 启动时必须从 `C:\Windows\System32` 找到这些 DLL。安装包:
+**必须的前置条件**:**目标机器已安装 .NET 10 runtime + Windows App Runtime 2.2 standalone**。WinAppSDK 2.0+ 的 self-contained 模式不完整(`api-ms-win-appmodel-runtime-l1-1-1.dll` 等 DLL 不会被 SDK 嵌入 publish 产物),unpackaged app 启动时必须从 `C:\Windows\System32` 找到这些 DLL。SDK 版本和 runtime 版本必须**严格匹配** — 升级 SDK 到 2.2 后,目标机也得用 2.2 runtime,旧的 2.1.x runtime 会导致启动报版本不匹配。安装包 URL 始终指向 2.0+ 的最新:
 ```
 https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 ```
 
 **部署清单**(给别人用时):
 1. 目标机器先装 .NET 10 SDK
-2. 目标机器装 Windows App Runtime 2.0 standalone runtime(上面链接)
+2. 目标机器装 Windows App Runtime 2.2 standalone runtime(上面链接)
 3. 然后跑 `dotnet publish -c Release -p:Platform=x64` 得产物
 4. 把 `publish\` 目录复制到目标机器,双击 `IcedPicViewer.exe`
 
-> **历史事实**:`CHANGELOG.md` 中 `v0.9.x` 多条 commit 提到"publish 产物能跑"——**这是错误的**,只验证了文件完整性,没真启动过 .exe。实测(`24063cd` 之后)publish 产物在缺 WinAppRuntime 2.0 standalone runtime 的机器上 0xC0000602 退出。本节"必须的前置条件"是基于此实测的诚实结论。
+> **历史事实**:`CHANGELOG.md` 中 `v0.9.x` 多条 commit 提到"publish 产物能跑"——**这是错误的**,只验证了文件完整性,没真启动过 .exe。实测(`24063cd` 之后)publish 产物在缺 WinAppRuntime 2.x standalone runtime 的机器上 0xC0000602 退出。本节"必须的前置条件"是基于此实测的诚实结论。
 
-> **PE 解析诊断备忘(2026-06-03)**:`System.Reflection.PortableExecutable` 解析 publish 目录各 native DLL 的 import table,确认 0xC0000602 根因。**用户当前 system 缺 12 个 WinRT/UWP 相关的 api-set DLL**(`system32` + `WinSxS` 都找不到),全部来自 `Microsoft.WindowsAppRuntime.dll` / `Microsoft.WindowsAppRuntime.Bootstrap.dll` / `Microsoft.UI.Xaml.dll` 的 P/Invoke:
+> **PE 解析诊断备忘(2026-06-03,WinAppSDK 2.1.3 时代)**:`System.Reflection.PortableExecutable` 解析 publish 目录各 native DLL 的 import table,确认 0xC0000602 根因。**用户当前 system 缺 12 个 WinRT/UWP 相关的 api-set DLL**(`system32` + `WinSxS` 都找不到),全部来自 `Microsoft.WindowsAppRuntime.dll` / `Microsoft.WindowsAppRuntime.Bootstrap.dll` / `Microsoft.UI.Xaml.dll` 的 P/Invoke:
 >
 > | 缺失 DLL | 来源 |
 > |---|---|
@@ -115,10 +115,10 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 > | `api-ms-win-core-path-l1-1-0.dll` | XAML + WinAppRuntime |
 > | `api-ms-win-dx-d3dkmt-l1-1-0.dll` | XAML |
 >
-> 装 WinAppRuntime 2.0 standalone installer(aka.ms URL)后,这 12 个 DLL 会部署到 `C:\Windows\System32`,app 启动时 Windows loader 能找到,0xC0000602 消失。**IcedPicViewer.exe 自身 import table 只 12 个基础 KERNEL32/USER32/ole32 等**,所以 .exe 自身能起;问题出在它加载 `Bootstrap.dll` → 链式 P/Invoke 这些缺失 DLL → fail-fast。
+> 装 WinAppRuntime standalone installer(aka.ms URL)后,这 12 个 DLL 会部署到 `C:\Windows\System32`,app 启动时 Windows loader 能找到,0xC0000602 消失。**IcedPicViewer.exe 自身 import table 只 12 个基础 KERNEL32/USER32/ole32 等**,所以 .exe 自身能起;问题出在它加载 `Bootstrap.dll` → 链式 P/Invoke 这些缺失 DLL → fail-fast。
 
 > 实现细节见 `IcedPicViewer.csproj` 末尾的自定义 MSBuild target：
-> - `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 2.0/2.1 的 bug：它的 targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`，**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`Assets`/`Views`，启动后立刻崩（`0xC000027B`）。在 2.1.3 + multi-file publish 下仍必须。
+> - `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 2.0/2.1 的 bug：它的 targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`，**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`Assets`/`Views`，启动后立刻崩（`0xC000027B`）。在 2.1.3 + multi-file publish 下仍必须。**2.2.0 是否还需要这个 workaround 暂未重新验证**(csproj 注释里已加 TODO)。
 > - `RemoveUnwantedCultures` —— 同时清 `$(OutDir)` 和 `$(PublishDir)` 中 BCP 47 格式的 culture 子目录,实测 publish 产物从 222 MB / 572 文件减到 216 MB / 389 文件(86 个 culture 目录消失)。
 > - ~~`CopyWindowsAppRuntimeBootstrapToOutput`~~ —— 已在 2.1.3 升级时永久删除(只在 `PublishSingleFile=true` 时需要,改用 multi-file publish 后自然不需要)。
 
@@ -130,7 +130,7 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 > - publish 产物不再带那些 27200 的 native DLL(loader 改走 `System32` / `WinSxS`,OS 自带 `CoreMessagingXP.dll` v10.0.27108.1016 接管)
 > - 目标机**必须装**:
 >   1. .NET 10 runtime(`coreclr.dll` / `hostfxr.dll` 不再 bundled)
->   2. Windows App Runtime 2.1.3 standalone(`Microsoft.WindowsAppRuntime.dll` 不再 bundled)—— installer URL 同上
+>   2. Windows App Runtime 2.2 standalone(`Microsoft.WindowsAppRuntime.dll` 不再 bundled)—— installer URL 同上
 > - publish 产物体积从 **216 MB / 389 文件** 减到 **83 MB / 110 文件**
 
 ## 常见 AI 易犯错误（请主动避免）

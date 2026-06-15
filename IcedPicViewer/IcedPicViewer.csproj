@@ -74,20 +74,26 @@
     Publish defaults so that a plain `dotnet publish -c Release -p:Platform=x64`
     (no extra -p: parameters) produces a framework-dependent folder at
     bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-x64\publish\
-    that requires the .NET 10 runtime AND Windows App Runtime 2.1.3
+    that requires the .NET 10 runtime AND Windows App Runtime 2.2
     (or compatible) on the target machine.
 
     We use **framework-dependent** mode (not self-contained) on purpose:
-    WindowsAppSDK 2.1.3 self-contained bundles native DLLs (CoreMessagingXP.dll,
-    dwmcorei.dll, dcomp.dll, ...) at build 10.0.27200.1019, but Win 11 25H2 GA
-    is build 26200 — these DLLs fail-fast on load with STATUS_FAIL_FAST_EXCEPTION
-    (0xC0000602) because the DLLs are NEWER than the OS. In framework-dependent
-    mode the loader uses the OS's own versions from System32 / WinSxS.
+    WindowsAppSDK self-contained bundles native DLLs (CoreMessagingXP.dll,
+    dwmcorei.dll, dcomp.dll, ...) at a build NEWER than the user's OS, and
+    those DLLs fail-fast on load with STATUS_FAIL_FAST_EXCEPTION (0xC0000602)
+    because the DLLs are newer than the OS — observed in WinAppSDK 2.1.3
+    (native DLLs at build 10.0.27200.1019 vs Win 11 25H2 GA build 26200).
+    In framework-dependent mode the loader uses the OS's own versions from
+    System32 / WinSxS, so the version mismatch is bypassed.
 
     Output is ~30 MB (no .NET runtime bundled). Target machine prerequisites:
       1. .NET 10 runtime
-      2. Windows App Runtime 2.1.3 (installed via standalone installer:
-         https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe)
+      2. Windows App Runtime 2.2 (installed via standalone installer, latest
+         2.2.x build; the aka.ms URL always redirects to the current latest):
+         https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
+         SDK and runtime versions MUST match — SDK 2.2 with runtime 2.1.x
+         fails at startup with a "0x80004005" or "Microsoft.WindowsAppRuntime
+         not found" error.
 
     The same defaults also apply to `dotnet build`.
   -->
@@ -114,9 +120,11 @@
     Verified still needed on WindowsAppSDK 2.1.3 (2026-05-21), regardless of
     PublishSingleFile=true/false. Tested by temporarily removing this target
     in both single-file and multi-file modes: WinUI XAML resources are
-    always missing from the publish output. The bootstrap.dll workaround
-    below was no longer needed after switching to multi-file publish, but
-    this one stays.
+    always missing from the publish output.
+
+    TODO: re-verify on WindowsAppSDK 2.2 — the WinUI targets may have been
+    fixed upstream. If publish still works without this target, the entire
+    <Target> block can be deleted (and publish should drop ~25 lines of csproj).
   -->
   <Target Name="SyncWinUIBuildOutputToPublish" AfterTargets="Publish" Condition="'$(WindowsPackageType)' == 'None' and Exists('$(OutDir)') and '$(PublishDir)' != ''">
     <ItemGroup>
