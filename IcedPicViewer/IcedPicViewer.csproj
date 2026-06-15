@@ -112,19 +112,16 @@
   </PropertyGroup>
 
   <!--
-    Workaround: WindowsAppSDK 2.0's WinUI targets only add XAML/.xbf/.pri/Assets/Views
+    Workaround: WindowsAppSDK's WinUI targets only add XAML/.xbf/.pri/Assets/Views
     to GetCopyToOutputDirectoryItems (build), not GetCopyToPublishDirectoryItems (publish).
     Without this, `dotnet publish` produces an exe that crashes on launch (0xC000027B)
     because it cannot find App.xbf / MainWindow.xbf / Assets / Views.
 
-    Verified still needed on WindowsAppSDK 2.1.3 (2026-05-21), regardless of
-    PublishSingleFile=true/false. Tested by temporarily removing this target
-    in both single-file and multi-file modes: WinUI XAML resources are
-    always missing from the publish output.
-
-    TODO: re-verify on WindowsAppSDK 2.2 — the WinUI targets may have been
-    fixed upstream. If publish still works without this target, the entire
-    <Target> block can be deleted (and publish should drop ~25 lines of csproj).
+    Re-verified still needed on WindowsAppSDK 2.2.0 (2026-06-15): without this
+    target the publish output is missing 15 files (App.xbf, MainWindow.xbf,
+    GalleryView.xbf, ImageViewerView.xbf, Views\*.xbf, IcedPicViewer.pri,
+    AppIcon.ico, all Square*/SplashScreen/StoreLogo/Wide*/LockScreen PNGs).
+    Microsoft has not fixed this in 2.2.0; this target is required.
   -->
   <Target Name="SyncWinUIBuildOutputToPublish" AfterTargets="Publish" Condition="'$(WindowsPackageType)' == 'None' and Exists('$(OutDir)') and '$(PublishDir)' != ''">
     <ItemGroup>

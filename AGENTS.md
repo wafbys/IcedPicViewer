@@ -118,7 +118,7 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 > 装 WinAppRuntime standalone installer(aka.ms URL)后,这 12 个 DLL 会部署到 `C:\Windows\System32`,app 启动时 Windows loader 能找到,0xC0000602 消失。**IcedPicViewer.exe 自身 import table 只 12 个基础 KERNEL32/USER32/ole32 等**,所以 .exe 自身能起;问题出在它加载 `Bootstrap.dll` → 链式 P/Invoke 这些缺失 DLL → fail-fast。
 
 > 实现细节见 `IcedPicViewer.csproj` 末尾的自定义 MSBuild target：
-> - `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 2.0/2.1 的 bug：它的 targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`，**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`Assets`/`Views`，启动后立刻崩（`0xC000027B`）。在 2.1.3 + multi-file publish 下仍必须。**2.2.0 是否还需要这个 workaround 暂未重新验证**(csproj 注释里已加 TODO)。
+> - `SyncWinUIBuildOutputToPublish` —— 修 WindowsAppSDK 的 bug：它的 WinUI targets 只 hook 了 build 的 `GetCopyToOutputDirectoryItems`，**没 hook publish 的 `GetCopyToPublishDirectoryItems`**。不修的话 publish 出来的 exe 缺 `App.xbf`/`MainWindow.xbf`/`Assets`/`Views`，启动后立刻崩（`0xC000027B`）。**在 2.2.0 下已重新验证仍必须**（2026-06-15，临时注释掉 target 后 publish 产物缺 15 个文件：所有 `.xbf` / `.pri` / 11 个 tile & icon PNG；微软 2.2.0 没修这个 bug）。**不可删**。
 > - `RemoveUnwantedCultures` —— 同时清 `$(OutDir)` 和 `$(PublishDir)` 中 BCP 47 格式的 culture 子目录,实测 publish 产物从 222 MB / 572 文件减到 216 MB / 389 文件(86 个 culture 目录消失)。
 > - ~~`CopyWindowsAppRuntimeBootstrapToOutput`~~ —— 已在 2.1.3 升级时永久删除(只在 `PublishSingleFile=true` 时需要,改用 multi-file publish 后自然不需要)。
 
