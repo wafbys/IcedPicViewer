@@ -51,6 +51,7 @@
   - 不要用 `Window.Current`、`CoreDispatcher` 等已废弃的东西。
   - 大列表优先考虑虚拟化（但本项目因视觉要求保留了 MasonryPanel）。
   - **单图模式键盘事件不要用 XAML-layer 机制**（`AddHandler(KeyDownEvent)` / `KeyboardAccelerator` / `SetWindowSubclass`）——在 MSIX packaged + Win11 25H2 下全部失效。必须用 Win32 `SetWindowsHookEx(WH_KEYBOARD, ..., dwThreadId=GetCurrentThreadId())` thread-scope hook 装到 UI thread 的 message queue,绕过 XAML 焦点和 HWND 机制。详见下面"键盘导航实现"章节。
+  - **改 ThemeResource brush 名前必须查权威 list,不要凭 Fluent 1 旧名猜**。WinUI 3 真实存在的 brush 是 Fluent 2 命名(`SubtleFillColorSecondaryBrush` / `SolidBackgroundFillColorBaseBrush` / `ControlStrokeColorDefaultBrush` / `CardStrokeColorDefaultBrush` / `LayerFillColorDefaultBrush` 等);Fluent 1 旧名(`SystemControlBackgroundChromeMediumLowBrush` / `SystemControlBackgroundChromeHighBrush` / `SystemControlBackgroundBlackHighBrush` 等)在 WinAppSDK 2.2+ 全部**不存在**,build 不会报但跑起来 XamlParseException。验证方法:在 `App.OnLaunched` 顶部 reflection 枚举 `Application.Current.Resources.MergedDictionaries` 全部 key 写到 `%LOCALAPPDATA%\IcedPicViewer\brushes.txt`,`grep` 查目标名。cf6734d / a48b77a / fc16401 这 3 个 commit 修过这个坑(顶 bar / Page / minimap),未来再改 ThemeResource 不要重复踩。
 - **资源清理**：IDisposable 必须正确释放（尤其是 FileSystemWatcher、CancellationTokenSource、Stream）。
 - **异常处理**：禁止空 catch 吞掉异常，至少要用 `Trace.TraceError` 记录。
 
