@@ -3,6 +3,7 @@
 using IcedPicViewer.Services.Interfaces;
 using IcedPicViewer.ViewModels;
 using IcedPicViewer.Views;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Diagnostics;
@@ -81,16 +82,18 @@ public sealed partial class MainWindow : Window
         // generally blocks that. WH_KEYBOARD is thread-internal and
         // DLL-free.
         //
-        // Defer the install to Activated (like the previous SetWindowSubclass
-        // attempt) — GetCurrentThreadId in the ctor might or might not be
-        // the UI thread depending on how WinAppSDK spins things up, and
-        // Activated is the first guarantee that we're on it.
-        Activated += OnWindowActivated;
+        // Defer the install via the DispatcherQueue so GetCurrentThreadId
+        // captures the UI thread, not whatever thread happened to be
+        // running the ctor (which is the UI thread in practice, but the
+        // dispatcher round-trip is cheap and removes a class of "ctor ran
+        // on the wrong thread" bugs that already bit us with the ctor-time
+        // SetWindowSubclass attempt).
+        DispatcherQueue.GetForCurrentThread().TryEnqueue(InstallKeyboardHook);
     }
 
     private bool _hookInstalled;
 
-    private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+    private void InstallKeyboardHook()
     {
         if (_hookInstalled) return;
         _hookProc = KeyboardHookProc;
@@ -131,25 +134,43 @@ public sealed partial class MainWindow : Window
 
     private IntPtr KeyboardHookProc(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        // Per docs, nCode < 0 means the hook must pass to CallNextHookEx
-        // without doing anything.
-        if (nCode >= 0)
+        // CRITICAL invariants for WH_KEYBOARD hooks:
+        //   1. nCode < 0 → pass to CallNextHookEx with no work.
+        //   2. Callback must return quickly — slow callbacks degrade input
+        //      latency across the whole thread.
+        //   3. Exceptions MUST NOT escape the callback — an uncaught throw
+        //      in a hook is undefined behavior and on Win11 25H2 + MSIX
+        //      manifests as a silent process crash (this is exactly what
+        //      bit us in the previous attempt: vm.NavigateNextCommand.Execute
+        //      kicks off an async chain via await ShowCurrentImageAsync, and
+        //      anything thrown on the continuation crashes the process).
+        //
+        // To honor all three, the hook body is wrapped in try/catch and the
+        // actual VM dispatch is hopped to the DispatcherQueue so the await
+        // chain starts AFTER the hook returns. The hop is a synchronous
+        // TryEnqueue (we're already on the UI thread, the dispatcher pulls
+        // the work item immediately) — so log line ordering is preserved.
+        try
         {
-            // For WH_KEYBOARD: wParam is the virtual key code, lParam contains
-            // repeat count / scan code / flags. We just want the key, and we
-            // only react on key-down (lParam bit 31 = 0 means down, 1 means
-            // up; but the hook also fires for WM_KEYUP=257, which we ignore
-            // by checking the high bit).
-            var vk = (Windows.System.VirtualKey)wParam.ToInt32();
-            // Bit 31 of lParam is the "transition" flag: 1 = key-up, 0 = key-down.
-            // (lParam.ToInt32() & int.MinValue) is equivalent to checking bit 31
-            // without the unsigned-to-signed compile error from 0x80000000.
-            bool isKeyUp = (lParam.ToInt32() & int.MinValue) != 0;
-            if (!isKeyUp)
+            if (nCode >= 0)
             {
-                LogKbd($"WH_KEYBOARD vk={vk} page={RootFrame.Content?.GetType().Name ?? "<null>"}");
-                HandleViewerKey(vk);
+                var vk = (Windows.System.VirtualKey)wParam.ToInt32();
+                bool isKeyUp = (lParam.ToInt32() & int.MinValue) != 0;
+                if (!isKeyUp)
+                {
+                    LogKbd($"WH_KEYBOARD vk={vk} page={RootFrame.Content?.GetType().Name ?? "<null>"}");
+                    DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
+                    {
+                        try { HandleViewerKey(vk); }
+                        catch (Exception ex) { LogKbd($"HandleViewerKey threw: {ex.GetType().Name}: {ex.Message}"); }
+                    });
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            // Last-resort: never let a hook exception reach the OS.
+            LogKbd($"hook callback threw: {ex.GetType().Name}: {ex.Message}");
         }
         return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
     }
