@@ -74,6 +74,17 @@
                           Icon="Zoom"
                           Label="Fit"
                           Click="FitModeBtn_Click"/>
+            <AppBarElementContainer>
+                <Slider x:Name="ZoomSlider"
+                        Width="160"
+                        Minimum="0.1"
+                        Maximum="4.0"
+                        StepFrequency="0.1"
+                        SmallChange="0.05"
+                        IsThumbToolTipEnabled="True"
+                        ToolTipService.ToolTip="缩放倍率(Fit 模式下不生效,切到 1:1 后才应用)"
+                        Value="{x:Bind ViewModel.ZoomLevel, Mode=TwoWay}"/>
+            </AppBarElementContainer>
             <AppBarButton Icon="Refresh"
                           Label="Load More"
                           Command="{x:Bind ViewModel.LoadMoreImagesCommand}"
@@ -101,7 +112,19 @@
                    Stretch="None"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    Loaded="ActualSizeImage_Loaded"
-                   ImageOpened="ActualSizeImage_ImageOpened"/>
+                   ImageOpened="ActualSizeImage_ImageOpened"
+                   RenderTransformOrigin="0,0">
+                <Image.RenderTransform>
+                    <!-- TwoWay bind on ScaleX/ScaleY: slider drags write through
+                         to ViewModel.ZoomLevel, and any VM-side change (reset on
+                         image switch, etc.) flows back to the transform. Stretch="None"
+                         already gives us 1:1 pixel rendering; the ScaleTransform
+                         multiplies on top so the ScrollViewer scrolls the
+                         appropriately-sized content. -->
+                    <ScaleTransform ScaleX="{x:Bind ViewModel.ZoomLevel, Mode=TwoWay}"
+                                    ScaleY="{x:Bind ViewModel.ZoomLevel, Mode=TwoWay}"/>
+                </Image.RenderTransform>
+            </Image>
         </ScrollViewer>
 
         <Grid x:Name="MinimapOverlay" Grid.Row="1"
