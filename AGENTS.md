@@ -50,7 +50,7 @@
 - **WinUI 禁忌**：
   - 不要用 `Window.Current`、`CoreDispatcher` 等已废弃的东西。
   - 大列表优先考虑虚拟化（但本项目因视觉要求保留了 MasonryPanel）。
-  - 关注焦点管理（单图模式键盘事件曾因此出问题）。
+  - **单图模式键盘事件不要用 XAML-layer 机制**（`AddHandler(KeyDownEvent)` / `KeyboardAccelerator` / `SetWindowSubclass`）——在 MSIX packaged + Win11 25H2 下全部失效。必须用 Win32 `SetWindowsHookEx(WH_KEYBOARD, ..., dwThreadId=GetCurrentThreadId())` thread-scope hook 装到 UI thread 的 message queue,绕过 XAML 焦点和 HWND 机制。详见下面"键盘导航实现"章节。
 - **资源清理**：IDisposable 必须正确释放（尤其是 FileSystemWatcher、CancellationTokenSource、Stream）。
 - **异常处理**：禁止空 catch 吞掉异常，至少要用 `Trace.TraceError` 记录。
 
@@ -154,6 +154,57 @@ dotnet publish -c Release -p:Platform=$Platform
 `api-ms-win-*.dll` 系列(api-set)是**虚拟 forwarder**,由 `apisetschema.dll` 解析 serve。`System32` 里"找不到文件"是正常现象,不是缺失;grep 字符串 0 match 是因为 schema 用二进制编码。要验证某 api-set 是否真的可用,正确做法是 PowerShell `[System.Runtime.InteropServices.NativeLibrary]::Load("api-ms-win-xxx.dll")`,而不是看文件存不存在。
 
 之前对 IcedPicViewer 0xC0000602 错误的"api-set 缺失"猜测**已推翻**;这个事实本身仍然有用(下次不要被"找不到 api-set DLL"表象误导)。
+
+---
+
+### 键盘导航实现 — `MainWindow` WH_KEYBOARD thread-scope hook
+
+v0.13.0 之前,单图模式左右键 / Delete / Escape 经过 6 轮失败 + 1 个真修复,期间共 12 个 commit。最终机制在 `IcedPicViewer/MainWindow.xaml.cs`(搜索 `WH_KEYBOARD` / `InstallKeyboardHook` / `KeyboardHookProc`)。
+
+**核心思想**:`SetWindowsHookEx(WH_KEYBOARD, ..., dwThreadId=GetCurrentThreadId())` 装到当前 UI thread 的 message queue。`WH_KEYBOARD` thread-scope hook 收到 thread 内**所有**键盘事件(不依赖焦点,不依赖 HWND,不被 XAML island 路由劫持),回调里把 `wParam` 转 `VirtualKey` 后通过 `DispatcherQueue.TryEnqueue` 投递回 UI thread 执行 `HandleViewerKey`。
+
+**6 个失败方案 + 它们为什么失败**(完整 chronology 在 git log,搜索 `OnNavigatedTo` / `KeyboardAccelerator` / `SetWindowSubclass` / `WH_KEYBOARD` 关键词):
+
+| 方案 | 失败原因 |
+|------|------|
+| `Loaded` 同步 `Focus()` | Loaded 时 Page 还没 layout,Focus() silent no-op |
+| `OnNavigatedTo + DispatcherQueue.TryEnqueue + Focus()` (89e82a7 原版) | MSIX packaged 下 Focus() 真的 no-op(此前 unpackaged 模式可以) |
+| `KeyboardAccelerator` 加到 `RootGrid` | 文档说 global scope,实际仍依赖 focused element 启动 routed event 链;无焦点 = 不 invoke |
+| `SetWindowSubclass` 在 ctor 里 | `WindowNative.GetWindowHandle(this)` 在 ctor 时刻返回 0(HWND 还没 lazy 创建),hook 注册到不存在 HWND |
+| `SetWindowSubclass` 移到 `Activated` 事件 | hook 注册成功(kbd.log: "subclass registered on hwnd=0x1A0978"),但 WM_KEYDOWN 永远不到那个 HWND —— XAML island 内部 child,OS 路由到 island hierarchy 更上层 |
+| 任何上述方案 | 任何**未抛**未崩的情况,根因往往是"`AddHandler(KeyDownEvent)` 依赖焦点"或"`SetWindowSubclass` 依赖正确 HWND"——MSIX packaged + Win11 25H2 上两者都不可靠 |
+
+**第 7 个(最终)**: `WH_KEYBOARD` thread-scope hook 装在 dispatcher round-trip 后的 UI thread 上,绕过整个 XAML 焦点 / HWND 体系。
+
+**这套方案踩过的 3 个具体 bug**(全在 `KeyboardHookProc` 注释里):
+
+1. **`vm.NavigateNextCommand.Execute(null)` 内部 `await ShowCurrentImageAsync` 让 callback 路径挂在 await 上,违反 "callback 必须快速返回" 不变量** → 解决:`DispatcherQueue.GetForCurrentThread().TryEnqueue(HandleViewerKey)` 投递,hook 同步 return,await 链从 work item 开始跑。
+2. **异常逃出 hook** → 解决:整个 callback try-catch,`HandleViewerKey` 内层再 try-catch 一次;不允许任何异常 reach OS。
+3. **`IntPtr.ToInt32()` 在 .NET 6+ 值超 int 范围时抛 `OverflowException`** → 解决:用 `unchecked((int)IntPtr)` 显式 unchecked cast,只 truncate 永不抛(Win11 25H2 + MSIX 下 wParam/lParam 在 64-bit IntPtr 的高 32-bit 有 garbage data,触发 ToInt32() 的 overflow 检查)。
+
+**第 8 个(易错)**: `HandleViewerKey` 必须从 `viewer.ViewModel` 拿 VM,**不**是 `viewer.DataContext` —— `ImageViewerView` 用 `x:Bind` 风格,绑到 `public ImageViewModel ViewModel { get; }` field,`DataContext` 始终是 null。`viewer.DataContext is not ImageViewModel vm` 永远 true,switch 永远不执行。
+
+**调试约定**:hook 相关诊断 log 写 `%LOCALAPPDATA%\IcedPicViewer\kbd.log`,内容:
+- `WH_KEYBOARD hook installed ...` / `SetWindowsHookEx FAILED ...`(安装结果)
+- `WH_KEYBOARD vk=... page=...`(每次按键触发,看 hook 是否收到)
+- `hook callback threw: ...` / `HandleViewerKey threw: ...`(异常捕获,带 stack trace)
+
+保留这些 log 是有意识的选择 —— keyboard nav 修好前我们 8 次靠它定位 bug,未来如果再 break(WinAppSDK 升级、平台变更),直接 `cat` 就能看到 hook 状态、栈、按键序列。不需要重做整套诊断。
+
+**未来如果想换更"现代化"的方案**:理论上 `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId(WindowId).KeyDown` 是 WinUI 3 官方 window-scope 键盘 API,不依赖焦点也不依赖 HWND。但本项目当前 WinAppSDK 2.2.1 的 winmd 里**没有**这个 type(查 `C:\Users\YF\.nuget\packages\microsoft.windowsappsdk.winui\2.2.1\metadata\Microsoft.UI.Xaml.winmd` 搜 `InputKeyboardSource` 无结果)。升 WinAppSDK 后可以试。
+
+---
+
+### 经验教训(2026-06-16 复盘 keyboard nav 修复)
+
+这次修复走过 12 个 commit、6 个失败方案,代价不菲。值得记下来的:
+
+1. **断言"以前可以"要去 log 找真证据,不要靠 commit message 推论**。`89e82a7` 时代 `OnNavigatedTo + Focus` 在 unpackaged 模式能 work,但 `bfcae46` 改 MSIX packaged 后焦点机制变了,再没真验证过 → 浪费了 4 个 commit (f3c3200 / c8e3d5e / a306722 / bf04e5e)。
+2. **`page=ImageViewerView` 这种"看起来通过"的 log 不等于 switch 真跑了**。`ec47030` 加 inner log 才暴露 `viewer.DataContext is not ImageViewModel vm` 永远 true —— hook 自己 log 看到的 `RootFrame.Content?.GetType().Name` 和 `HandleViewerKey` 内部的 `is not` check 用的**不是同一个引用路径**。诊断 log 要**端到端**。
+3. **stack trace 永远比 message 优先**。`OverflowException` 光看 message 是 "Arithmetic operation resulted in an overflow",完全不知道是哪行;加 `ex.StackTrace` 后直接定位到 `System.IntPtr.ToInt32()`,省了 5 轮猜。
+4. **`unchecked` C# 关键字只影响编译期检查**,**不**影响 .NET BCL method 行为。`IntPtr.ToInt32()` 是 .NET runtime method,即使在 `unchecked { ... }` 块里仍按 .NET 6+ 行为抛 `OverflowException`。要 truncate 又不抛,必须用显式 unchecked cast `(int)IntPtr`。
+5. **x:Bind 风格 page 的 ViewModel 在 `page.ViewModel` 字段**,**不**在 `page.DataContext`。`{Binding}` 风格两个都能用,x:Bind 风格只认 code-behind property。这个混淆浪费了一次 commit。
+6. **同一段代码"以前可以"不代表"现在还可以"**,平台/SDK 升级是隐性杀手。每次 WinAppSDK 升级 / 部署模式切换(MSIX packaged / unpackaged)都要重新验证 keyboard nav 这类 input-sensitive 路径,不能 commit message 看了说"已修过"就跳过。
 
 ---
 

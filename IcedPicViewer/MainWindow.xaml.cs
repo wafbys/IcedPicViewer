@@ -59,35 +59,22 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += AppWindow_Closing;
 
         // Thread-scope WH_KEYBOARD hook for ImageViewerView shortcuts
-        // (Left/Right/Delete/Escape). All previous XAML-layer attempts
-        // (AddHandler(KeyDownEvent), KeyboardAccelerator) AND the prior
-        // SetWindowSubclass approach failed in MSIX packaged mode:
+        // (Left/Right/Delete/Escape). Replaces 6 earlier XAML-layer
+        // attempts (AddHandler(KeyDownEvent), KeyboardAccelerator,
+        // SetWindowSubclass, …) — all depended on a focused element or
+        // on registering the hook on a HWND that the OS actually
+        // routes keyboard input to, both of which are unreliable in
+        // MSIX packaged mode on Win11 25H2. WH_KEYBOARD thread scope
+        // sidesteps both: it hooks the UI thread's message queue
+        // directly, so every keystroke reaches us regardless of focus
+        // and HWND. WH_KEYBOARD_LL would need an injected DLL that the
+        // MSIX sandbox generally blocks, so this is the right tool.
         //
-        //   - XAML routed events need a focused element; focus is unreliable
-        //     after Frame.Navigate.
-        //   - SetWindowSubclass registered successfully on the XAML island's
-        //     inner HWND (verified via diagnostic log: "subclass registered on
-        //     hwnd=0x1A0978") but WM_KEYDOWN was never delivered to that HWND
-        //     — the OS routes keyboard input to a higher-level window in the
-        //     XAML island / ApplicationFrame hierarchy.
-        //
-        // WH_KEYBOARD with thread scope sidesteps all of this: it hooks the
-        // current thread's message queue (the WinUI 3 UI thread's dispatch
-        // loop), so every keystroke that reaches the app goes through us,
-        // regardless of which HWND would have received it. No focus
-        // dependency, no HWND dependency.
-        //
-        // WH_KEYBOARD_LL would be a tempting alternative but it requires a
-        // separate DLL to be injected into the target thread; MSIX sandbox
-        // generally blocks that. WH_KEYBOARD is thread-internal and
-        // DLL-free.
-        //
-        // Defer the install via the DispatcherQueue so GetCurrentThreadId
-        // captures the UI thread, not whatever thread happened to be
-        // running the ctor (which is the UI thread in practice, but the
-        // dispatcher round-trip is cheap and removes a class of "ctor ran
-        // on the wrong thread" bugs that already bit us with the ctor-time
-        // SetWindowSubclass attempt).
+        // See AGENTS.md "键盘导航实现" for the full failed-attempts
+        // chronology. The DispatcherQueue.TryEnqueue is a belt-and-
+        // suspenders: the ctor IS on the UI thread in practice, but
+        // the dispatcher round-trip removes a class of "ctor ran on
+        // the wrong thread" bugs we already hit.
         DispatcherQueue.GetForCurrentThread().TryEnqueue(InstallKeyboardHook);
     }
 
@@ -134,38 +121,24 @@ public sealed partial class MainWindow : Window
 
     private IntPtr KeyboardHookProc(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        // CRITICAL invariants for WH_KEYBOARD hooks:
-        //   1. nCode < 0 → pass to CallNextHookEx with no work.
-        //   2. Callback must return quickly — slow callbacks degrade input
-        //      latency across the whole thread.
-        //   3. Exceptions MUST NOT escape the callback — an uncaught throw
-        //      in a hook is undefined behavior and on Win11 25H2 + MSIX
-        //      manifests as a silent process crash (this is exactly what
-        //      bit us in the previous attempt: vm.NavigateNextCommand.Execute
-        //      kicks off an async chain via await ShowCurrentImageAsync, and
-        //      anything thrown on the continuation crashes the process).
-        //
-        // To honor all three, the hook body is wrapped in try/catch and the
-        // actual VM dispatch is hopped to the DispatcherQueue so the await
-        // chain starts AFTER the hook returns. The hop is a synchronous
-        // TryEnqueue (we're already on the UI thread, the dispatcher pulls
-        // the work item immediately) — so log line ordering is preserved.
+        // WH_KEYBOARD hook invariants (each one empirically bit us while
+        // iterating on the keyboard nav fix — see AGENTS.md for chronology):
+        //   - nCode < 0 → pass through to CallNextHookEx with no work
+        //   - Callback must return fast (slow callbacks degrade input latency)
+        //   - Exceptions MUST NOT escape (unhandled throw in a hook is undefined;
+        //     on Win11 25H2 + MSIX it silently crashes the process)
+        //   - (int)IntPtr is unchecked truncate — never throws. IntPtr.ToInt32()
+        //     does throw on .NET 6+ when value is out of int range (observed on
+        //     Win11 25H2 + MSIX where wParam/lParam have garbage in the high
+        //     32 bits). The C# `unchecked` keyword does NOT change BCL method
+        //     behavior — only the explicit `(int)IntPtr` cast is safe here.
+        // The body is try/catch-wrapped and HandleViewerKey is hopped via
+        // DispatcherQueue.TryEnqueue (synchronous on the UI thread) so the VM's
+        // await chain starts AFTER the hook returns, not before.
         try
         {
             if (nCode >= 0)
             {
-                // CRITICAL: do NOT call IntPtr.ToInt32() here. That method
-                // throws OverflowException on .NET Core 2.1+ whenever the
-                // IntPtr value is outside the Int32 range — the Win11 25H2 +
-                // MSIX build appears to hand us wParam/lParam with garbage
-                // in the high 32 bits, which trips that check. The
-                // `(int)IntPtr` cast below is an unchecked C# conversion that
-                // simply truncates to the low 32 bits and never throws,
-                // matching the Win32 32-bit semantics of these params.
-                //
-                // (The C# `unchecked` keyword only affects compile-time
-                // arithmetic checks; it does NOT change the runtime behavior
-                // of .NET BCL methods like IntPtr.ToInt32().)
                 unchecked
                 {
                     int wParam32 = (int)wParam;
@@ -186,7 +159,6 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            // Last-resort: never let a hook exception reach the OS.
             LogKbd($"hook callback threw: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
         }
         return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
@@ -232,25 +204,16 @@ public sealed partial class MainWindow : Window
         switch (key)
         {
             case Windows.System.VirtualKey.Left:
-                {
-                    var can = vm.NavigatePreviousCommand.CanExecute(null);
-                    LogKbd($"  prev: idx={vm.CurrentIndex}/{vm.Images.Count} CanExecute={can}");
-                    if (can) vm.NavigatePreviousCommand.Execute(null);
-                }
+                if (vm.NavigatePreviousCommand.CanExecute(null))
+                    vm.NavigatePreviousCommand.Execute(null);
                 break;
             case Windows.System.VirtualKey.Right:
-                {
-                    var can = vm.NavigateNextCommand.CanExecute(null);
-                    LogKbd($"  next: idx={vm.CurrentIndex}/{vm.Images.Count} CanLoadMoreImages={vm.CanLoadMoreImages} IsLoadingMore={vm.IsLoadingMoreImages} CanExecute={can}");
-                    if (can) vm.NavigateNextCommand.Execute(null);
-                }
+                if (vm.NavigateNextCommand.CanExecute(null))
+                    vm.NavigateNextCommand.Execute(null);
                 break;
             case Windows.System.VirtualKey.Delete:
-                {
-                    var can = vm.DeleteCommand.CanExecute(null);
-                    LogKbd($"  del: CanExecute={can} currentImage={vm.CurrentImage?.Name ?? "<null>"}");
-                    if (can) vm.DeleteCommand.Execute(null);
-                }
+                if (vm.DeleteCommand.CanExecute(null))
+                    vm.DeleteCommand.Execute(null);
                 break;
             case Windows.System.VirtualKey.Escape:
                 vm.CloseCommand.Execute(null);

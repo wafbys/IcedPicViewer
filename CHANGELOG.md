@@ -1,5 +1,47 @@
 # 更新日志
 
+## v0.13.0 (2026-06-16)
+
+**主题:单图模式键盘导航修复(12 commits, 6 个失败方案 + 1 个真修复)+ 标题栏 commit hash + VM/Model 改 partial property 消除 MVVMTK0045**
+
+### 键盘导航 — 12 commit 修复史
+
+之前单图模式左右键 / Delete / Escape 在 MSIX packaged + Win11 25H2 下完全不可用。经历了 6 个失败方案(Loaded 同步 Focus / OnNavigatedTo+DispatcherQueue+Focus / KeyboardAccelerator / SetWindowSubclass 在 ctor / SetWindowSubclass 在 Activated)之后,最终机制是 `MainWindow` 里装一个 thread-scope 的 `WH_KEYBOARD` Win32 hook(`SetWindowsHookEx(WH_KEYBOARD, ..., dwThreadId=GetCurrentThreadId())`),回调里通过 `DispatcherQueue.TryEnqueue` 投递到 UI thread 跑 `HandleViewerKey`。
+
+**为什么 XAML-layer 方案全失败**:MSIX packaged 模式下焦点状态在 `Frame.Navigate` 之后不可靠(`AddHandler` 依赖焦点 / `KeyboardAccelerator` 文档说 global scope 但实际仍依赖焦点启动 routed event),`WindowNative.GetWindowHandle(this)` 返回的是 XAML island 内部 child HWND 不是真正接收 keyboard input 的顶层 window(`SetWindowSubclass` 注册成功但 WM_KEYDOWN 不来)。`WH_KEYBOARD` thread-scope hook 装到 UI thread 的 message queue,绕过 XAML 焦点和 HWND 机制,这是 WinUI 3 在 MSIX 沙箱下唯一能保证 work 的 keyboard 路径。
+
+**最终实现要点**(踩过的 3 个具体 bug,全在 `KeyboardHookProc` 注释里):
+
+1. `WH_KEYBOARD` callback 必须快速 return + 永不抛异常 → callback 整个 try-catch,VM dispatch 用 `DispatcherQueue.TryEnqueue` 投递,await 链在 hook return 之后才跑。
+2. `IntPtr.ToInt32()` 在 .NET 6+ 值超 int 范围时抛 `OverflowException`(Win11 25H2 + MSIX 给的 wParam/lParam 在 64-bit IntPtr 高 32-bit 有 garbage) → 用 `unchecked((int)IntPtr)` 显式 unchecked cast,只 truncate 永不抛(`unchecked` C# 关键字**不**影响 .NET BCL method 行为)。
+3. `HandleViewerKey` 从 `viewer.ViewModel` 拿 VM 不是 `viewer.DataContext` —— `ImageViewerView` 用 `x:Bind` 风格,`DataContext` 始终是 null,`is not` check 永远 true,switch 永远不执行。
+
+**诊断约定**:`%LOCALAPPDATA%\IcedPicViewer\kbd.log` 记录 hook 安装结果、每次按键触发、异常捕获(带 stack trace)。保留以备未来 regression 排查。完整 chronology 在 `AGENTS.md` "键盘导航实现" 章节。
+
+### 标题栏 commit hash
+
+`MainWindow` ctor 设 `AppTitleBar.Title` 和 `AppWindow.Title` 为 `IcedPicViewer (abc1234)`,hash 来自 `BuildInfo.CommitShort`。`BuildInfo.g.cs` 由 `IcedPicViewer.csproj` 的 `GenerateBuildInfo` target 在 build 时通过 `git rev-parse --short HEAD` 生成(无 git 时 fallback "unknown"),文件写到 `IcedPicViewer/Generated/BuildInfo.g.cs`(已在 `.gitignore` 排除)。两个 title 都设:`AppTitleBar` 是 visual custom title bar,`AppWindow.Title` 给 taskbar hover / Alt+Tab / 屏幕阅读器用。
+
+### 17 个 MVVMTK0045 warning 消除
+
+`CommunityToolkit.Mvvm 8.4.0+` 在 WinRT 场景下对 `[ObservableProperty] private T _foo;` 触发 MVVMTK0045,建议改用 `public partial T Foo { get; set; }`(partial property,C# 13 新特性)。17 处全部迁移,partial method (`OnFooChanged`) 照常 work,所有现有 property 访问路径不变,只 backing storage 变了。
+
+文件:
+- `Models/ImageItem.cs`: Thumbnail, FullImage
+- `ViewModels/GalleryViewModel.cs`: LoadingState, StatusText, TotalCount, LastViewedIndex, LastViewedYOffset, CanLoadMore, IsLoadingMore
+- `ViewModels/ImageViewModel.cs`: CurrentImage, DisplayImage, DisplayActualWidth, DisplayActualHeight, ZoomLevel, IsLoading, CurrentIndex, TotalCount
+
+### csproj 同步改动
+
+- `NoWarn` 加 `CA2020`(`(int)IntPtr` 在 unchecked context 永不抛是故意行为)和 `SYSLIB1054`(P/Invoke for native hook 不走 source-gen AOT 收益),跟现有 `CsWinRT1028;CsWinRT1030` 抑制规则一致。
+- 新增 `GenerateBuildInfo` target (BeforeBuild) 跑 git rev-parse,写 `Generated/BuildInfo.g.cs`。注释解释 MSBuild XML `;` 当 list separator 处理(用 `%3B` 转义)的细节。
+
+### commit 链(同版本,无中间版本号)
+
+`1ac25f1` (ViewModel 修复) → `ec47030` (HandleViewerKey VM log) → `49122b7` (`(int)IntPtr` cast) → `c80dcb5` (unchecked + stack trace) → `763364b` (try-catch + TryEnqueue) → `b94da28` (WH_KEYBOARD hook 替代 SetWindowSubclass) → `79403f7` (SetWindowSubclass 移到 Activated) → `bf04e5e` (SetWindowSubclass 替代 KeyboardAccelerator) → `a306722` (KeyboardAccelerator 替代 AddHandler) → `c8e3d5e` (恢复 89e82a7 的 OnNavigatedTo+DispatcherQueue 焦点方案) → `f3c3200` (错误把焦点移到 Loaded) → `d8a45be` (BuildInfo 标题 hash) → `a796f68` (partial property 迁移) → `d8a45be` 后续 (BuildInfo 生成 csproj 改动)。
+
+**build 状态**: 0 errors / 0 warnings。
+
 ## v0.12.0 (2026-06-14)
 
 **主题:支持读取压缩包中的图片(ZIP / RAR / 7Z + tar.gz/bz2/xz)**

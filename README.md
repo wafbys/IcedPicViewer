@@ -48,6 +48,7 @@
 
 ## 版本
 
+- v0.13.0 - 单图模式键盘导航修复(WH_KEYBOARD thread-scope hook) + 标题栏 commit hash + VM/Model partial property 消除 MVVMTK0045
 - v0.12.0 - 读取压缩包内图片 (ZIP/RAR/7Z) + 状态栏错误汇总 + 压缩包内图不可删 + overlay 显示位置 + publish target 自我繁殖 bug 修复
 - v0.11.0 - 修 0xC0000602 启动崩溃 + 改 framework-dependent 发布模式
 - v0.10.0 - 删除测试项目 + 架构精简为仅 x64
@@ -62,20 +63,26 @@
 
 ## 构建发布
 
-项目已清理为仅 x64、无多语言支持(无 af-ZA 等文件夹)、无测试项目。
+项目已清理为仅 x64、无多语言支持(无 af-ZA 等文件夹)、无测试项目,**MSIX packaged 部署**(`WindowsPackageType` 不设 → 默认 MSIX)。
 
-**前置条件(目标机器必须装两个 runtime,本工程用 framework-dependent 模式不 bundled)**:
+**前置条件**(目标机器):
 
 1. **.NET 10 Runtime**(x64)—— [https://dotnet.microsoft.com/download/dotnet/10.0](https://dotnet.microsoft.com/download/dotnet/10.0) 选 "Desktop Runtime" 或 "ASP.NET Core Runtime"(x64)
-2. **Windows App Runtime 2.1.3 standalone** —— [https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe](https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe)
-
-> **为什么不是 self-contained?** SDK 2.1.3 带的 native DLL(`CoreMessagingXP.dll` 等)版本 `10.0.27200.1019` 比 Win 11 25H2 GA 的 `build 26200` 还新,DLL 加载时做 OS build check → `0xC0000602` (STATUS_FAIL_FAST_EXCEPTION)。Framework-dependent 模式下 loader 走 OS 自带的 `CoreMessagingXP.dll` v10.0.27108.1016,check 通过。MSIX 安装的 WindowsAppRuntime 在 `C:\Program Files\WindowsApps\`,unpackaged app 访问不到,**不算**前置条件满足。
+2. **Windows App Runtime**——通过 MSIX 安装时**自动**装上(framework package 依赖,不需要单独下载 WindowsAppRuntime installer)
 
 ```powershell
 cd IcedPicViewer
 dotnet publish -c Release -p:Platform=x64
 ```
 
-产物在 `bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\publish\IcedPicViewer.exe`(**~83 MB / 94 文件**,标准多文件布局;`Views\` 子目录保留 `GalleryView.xbf` / `ImageViewerView.xbf`,`publish\publish\` 嵌套已修)。
+产物在 `bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\AppPackages\` 下的 `IcedPicViewer_0.12.0.0_x64.msix`(还有几个 dependency .msix 一起)。把 `IcedPicViewer_0.12.0.0_x64.msix` 拖到目标机器双击安装(sideload);Windows 自动装上 framework package 依赖。
 
-`IcedPicViewer.exe` 本身仅 ~284 KB(启动器),所有 .NET / WinUI / 资源文件在同目录独立存在,方便调试与替换。发布目录干净,无多余语言文件夹。
+**dev box 调试运行**(注册 debug package identity 后启动,**这是开发期间唯一的正确启动方式**):
+
+```powershell
+dotnet run -c Debug -p:Platform=x64
+```
+
+⚠️ **不要直接双击 `bin\.../IcedPicViewer.exe`**。MSIX-packaged 模式下 .exe 需要 package identity 才能找到 framework package 注册的 WinRT 类,直接跑会 `REGDB_E_CLASSNOTREG`,在 `DeploymentManagerCS.AutoInitialize.get_Options()` 静态构造函数里就崩。`dotnet run` 通过 `Microsoft.Windows.SDK.BuildTools.WinApp` 调用 `winapp.exe launch` 注册 debug identity 后才启。
+
+**版本号**:title bar 显示的 `IcedPicViewer (abc1234)` 里 `abc1234` 是 build 时从 `git rev-parse --short HEAD` 抓的 short commit hash,让你一眼认出当前在跑哪个版本(MSIX debug run 启动时 bin 路径不直观)。
