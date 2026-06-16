@@ -27,6 +27,11 @@
     <!-- CsWinRT: false positives in this project. Our HashSet<string>, ServiceCollection, etc.
          are never marshaled across the WinRT ABI; these are internal-only types. -->
     <NoWarn>$(NoWarn);CsWinRT1028;CsWinRT1030</NoWarn>
+    <!-- SYSLIB1054 suggests LibraryImport (source-generated P/Invoke) over DllImport.
+         We use DllImport for the native WndProc subclass hooks (SetWindowSubclass,
+         DefSubclassProc) and for the legacy MessageBoxW fallback. Both are internal-only
+         and never cross a marshalling boundary, so source-gen AOT benefits don't apply. -->
+    <NoWarn>$(NoWarn);SYSLIB1054</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

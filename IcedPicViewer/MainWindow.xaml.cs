@@ -5,9 +5,9 @@ using IcedPicViewer.ViewModels;
 using IcedPicViewer.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 
 namespace IcedPicViewer;
 
@@ -46,53 +46,71 @@ public sealed partial class MainWindow : Window
 
         AppWindow.Closing += AppWindow_Closing;
 
-        // Window-level keyboard shortcuts for ImageViewerView (Left/Right/Delete/Escape).
-        // KeyboardAccelerator is window-scoped and does NOT depend on focus state —
-        // unlike AddHandler(KeyDownEvent), which only fires when a routed event
-        // bubbles up from a focused element, so after Frame.Navigate the focus may
-        // be undefined and the handler never runs. Accelerators are the recommended
-        // WinUI 3 pattern for window-level shortcuts.
-        AddViewerAccelerator(Windows.System.VirtualKey.Left);
-        AddViewerAccelerator(Windows.System.VirtualKey.Right);
-        AddViewerAccelerator(Windows.System.VirtualKey.Delete);
-        AddViewerAccelerator(Windows.System.VirtualKey.Escape);
+        // Native WM_KEYDOWN hook for ImageViewerView shortcuts (Left/Right/Delete/Escape).
+        // All XAML-layer mechanisms (AddHandler(KeyDownEvent), KeyboardAccelerator)
+        // ultimately depend on a focused element to start the routed event pipeline,
+        // and in MSIX packaged mode after Frame.Navigate the focus state is
+        // unreliable (verified empirically: a306722 KeyboardAccelerator + earlier
+        // AddHandler attempts both fail to invoke). The only path guaranteed to
+        // fire regardless of focus is a native WndProc subclass on the window's
+        // HWND — the OS delivers WM_KEYDOWN to the window unconditionally.
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        _subclassProc = SubclassWndProc;
+        SetWindowSubclass(hwnd, _subclassProc, 0, IntPtr.Zero);
     }
 
-    private void AddViewerAccelerator(Windows.System.VirtualKey key)
-    {
-        var accel = new KeyboardAccelerator { Key = key };
-        accel.Invoked += OnViewerAccelerator;
-        RootGrid.KeyboardAccelerators.Add(accel);
-    }
+    // ---- Native window subclass for window-level keyboard shortcuts ----
 
-    private void OnViewerAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate IntPtr SubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData);
+
+    [DllImport("comctl32.dll", SetLastError = true, CallingConvention = CallingConvention.StdCall)]
+    private static extern bool SetWindowSubclass(IntPtr hWnd, SubclassProc pfnSubclass, uint uIdSubclass, IntPtr dwRefData);
+
+    [DllImport("comctl32.dll", SetLastError = true, CallingConvention = CallingConvention.StdCall)]
+    private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
+
+    private const int WM_KEYDOWN = 0x0100;
+
+    // Hold a strong reference so the GC doesn't collect the delegate while
+    // the native side still has the function pointer.
+    private SubclassProc? _subclassProc;
+
+    private IntPtr SubclassWndProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData)
     {
-        // Same dispatch as before, but read the key from sender.Key.
-        // RootFrame.Content is the current page; only act when in ImageViewerView.
-        if (RootFrame.Content is ImageViewerView viewer && viewer.DataContext is ImageViewModel vm)
+        if (uMsg == WM_KEYDOWN)
         {
-            switch (sender.Key)
-            {
-                case Windows.System.VirtualKey.Left:
-                    if (vm.NavigatePreviousCommand.CanExecute(null))
-                        vm.NavigatePreviousCommand.Execute(null);
-                    args.Handled = true;
-                    break;
-                case Windows.System.VirtualKey.Right:
-                    if (vm.NavigateNextCommand.CanExecute(null))
-                        vm.NavigateNextCommand.Execute(null);
-                    args.Handled = true;
-                    break;
-                case Windows.System.VirtualKey.Delete:
-                    if (vm.DeleteCommand.CanExecute(null))
-                        vm.DeleteCommand.Execute(null);
-                    args.Handled = true;
-                    break;
-                case Windows.System.VirtualKey.Escape:
-                    vm.CloseCommand.Execute(null);
-                    args.Handled = true;
-                    break;
-            }
+            // We don't suppress the message — even when we act on it, we let
+            // DefSubclassProc run so the XAML framework still receives the
+            // keystroke. Our XAML layer has no other handler that would
+            // double-fire on these specific keys, so this is safe.
+            HandleViewerKey((Windows.System.VirtualKey)wParam.ToInt32());
+        }
+        return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+    }
+
+    private void HandleViewerKey(Windows.System.VirtualKey key)
+    {
+        if (RootFrame.Content is not ImageViewerView viewer || viewer.DataContext is not ImageViewModel vm)
+            return;
+
+        switch (key)
+        {
+            case Windows.System.VirtualKey.Left:
+                if (vm.NavigatePreviousCommand.CanExecute(null))
+                    vm.NavigatePreviousCommand.Execute(null);
+                break;
+            case Windows.System.VirtualKey.Right:
+                if (vm.NavigateNextCommand.CanExecute(null))
+                    vm.NavigateNextCommand.Execute(null);
+                break;
+            case Windows.System.VirtualKey.Delete:
+                if (vm.DeleteCommand.CanExecute(null))
+                    vm.DeleteCommand.Execute(null);
+                break;
+            case Windows.System.VirtualKey.Escape:
+                vm.CloseCommand.Execute(null);
+                break;
         }
     }
 
