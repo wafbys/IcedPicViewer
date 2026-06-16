@@ -46,38 +46,51 @@ public sealed partial class MainWindow : Window
 
         AppWindow.Closing += AppWindow_Closing;
 
-        // Centralized keyboard handling for ImageViewerView (Left/Right/Delete/Escape).
-        // Attached to RootGrid (higher in tree) + handledEventsToo=true to ensure
-        // arrow keys are caught reliably even after Frame navigation.
-        RootGrid.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(RootGrid_KeyDown), true);
+        // Window-level keyboard shortcuts for ImageViewerView (Left/Right/Delete/Escape).
+        // KeyboardAccelerator is window-scoped and does NOT depend on focus state —
+        // unlike AddHandler(KeyDownEvent), which only fires when a routed event
+        // bubbles up from a focused element, so after Frame.Navigate the focus may
+        // be undefined and the handler never runs. Accelerators are the recommended
+        // WinUI 3 pattern for window-level shortcuts.
+        AddViewerAccelerator(Windows.System.VirtualKey.Left);
+        AddViewerAccelerator(Windows.System.VirtualKey.Right);
+        AddViewerAccelerator(Windows.System.VirtualKey.Delete);
+        AddViewerAccelerator(Windows.System.VirtualKey.Escape);
     }
 
-    private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void AddViewerAccelerator(Windows.System.VirtualKey key)
     {
-        // Centralized keyboard handling for ImageViewerView.
-        // We check RootFrame.Content because that's where the current page lives.
+        var accel = new KeyboardAccelerator { Key = key };
+        accel.Invoked += OnViewerAccelerator;
+        RootGrid.KeyboardAccelerators.Add(accel);
+    }
+
+    private void OnViewerAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        // Same dispatch as before, but read the key from sender.Key.
+        // RootFrame.Content is the current page; only act when in ImageViewerView.
         if (RootFrame.Content is ImageViewerView viewer && viewer.DataContext is ImageViewModel vm)
         {
-            switch (e.Key)
+            switch (sender.Key)
             {
                 case Windows.System.VirtualKey.Left:
                     if (vm.NavigatePreviousCommand.CanExecute(null))
                         vm.NavigatePreviousCommand.Execute(null);
-                    e.Handled = true;
+                    args.Handled = true;
                     break;
                 case Windows.System.VirtualKey.Right:
                     if (vm.NavigateNextCommand.CanExecute(null))
                         vm.NavigateNextCommand.Execute(null);
-                    e.Handled = true;
+                    args.Handled = true;
                     break;
                 case Windows.System.VirtualKey.Delete:
                     if (vm.DeleteCommand.CanExecute(null))
                         vm.DeleteCommand.Execute(null);
-                    e.Handled = true;
+                    args.Handled = true;
                     break;
                 case Windows.System.VirtualKey.Escape:
                     vm.CloseCommand.Execute(null);
-                    e.Handled = true;
+                    args.Handled = true;
                     break;
             }
         }

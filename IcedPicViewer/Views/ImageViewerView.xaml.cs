@@ -84,20 +84,8 @@ public sealed partial class ImageViewerView : Page
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-
-        // 关键修复:进入单图模式时请求键盘焦点。
-        // MainWindow.RootGrid 是用 AddHandler(KeyDownEvent, ..., handledEventsToo=true)
-        // 注册的,handler 收到事件的前提是 Page 子树里有 focused element 作为路由源;
-        // 没焦点时 KeyDown 根本不路由,handler 不会被调用。
-        // Navigate 后焦点不会自动进入新页面,直接 Focus() 又常因 MainContentGrid 还没
-        // 完成 layout 而变 silent no-op,所以用 DispatcherQueue 延迟一帧(~16ms @ 60fps)
-        // 等 layout 完再设焦点,既稳又快。
-        // Frame 默认会缓存 page instance,后续 navigate 同一 Page 时 Loaded 不会
-        // 重触,但 OnNavigatedTo 每次 navigate 都触发,这里作为唯一入口最稳。
-        DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
-        {
-            MainContentGrid.Focus(FocusState.Programmatic);
-        });
+        // 键盘快捷键统一在 MainWindow 的 KeyboardAccelerators 处理,window-scope,
+        // 不依赖焦点,无需在 Page 进入时手动 Focus。
     }
 
     private void UpdateMinimapDeferred()
