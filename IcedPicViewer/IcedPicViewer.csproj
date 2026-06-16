@@ -12,6 +12,13 @@
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Embed AppIcon.ico as the .exe Win32 icon resource so Windows shows
+         this app's icon in the taskbar and Alt+Tab. Without this, the
+         .exe ships with a generic icon and the taskbar shows the default
+         app silhouette. Assets\AppIcon.ico is already listed as Content
+         above for MSIX manifest reference; this line additionally
+         embeds it in the PE resource. -->
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <!-- 完全删除多语言支持：不包含任何 satellite resources（af-ZA 等所有 xx-XX 文件夹）。

@@ -25,7 +25,8 @@
                     VerticalAlignment="Stretch"
                     Background="Transparent"
                     BorderThickness="0"
-                    Padding="12,0">
+                    Padding="12,0"
+                    ToolTipService.ToolTip="Open Folder">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon Glyph="&#xE8DA;" FontSize="16"/>
                     <TextBlock Text="Open Folder" VerticalAlignment="Center"/>
