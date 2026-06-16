@@ -98,21 +98,25 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 
 > ⚠️ **OS 兼容性警告 (2026-06-15 加,2026-06-15 再次修正 —— 2026-06-15 自我纠错)**:用户的开发机是 **正版的 Windows 11 25H2**(CurrentBuild 26200.8655,BuildLabEx `26100.1.amd64fre.ge_release.240331-1435` —— 这是 24H2 原始平台被 25H2 Enablement Package 激活后保留的正常 BuildLab,**不是被 hack 改过版本号**)。详见下方"2026-06-15 我把 25H2 误判为假版本"段的诚实记录。
 >
-> 在这台正版 25H2 上,**所有 WinAppRuntime 1.6+ 都跑不起来**(framework-dependent 和 self-contained 都崩),根本原因有两层:
-> 1. **OS build check fail-fast**(0xC0000602):WinAppRuntime 1.6+ 的 `CoreMessagingXP.dll` 等 native DLL build 是 27xxx(1.6: 27106, 1.7: 27107, 1.8: 27108, 2.2: 27200),而 **Enablement Package 机制下,25H2 的核心二进制(包括 kernel32.dll、apisetschema.dll 等)停留在 26100 平台**。DLL 加载时做 OS build check,看到 "DLL build 27xxx > OS 平台 26100",触发 `STATUS_FAIL_FAST_EXCEPTION` (0xC0000602)。这是**Microsoft 的 Enablement Package 设计与 WinAppSDK 1.6+ 的 native DLL build 不兼容**的硬冲突,**不是单边 bug**。
-> 2. **api-set schema 缺条目**(0xC000027B):实测 `apisetschema.dll` 在 System32(v10.0.26100.8521)但 schema 里**未注册 8+ WinRT api-set**(`api-ms-win-core-winrt-l1-1-0.dll` 等)。bootstrap 路径会变成 `0xC000027B`。DISM RestoreHealth / sfc /scannow / WindowsAppRuntime installer / ComponentStore / Recovery / Panther 全部**无源文件可修**。
+> 在这台正版 25H2 上,**所有 WinAppRuntime 1.6+ 都跑不起来**(framework-dependent 和 self-contained 都崩),根本原因是 **OS build check fail-fast**:
+>
+> WinAppRuntime 1.6+ 的 `CoreMessagingXP.dll` 等 native DLL build 是 27xxx(1.6: 27106, 1.7: 27107, 1.8: 27108, 2.2: 27200),而 **Enablement Package 机制下,25H2 的核心二进制(kernel32.dll、apisetschema.dll 等)停留在 26100 平台**。DLL 加载时做 OS build check,看到 "DLL build 27xxx > OS 平台 26100",触发 `STATUS_FAIL_FAST_EXCEPTION` (0xC0000602)。这是**Microsoft 的 Enablement Package 设计与 WinAppSDK 1.6+ 的 native DLL build 不兼容**的硬冲突,**不是单边 bug**。
 >
 > 用户的开发机只能跑 WinAppSDK **1.5 或更早**(那些版本的 native DLL 是 build 26xxx 时代,跟 26100 平台匹配)。但 1.5 缺 `Microsoft.Windows.Storage.Pickers.FolderPicker`、1.4 缺 `TitleBar.IconSource`,要降 WinAppSDK 得改代码。
 >
-> **部署给别人用时建议**:**先在自己机器上验证 app 能跑再发布**。任何 Win 11 24H2/25H2 用户都跑不起来,需要 OS 升到 build 27xxx(Win 11 26H1/26H2 之类)或者修本机 api-set schema。**别假设"最新 OS 一定能跑"**——Microsoft 的 Enablement Package 设计导致 25H2 的 native binary 平台停留在 26100,跟 WinAppSDK 1.6+ 的 build 号范围不重叠。
+> **部署给别人用时建议**:**先在自己机器上验证 app 能跑再发布**。任何 Win 11 24H2/25H2 用户都跑不起来,需要 OS 升到 build 27xxx(Win 11 26H1/26H2 之类)。**别假设"最新 OS 一定能跑"**——Microsoft 的 Enablement Package 设计导致 25H2 的 native binary 平台停留在 26100,跟 WinAppSDK 1.6+ 的 build 号范围不重叠。
+>
+> 0xC000027B 的另一个错误: 当从 WindowsApps 路径加载 Microsoft.UI.Xaml.dll 时也可能出现 0xC000027B(`Application.Start` 时)。可能跟 OS build check 不是同一个根因,可能是 WinUI 3.2 + 25H2 平台的另一种 compat 问题。Microsoft 25H2 跟 WinAppSDK 1.6+ 的具体 compat 矩阵微软没公开说明。
 
 > **历史事实**:`CHANGELOG.md` 中 `v0.9.x` 多条 commit 提到"publish 产物能跑"——**这是错误的**,只验证了文件完整性,没真启动过 .exe。实测(`24063cd` 之后)publish 产物在缺 WinAppRuntime 2.x standalone runtime 的机器上 0xC0000602 退出。本节"必须的前置条件"是基于此实测的诚实结论。
 
-> **PE 解析诊断备忘(2026-06-03,WinAppSDK 2.1.3 时代)**:`System.Reflection.PortableExecutable` 解析 publish 目录各 native DLL 的 import table,确认 0xC0000602 根因。**用户当前 system 缺 12 个 WinRT/UWP 相关的 api-set DLL**(`system32` + `WinSxS` 都找不到),全部来自 `Microsoft.WindowsAppRuntime.dll` / `Microsoft.WindowsAppRuntime.Bootstrap.dll` / `Microsoft.UI.Xaml.dll` 的 P/Invoke:
+> **PE 解析诊断备忘(2026-06-03,WinAppSDK 2.1.3 时代)**:`System.Reflection.PortableExecutable` 解析 publish 目录各 native DLL 的 import table,确认 0xC0000602 根因。**早期诊断曾认为 system 缺 12 个 WinRT/UWP 相关的 api-set DLL**(`system32` + `WinSxS` 都找不到)。但 2026-06-15 用 PowerShell 实际 LoadLibrary 测试后**推翻这个结论**——`apisetschema.dll` 在 System32(v10.0.26100.8521)且所有 12 个 api-set DLL **都能成功加载**(api-set 是虚拟 forwarder,由 schema 解析 serve,系统盘上"找不到文件"是正常现象,不是缺失)。grep 0 match 是因为 schema 用二进制编码不是字面字符串。
 >
-> | 缺失 DLL | 来源 |
+> 之前列的"缺失 DLL"表:
+>
+> | API set | 来源 |
 > |---|---|
-> | `api-ms-win-appmodel-runtime-l1-1-1.dll` | WinAppRuntime + Bootstrap(**最核心** — WinRT 入口 `RoGetActivationFactory` 在里面) |
+> | `api-ms-win-appmodel-runtime-l1-1-1.dll` | WinAppRuntime + Bootstrap |
 > | `api-ms-win-core-libraryloader-l1-2-0.dll` | WinAppRuntime + Bootstrap |
 > | `api-ms-win-power-base-l1-1-0.dll` | WinAppRuntime |
 > | `api-ms-win-power-setting-l1-1-0.dll` | XAML + WinAppRuntime |
@@ -125,6 +129,9 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 > | `api-ms-win-core-path-l1-1-0.dll` | XAML + WinAppRuntime |
 > | `api-ms-win-dx-d3dkmt-l1-1-0.dll` | XAML |
 >
+> 这些 **是** Microsoft.UI.Xaml.dll 的 import,**不**意味着 DLL 缺——只是意味着 apisetschema.dll 需要有对应条目来解析 serve(实测它有)。
+>
+> 装 WinAppRuntime standalone installer(aka.ms URL)后,本来期望这 12 个 DLL 会被部署到 `C:\Windows\System32`,但实测即使 elevated 跑 installer 它们**也不会**被复制到 System32——因为它们本就是虚拟的,由 apisetschema 在需要时生成。0xC0000602 跟"api-set 部署到 System32"**完全无关**,真正的根因是上一段说的 OS build check 冲突。
 > 装 WinAppRuntime standalone installer(aka.ms URL)后,这 12 个 DLL 会部署到 `C:\Windows\System32`,app 启动时 Windows loader 能找到,0xC0000602 消失。**IcedPicViewer.exe 自身 import table 只 12 个基础 KERNEL32/USER32/ole32 等**,所以 .exe 自身能起;问题出在它加载 `Bootstrap.dll` → 链式 P/Invoke 这些缺失 DLL → fail-fast。
 
 > 实现细节见 `IcedPicViewer.csproj` 末尾的自定义 MSBuild target：
