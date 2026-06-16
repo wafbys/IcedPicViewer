@@ -154,23 +154,36 @@ public sealed partial class MainWindow : Window
         {
             if (nCode >= 0)
             {
-                var vk = (Windows.System.VirtualKey)wParam.ToInt32();
-                bool isKeyUp = (lParam.ToInt32() & int.MinValue) != 0;
-                if (!isKeyUp)
+                // Wrap every cast/convert in unchecked to make sure no checked
+                // context slips in (e.g. if a future maintainer wraps this
+                // method body in `checked { ... }` for some reason). The
+                // bitwise-AND in the isKeyUp test and the int→enum cast for
+                // VirtualKey have no logical reason to throw, but on Win11
+                // 25H2 + MSIX we keep seeing hook callback threw:
+                // OverflowException — so we trace with full stack and
+                // explicitly mark the casts unchecked.
+                unchecked
                 {
-                    LogKbd($"WH_KEYBOARD vk={vk} page={RootFrame.Content?.GetType().Name ?? "<null>"}");
-                    DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
+                    var vk = (Windows.System.VirtualKey)wParam.ToInt32();
+                    bool isKeyUp = (lParam.ToInt32() & int.MinValue) != 0;
+                    if (!isKeyUp)
                     {
-                        try { HandleViewerKey(vk); }
-                        catch (Exception ex) { LogKbd($"HandleViewerKey threw: {ex.GetType().Name}: {ex.Message}"); }
-                    });
+                        LogKbd($"WH_KEYBOARD vk={vk} page={RootFrame.Content?.GetType().Name ?? "<null>"}");
+                        DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
+                        {
+                            try { HandleViewerKey(vk); }
+                            catch (Exception ex) { LogKbd($"HandleViewerKey threw: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); }
+                        });
+                    }
                 }
             }
         }
         catch (Exception ex)
         {
             // Last-resort: never let a hook exception reach the OS.
-            LogKbd($"hook callback threw: {ex.GetType().Name}: {ex.Message}");
+            // Capture full stack so the next log reading can pin down the
+            // exact offending line without further trial-and-error builds.
+            LogKbd($"hook callback threw: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
         }
         return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
     }
