@@ -19,14 +19,19 @@
             <RowDefinition Height="32"/>
         </Grid.RowDefinitions>
 
-        <CommandBar Grid.Row="0"
-                    DefaultLabelPosition="Right"
-                    Background="{ThemeResource LayerFillColorDefaultBrush}"
-                    IsOpen="False">
-            <AppBarButton Icon="OpenFile"
-                          Label="Open Folder"
-                          Command="{x:Bind ViewModel.OpenFolderCommand}"/>
-        </CommandBar>
+        <Grid Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <Button Command="{x:Bind ViewModel.OpenFolderCommand}"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Stretch"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Padding="12,0">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE8DA;" FontSize="16"/>
+                    <TextBlock Text="Open Folder" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </Grid>
 
         <ScrollViewer x:Name="MainScrollViewer"
                       Grid.Row="1"
