@@ -52,11 +52,13 @@
             </CommandBar.Content>
             <AppBarButton Icon="Cancel"
                           Label="Close"
-                          Command="{x:Bind ViewModel.CloseCommand}"/>
+                          Command="{x:Bind ViewModel.CloseCommand}"
+                          ToolTipService.ToolTip="Close"/>
             <AppBarSeparator/>
             <AppBarButton Icon="Previous"
                           Label="上一张"
-                          Command="{x:Bind ViewModel.NavigatePreviousCommand}"/>
+                          Command="{x:Bind ViewModel.NavigatePreviousCommand}"
+                          ToolTipService.ToolTip="上一张"/>
             <AppBarElementContainer>
                 <TextBlock VerticalAlignment="Center"
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
@@ -68,20 +70,24 @@
             </AppBarElementContainer>
             <AppBarButton Icon="Next"
                           Label="下一张"
-                          Command="{x:Bind ViewModel.NavigateNextCommand}"/>
+                          Command="{x:Bind ViewModel.NavigateNextCommand}"
+                          ToolTipService.ToolTip="下一张"/>
             <AppBarSeparator/>
             <AppBarButton x:Name="FitModeBtn"
                           Icon="Zoom"
                           Label="Fit"
-                          Click="FitModeBtn_Click"/>
+                          Click="FitModeBtn_Click"
+                          ToolTipService.ToolTip="Fit / 1:1 切换"/>
             <AppBarButton Icon="Refresh"
                           Label="Load More"
                           Command="{x:Bind ViewModel.LoadMoreImagesCommand}"
-                          Visibility="{x:Bind ViewModel.LoadMoreImagesVisibility, Mode=OneWay}"/>
+                          Visibility="{x:Bind ViewModel.LoadMoreImagesVisibility, Mode=OneWay}"
+                          ToolTipService.ToolTip="Load More (扫描更多图片)"/>
             <CommandBar.SecondaryCommands>
                 <AppBarButton Icon="OpenFile"
                               Label="打开文件位置"
-                              Click="OpenFileLocation_Click"/>
+                              Click="OpenFileLocation_Click"
+                              ToolTipService.ToolTip="在文件资源管理器中显示该文件"/>
             </CommandBar.SecondaryCommands>
         </CommandBar>
 
