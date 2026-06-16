@@ -54,29 +54,29 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private readonly IProgress<ScanError> _scanErrorProgress;
 
     [ObservableProperty]
-    private LoadingState _loadingState;
+    public partial LoadingState LoadingState { get; set; }
 
     [ObservableProperty]
-    private string _statusText = "Select a folder to start";
+    public partial string StatusText { get; set; } = "Select a folder to start";
 
     [ObservableProperty]
-    private int _totalCount;
+    public partial int TotalCount { get; set; }
 
     [ObservableProperty]
-    private int _lastViewedIndex = -1;
+    public partial int LastViewedIndex { get; set; } = -1;
 
     [ObservableProperty]
-    private double _lastViewedYOffset = 0;
+    public partial double LastViewedYOffset { get; set; } = 0;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LoadMoreVisibility))]
     [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
-    private bool _canLoadMore;
+    public partial bool CanLoadMore { get; set; }
 
     public Visibility LoadMoreVisibility => CanLoadMore ? Visibility.Visible : Visibility.Collapsed;
 
     [ObservableProperty]
-    private bool _isLoadingMore;
+    public partial bool IsLoadingMore { get; set; }
 
     partial void OnIsLoadingMoreChanged(bool value)
     {

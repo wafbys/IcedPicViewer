@@ -26,23 +26,23 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
     [NotifyPropertyChangedFor(nameof(ActualHeight))]
     [NotifyPropertyChangedFor(nameof(ImagePath))]
-    private ImageItem? _currentImage;
+    public partial ImageItem? CurrentImage { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
     [NotifyPropertyChangedFor(nameof(ActualHeight))]
-    private BitmapImage? _displayImage;
+    public partial BitmapImage? DisplayImage { get; set; }
 
     public event EventHandler? DisplayImageChanged;
     public event EventHandler? NavigationChanged;
 
-    // Backing fields for the displayed bitmap's pixel dimensions. ActualWidth/Height
-    // fall back to CurrentImage.OriginalWidth/Height until the bitmap has loaded.
+    // The displayed bitmap's pixel dimensions. ActualWidth/Height fall back
+    // to CurrentImage.OriginalWidth/Height until the bitmap has loaded.
     [ObservableProperty]
-    private int _displayActualWidth;
+    public partial int DisplayActualWidth { get; set; }
 
     [ObservableProperty]
-    private int _displayActualHeight;
+    public partial int DisplayActualHeight { get; set; }
 
     public int ActualWidth => DisplayActualWidth > 0 ? DisplayActualWidth : CurrentImage?.OriginalWidth ?? 0;
 
@@ -67,16 +67,16 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     }
 
     [ObservableProperty]
-    private double _zoomLevel = 1.0;
+    public partial double ZoomLevel { get; set; } = 1.0;
 
     [ObservableProperty]
-    private bool _isLoading;
+    public partial bool IsLoading { get; set; }
 
     [ObservableProperty]
-    private int _currentIndex;
+    public partial int CurrentIndex { get; set; }
 
     [ObservableProperty]
-    private int _totalCount;
+    public partial int TotalCount { get; set; }
 
     private int _displayIndex = 1;
     public int DisplayIndex

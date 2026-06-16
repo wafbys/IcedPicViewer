@@ -17,10 +17,10 @@ public partial class ImageItem : ObservableObject
     public int OriginalHeight { get; }
 
     [ObservableProperty]
-    private BitmapImage? _thumbnail;
+    public partial BitmapImage? Thumbnail { get; set; }
 
     [ObservableProperty]
-    private BitmapImage? _fullImage;
+    public partial BitmapImage? FullImage { get; set; }
 
     public ImageItem(
         ImageSource source,
