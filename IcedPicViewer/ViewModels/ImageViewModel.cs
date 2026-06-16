@@ -67,9 +67,6 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     }
 
     [ObservableProperty]
-    public partial double ZoomLevel { get; set; } = 1.0;
-
-    [ObservableProperty]
     public partial bool IsLoading { get; set; }
 
     [ObservableProperty]
@@ -244,7 +241,6 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         CurrentIndex = Images.IndexOf(item);
         _galleryViewModel.LastViewedIndex = CurrentIndex;
         TotalCount = Images.Count;
-        ZoomLevel = 1.0;
 
         await LoadFullImageAsync(item, _loadCts!.Token);
     }
@@ -295,7 +291,6 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         if (CurrentIndex >= 0 && CurrentIndex < Images.Count)
         {
             CurrentImage = Images[CurrentIndex];
-            ZoomLevel = 1.0;
             // Always rebuild cts here too: a stale token from a previously
             // cancelled load would either suppress this new load (if the
             // token is cancelled) or leak the old in-flight task (if not).
