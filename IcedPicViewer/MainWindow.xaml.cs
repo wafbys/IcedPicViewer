@@ -57,74 +57,101 @@ public sealed partial class MainWindow : Window
 
         AppWindow.Closing += AppWindow_Closing;
 
-        // Native WM_KEYDOWN hook for ImageViewerView shortcuts (Left/Right/Delete/Escape).
-        // All XAML-layer mechanisms (AddHandler(KeyDownEvent), KeyboardAccelerator)
-        // ultimately depend on a focused element to start the routed event pipeline,
-        // and in MSIX packaged mode after Frame.Navigate the focus state is
-        // unreliable (verified empirically: a306722 KeyboardAccelerator + earlier
-        // AddHandler attempts both fail to invoke). The only path guaranteed to
-        // fire regardless of focus is a native WndProc subclass on the window's
-        // HWND — the OS delivers WM_KEYDOWN to the window unconditionally.
+        // Thread-scope WH_KEYBOARD hook for ImageViewerView shortcuts
+        // (Left/Right/Delete/Escape). All previous XAML-layer attempts
+        // (AddHandler(KeyDownEvent), KeyboardAccelerator) AND the prior
+        // SetWindowSubclass approach failed in MSIX packaged mode:
         //
-        // IMPORTANT: register the subclass in the Activated event, not the
-        // constructor. WinUI 3 lazy-creates the window HWND on first show, and
-        // WindowNative.GetWindowHandle(this) in the ctor returned IntPtr.Zero
-        // on this project (a306722+bf04e5e both still failed because of this
-        // — the hook was registered against a non-existent window). The
-        // Activated event is the first guarantee that the HWND is real.
+        //   - XAML routed events need a focused element; focus is unreliable
+        //     after Frame.Navigate.
+        //   - SetWindowSubclass registered successfully on the XAML island's
+        //     inner HWND (verified via diagnostic log: "subclass registered on
+        //     hwnd=0x1A0978") but WM_KEYDOWN was never delivered to that HWND
+        //     — the OS routes keyboard input to a higher-level window in the
+        //     XAML island / ApplicationFrame hierarchy.
+        //
+        // WH_KEYBOARD with thread scope sidesteps all of this: it hooks the
+        // current thread's message queue (the WinUI 3 UI thread's dispatch
+        // loop), so every keystroke that reaches the app goes through us,
+        // regardless of which HWND would have received it. No focus
+        // dependency, no HWND dependency.
+        //
+        // WH_KEYBOARD_LL would be a tempting alternative but it requires a
+        // separate DLL to be injected into the target thread; MSIX sandbox
+        // generally blocks that. WH_KEYBOARD is thread-internal and
+        // DLL-free.
+        //
+        // Defer the install to Activated (like the previous SetWindowSubclass
+        // attempt) — GetCurrentThreadId in the ctor might or might not be
+        // the UI thread depending on how WinAppSDK spins things up, and
+        // Activated is the first guarantee that we're on it.
         Activated += OnWindowActivated;
     }
 
-    private bool _subclassRegistered;
+    private bool _hookInstalled;
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
     {
-        if (_subclassRegistered) return;
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        if (hwnd == IntPtr.Zero)
+        if (_hookInstalled) return;
+        _hookProc = KeyboardHookProc;
+        var threadId = GetCurrentThreadId();
+        _hookHandle = SetWindowsHookEx(WH_KEYBOARD, _hookProc, IntPtr.Zero, threadId);
+        if (_hookHandle == IntPtr.Zero)
         {
-            // Shouldn't happen by Activated, but be defensive.
-            LogKbd($"OnWindowActivated but hwnd still zero; will retry next activation");
-            return;
-        }
-        _subclassProc = SubclassWndProc;
-        if (SetWindowSubclass(hwnd, _subclassProc, 0, IntPtr.Zero))
-        {
-            _subclassRegistered = true;
-            LogKbd($"subclass registered on hwnd=0x{hwnd.ToInt64():X}");
+            var gle = Marshal.GetLastWin32Error();
+            LogKbd($"SetWindowsHookEx FAILED threadId={threadId} gle={gle}");
         }
         else
         {
-            LogKbd($"SetWindowSubclass FAILED on hwnd=0x{hwnd.ToInt64():X}, gle={Marshal.GetLastWin32Error()}");
+            _hookInstalled = true;
+            LogKbd($"WH_KEYBOARD hook installed threadId={threadId} hhk=0x{_hookHandle.ToInt64():X}");
         }
     }
 
-    // ---- Native window subclass for window-level keyboard shortcuts ----
+    // ---- WH_KEYBOARD thread-scope hook ----
 
-    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    private delegate IntPtr SubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData);
+    private delegate IntPtr HOOKPROC(int nCode, IntPtr wParam, IntPtr lParam);
 
-    [DllImport("comctl32.dll", SetLastError = true, CallingConvention = CallingConvention.StdCall)]
-    private static extern bool SetWindowSubclass(IntPtr hWnd, SubclassProc pfnSubclass, uint uIdSubclass, IntPtr dwRefData);
+    private const int WH_KEYBOARD = 2;
 
-    [DllImport("comctl32.dll", SetLastError = true, CallingConvention = CallingConvention.StdCall)]
-    private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, HOOKPROC lpfn, IntPtr hMod, uint dwThreadId);
 
-    private const int WM_KEYDOWN = 0x0100;
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
 
-    // Hold a strong reference so the GC doesn't collect the delegate while
-    // the native side still has the function pointer.
-    private SubclassProc? _subclassProc;
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
 
-    private IntPtr SubclassWndProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData)
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    private HOOKPROC? _hookProc;
+    private IntPtr _hookHandle;
+
+    private IntPtr KeyboardHookProc(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (uMsg == WM_KEYDOWN)
+        // Per docs, nCode < 0 means the hook must pass to CallNextHookEx
+        // without doing anything.
+        if (nCode >= 0)
         {
-            var key = (Windows.System.VirtualKey)wParam.ToInt32();
-            LogKbd($"WM_KEYDOWN vk={key} page={RootFrame.Content?.GetType().Name ?? "<null>"}");
-            HandleViewerKey(key);
+            // For WH_KEYBOARD: wParam is the virtual key code, lParam contains
+            // repeat count / scan code / flags. We just want the key, and we
+            // only react on key-down (lParam bit 31 = 0 means down, 1 means
+            // up; but the hook also fires for WM_KEYUP=257, which we ignore
+            // by checking the high bit).
+            var vk = (Windows.System.VirtualKey)wParam.ToInt32();
+            // Bit 31 of lParam is the "transition" flag: 1 = key-up, 0 = key-down.
+            // (lParam.ToInt32() & int.MinValue) is equivalent to checking bit 31
+            // without the unsigned-to-signed compile error from 0x80000000.
+            bool isKeyUp = (lParam.ToInt32() & int.MinValue) != 0;
+            if (!isKeyUp)
+            {
+                LogKbd($"WH_KEYBOARD vk={vk} page={RootFrame.Content?.GetType().Name ?? "<null>"}");
+                HandleViewerKey(vk);
+            }
         }
-        return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+        return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
     }
 
     // ---- Diagnostic log for keyboard hook verification ----
