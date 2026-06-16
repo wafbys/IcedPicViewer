@@ -352,6 +352,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             if (ct.IsCancellationRequested) break;
 
             (long size, DateTime mtime) = await GetSourceMetadataAsync(source, ct);
+            // GetImageSizeAsync reads only the image header (BitmapDecoder, ~ms even
+            // for multi-MP files). Used to populate ImageItem.OriginalWidth/Height
+            // so the gallery overlay and the image viewer info bar can show real
+            // dimensions instead of "Unknown".
+            var dimensions = await _imageLoader.GetImageSizeAsync(source, ct);
 
             // If a new LoadDirectoryAsync fired while we were awaiting above,
             // ct is now cancelled — abandon the rest of the batch. Items already
@@ -362,8 +367,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 source: source,
                 fileSize: size,
                 modifiedTime: mtime,
-                originalWidth: 0,
-                originalHeight: 0);
+                originalWidth: dimensions?.Width ?? 0,
+                originalHeight: dimensions?.Height ?? 0);
 
             _dispatcher.TryEnqueue(() =>
             {
@@ -532,13 +537,16 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
         var (size, mtime) = await GetSourceMetadataAsync(ImageSource.FromFile(info.Path), token);
         if (token.IsCancellationRequested) return;
+        var source = ImageSource.FromFile(info.Path);
+        var dimensions = await _imageLoader.GetImageSizeAsync(source, token);
+        if (token.IsCancellationRequested) return;
 
         var item = new ImageItem(
-            source: ImageSource.FromFile(info.Path),
+            source: source,
             fileSize: size,
             modifiedTime: mtime,
-            originalWidth: 0,
-            originalHeight: 0);
+            originalWidth: dimensions?.Width ?? 0,
+            originalHeight: dimensions?.Height ?? 0);
 
         Images.Add(item);
         TotalCount++;
@@ -562,7 +570,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             var archiveInfo = new FileInfo(archivePath);
             var mtime = archiveInfo.Exists ? archiveInfo.LastWriteTime : DateTime.MinValue;
 
-            await Task.Run(() =>
+            await Task.Run(async () =>
             {
                 var entries = ArchiveHelper.ListEntries(archivePath, _imageLoader.SupportedExtensions
                     .ToHashSet(StringComparer.OrdinalIgnoreCase));
@@ -571,12 +579,17 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                     if (token.IsCancellationRequested) break;
                     var source = ImageSource.FromArchive(archivePath, entry.Key);
                     if (_imageIndex.ContainsKey(source.ToString())) continue;
+                    // GetImageSizeAsync uses BitmapDecoder, which only reads the
+                    // header (few KB) — cheap enough to do for every entry. This
+                    // also gives the gallery overlay a real WxH instead of "Unknown".
+                    var dims = await _imageLoader.GetImageSizeAsync(source, token);
+
                     result.Add(new ImageItem(
                         source: source,
                         fileSize: entry.UncompressedSize,
                         modifiedTime: mtime,
-                        originalWidth: 0,
-                        originalHeight: 0));
+                        originalWidth: dims?.Width ?? 0,
+                        originalHeight: dims?.Height ?? 0));
                 }
             }, token);
         }

@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Graphics.Imaging;
 
 namespace IcedPicViewer.Services.Implementations;
 
@@ -152,10 +153,13 @@ public class ImageLoader : IImageLoader
     {
         try
         {
-            var bitmapImage = new BitmapImage();
+            // Use BitmapDecoder (not BitmapImage) so we only read the image header —
+            // for a 4000x3000 photo this is ~few KB / few ms instead of decoding
+            // 36 MB of pixel data. We need the *original* dimensions for the
+            // info overlay; the thumbnail loader still does its own (scaled) decode.
             using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
-            await bitmapImage.SetSourceAsync(fileStream.AsRandomAccessStream());
-            return (bitmapImage.PixelWidth, bitmapImage.PixelHeight);
+            var decoder = await BitmapDecoder.CreateAsync(fileStream.AsRandomAccessStream());
+            return ((int)decoder.PixelWidth, (int)decoder.PixelHeight);
         }
         catch (Exception ex)
         {
@@ -168,10 +172,9 @@ public class ImageLoader : IImageLoader
     {
         try
         {
-            var bitmapImage = new BitmapImage();
             using var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
-            await bitmapImage.SetSourceAsync(entryStream.AsRandomAccessStream());
-            return (bitmapImage.PixelWidth, bitmapImage.PixelHeight);
+            var decoder = await BitmapDecoder.CreateAsync(entryStream.AsRandomAccessStream());
+            return ((int)decoder.PixelWidth, (int)decoder.PixelHeight);
         }
         catch (Exception ex)
         {

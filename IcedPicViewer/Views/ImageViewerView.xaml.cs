@@ -68,8 +68,13 @@ public sealed partial class ImageViewerView : Page
         ViewModel.NavigatePreviousCommand.NotifyCanExecuteChanged();
         ViewModel.NavigateNextCommand.NotifyCanExecuteChanged();
 
-        // Keyboard handling is centralized in MainWindow.RootGrid_KeyDown
-        // to avoid duplication. See MainWindow.xaml.cs for viewer navigation keys.
+        // Focus the page root so the MainWindow.RootGrid_KeyDown handler can
+        // receive arrow-key events. The previous implementation tried to focus
+        // from OnNavigatedTo via DispatcherQueue.TryEnqueue, but in MSIX packaged
+        // builds that focus call was a silent no-op (MainContentGrid hadn't
+        // finished layout when the queued lambda ran). Doing it in Loaded
+        // guarantees the visual tree is ready and focus is honored.
+        MainContentGrid.Focus(FocusState.Programmatic);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -85,17 +90,6 @@ public sealed partial class ImageViewerView : Page
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-
-        // 关键修复：进入单图模式时请求键盘焦点。
-        // RootFrame.KeyDown 只有在 RootFrame 或其子元素拥有焦点时才会收到按键事件。
-        // Navigate 后焦点不会自动进入新页面，导致左右键初始不响应（必须先点按钮）。
-        // 使用 DispatcherQueue 延迟一帧确保视觉树完全就绪。
-        DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
-        {
-            // Focus the main content container so that arrow keys are reliably
-            // delivered to the RootGrid handler in MainWindow.
-            MainContentGrid?.Focus(FocusState.Programmatic);
-        });
     }
 
     private void UpdateMinimapDeferred()
