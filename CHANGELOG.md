@@ -1,5 +1,56 @@
 # 更新日志
 
+## v0.13.1 (2026-06-17)
+
+**主题:坏 archive 不再中断扫描(DirectoryScanner.ToList 修复)+ 7z 支持评估决定**
+
+### 坏 archive 扫描中断 bug 修复
+
+之前 v0.12.0/v0.13.0 有个隐藏 bug:`DirectoryScanner.EnumerateArchiveAsync` 的 try-catch **只包了** `await Task.Run(...)` 那一行,没包下面的 `foreach`。`ArchiveHelper.ListEntries` 是 `IEnumerable<>` lazy generator,`Task.Run` lambda 内部**只**返回 `IEnumerable` 引用,真正的异常在 `foreach` 第一次 `MoveNext` 时抛 —— 在 try-catch **之外** → 逃出 generator → 逃出 `EnumerateArchiveAsync` → 逃出 `LoadDirectoryAsync` 的 `await foreach` → 被 `LoadDirectoryAsync` 的 outer catch 抓住,设 `StatusText = "Error: {ex.Message}"`,整个瀑布流变空,即使坏 archive 之后**还有**几百张图也看不到。
+
+用户实测触发场景:download 目录里有 1 个 `download.7z`(SharpCompress 不支持) + 多张其他图片。Open Folder 后整个瀑布流空,状态栏显示 "Error: Cannot determine compressed stream type. Supported Reader Formats: ..."。修完后:坏 archive 被报告到状态栏("1 file skipped"),扫描继续,后续图片正常显示。
+
+修复:在 `Task.Run` lambda 内 `ListEntries(...).ToList()` 强制立即 enumerate,异常在 await 时抛,被 try-catch 抓住。
+
+### 7z 支持评估结论:**不支持**
+
+之前 v0.12.0 CHANGELOG 写"ZIP / RAR / 7Z",这是误判。**SharpCompress 0.49.1 不支持 7z 格式**(其长期 TODO,从未实现)。社区其他 7z 选项:
+
+| 包 | .NET 8+ 兼容? | 状态 |
+|------|------|------|
+| `SevenZipSharp 0.64.0` | ✗ 仅 .NET Framework 4.5 | deprecated,owner 推荐 `SevenZipSharp.Net45` |
+| `SevenZipSharp.Net45 1.0.19` | ✗ 仅 .NET Framework 4.5 | 7 年没更新 |
+| `7z.Libs 26.1.1` | n/a | 纯 native dll,无 managed wrapper |
+| `LZMA-SDK 22.1.1` | 部分 | 5 年没更新,只给 LZMA 原始 SDK,需自己实现 7z 文件结构 |
+| `7-Zip.CommandLine 25.1.0` | ✓ | 7za.exe standalone console,需进程外调 |
+
+`.NET 生态 2026 年仍无现代 active maintained 纯 managed 7z 库`。经权衡选择**接受 7z 不支持**:
+- SharpCompress 0.49.1 实际支持: ZIP, RAR, TAR, GZip, BZip2, XZ, ZStd
+- 7z 文件被 `DirectoryScanner.IsArchive` 嗅探失败 → 走普通文件路径 → extensionSet 不包含 `.7z` → silently skipped(没报告)
+
+**用户体验**: 7z 文件本身不出现在瀑布流,目录里其他图正常显示。状态栏**不**报告 7z(因为它没被识别为 archive,IsArchive 直接返回 false,**没有** ScanError 记录)。如果用户希望"看见 7z 被跳过"的报告,需要先让 IsArchive 对 7z 返回 true 然后 OpenReader 失败 —— 这要等 .NET 生态有现代 7z 库。
+
+### 容错性 audit(用户问"将来有其他不支持或损坏无法读取的都会跳过吗")
+
+确认**所有已知失败点**都 catch + 报告 + 跳过,**不会**中断扫描:
+
+| 失败点 | 捕获位置 | 行为 |
+|------|------|------|
+| 文件本身不可读 / 不支持 | `ArchiveHelper.IsArchive` line 61 | try-catch,返回 false,当作普通文件 |
+| 单个 archive entry 损坏 | `ArchiveHelper.ListEntries` line 103 | per-entry catch,跳过该 entry |
+| 整个 archive 不可读 / 损坏 / 加密 | `DirectoryScanner.EnumerateArchiveAsync` line 111 | ScanError 报告 + 跳过 + 扫描继续 |
+| 子目录权限/不存在 | `DirectoryScanner` line 45/49 | 跳过该子目录 |
+| 单个普通图片损坏 | `ImageLoader.LoadImageStreamAsync` line 48/69 + `LoadThumbnailAsync` line 145/164/179 | catch + 缩略图失败但 ImageItem 保留(`OriginalSizeText` 显示 "Unknown") |
+| 任何**未预见**异常 | `LoadDirectoryAsync` line 308 (outer catch) | StatusText 显示 "Error:",LoadingState=Completed 不卡死 |
+
+**未来加新代码**如果忘了 try-catch,同样会中断扫描 —— 这是工程纪律,不能 100% 程序保证。但当前**所有已知失败点**都 catch。
+
+### 改动文件
+
+- `IcedPicViewer/Services/Implementations/DirectoryScanner.cs`:`EnumerateArchiveAsync` 改 `ListEntries(...).ToList()`,外加 14 行注释解释 lazy generator 为什么需要 ToList。`IEnumerable<ArchiveEntryInfo>` 改 `List<ArchiveEntryInfo>`。
+
+build 验证: 0 errors / 0 warnings。
+
 ## v0.13.0 (2026-06-16)
 
 **主题:单图模式键盘导航修复(12 commits, 6 个失败方案 + 1 个真修复)+ 标题栏 commit hash + VM/Model 改 partial property 消除 MVVMTK0045**
