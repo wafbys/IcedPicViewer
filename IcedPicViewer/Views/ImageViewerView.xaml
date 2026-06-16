@@ -7,7 +7,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     RequestedTheme="Dark"
-    Background="{ThemeResource SystemControlBackgroundBlackHighBrush}">
+    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
 
     <Grid x:Name="MainContentGrid" IsTabStop="True">
         <Grid.ContextFlyout>
