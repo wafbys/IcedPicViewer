@@ -65,9 +65,38 @@ public sealed partial class MainWindow : Window
         // AddHandler attempts both fail to invoke). The only path guaranteed to
         // fire regardless of focus is a native WndProc subclass on the window's
         // HWND — the OS delivers WM_KEYDOWN to the window unconditionally.
+        //
+        // IMPORTANT: register the subclass in the Activated event, not the
+        // constructor. WinUI 3 lazy-creates the window HWND on first show, and
+        // WindowNative.GetWindowHandle(this) in the ctor returned IntPtr.Zero
+        // on this project (a306722+bf04e5e both still failed because of this
+        // — the hook was registered against a non-existent window). The
+        // Activated event is the first guarantee that the HWND is real.
+        Activated += OnWindowActivated;
+    }
+
+    private bool _subclassRegistered;
+
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+    {
+        if (_subclassRegistered) return;
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        if (hwnd == IntPtr.Zero)
+        {
+            // Shouldn't happen by Activated, but be defensive.
+            LogKbd($"OnWindowActivated but hwnd still zero; will retry next activation");
+            return;
+        }
         _subclassProc = SubclassWndProc;
-        SetWindowSubclass(hwnd, _subclassProc, 0, IntPtr.Zero);
+        if (SetWindowSubclass(hwnd, _subclassProc, 0, IntPtr.Zero))
+        {
+            _subclassRegistered = true;
+            LogKbd($"subclass registered on hwnd=0x{hwnd.ToInt64():X}");
+        }
+        else
+        {
+            LogKbd($"SetWindowSubclass FAILED on hwnd=0x{hwnd.ToInt64():X}, gle={Marshal.GetLastWin32Error()}");
+        }
     }
 
     // ---- Native window subclass for window-level keyboard shortcuts ----
@@ -91,13 +120,40 @@ public sealed partial class MainWindow : Window
     {
         if (uMsg == WM_KEYDOWN)
         {
-            // We don't suppress the message — even when we act on it, we let
-            // DefSubclassProc run so the XAML framework still receives the
-            // keystroke. Our XAML layer has no other handler that would
-            // double-fire on these specific keys, so this is safe.
-            HandleViewerKey((Windows.System.VirtualKey)wParam.ToInt32());
+            var key = (Windows.System.VirtualKey)wParam.ToInt32();
+            LogKbd($"WM_KEYDOWN vk={key} page={RootFrame.Content?.GetType().Name ?? "<null>"}");
+            HandleViewerKey(key);
         }
         return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+    }
+
+    // ---- Diagnostic log for keyboard hook verification ----
+    // Written to %LOCALAPPDATA%\IcedPicViewer\kbd.log so the user can cat it
+    // and see whether the subclass is firing at all. Delete the file to
+    // start fresh; the path is fixed and deterministic.
+
+    private const string KbdLogPath = "kbd.log";
+
+    private static readonly object _logLock = new();
+    private static void LogKbd(string msg)
+    {
+        lock (_logLock)
+        {
+            try
+            {
+                var dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "IcedPicViewer");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(
+                    Path.Combine(dir, KbdLogPath),
+                    $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
+            }
+            catch
+            {
+                // Logging must never throw out of the WndProc — would crash the app.
+            }
+        }
     }
 
     private void HandleViewerKey(Windows.System.VirtualKey key)
