@@ -223,7 +223,10 @@ public sealed partial class MainWindow : Window
 
     private void HandleViewerKey(Windows.System.VirtualKey key)
     {
-        if (RootFrame.Content is not ImageViewerView viewer || viewer.DataContext is not ImageViewModel vm)
+        // ImageViewerView binds via x:Bind to a ViewModel field on the code-behind
+        // (not through DataContext), so DataContext is null here — read VM from
+        // the typed ViewModel property exposed on the page.
+        if (RootFrame.Content is not ImageViewerView viewer || viewer.ViewModel is not ImageViewModel vm)
             return;
 
         switch (key)
