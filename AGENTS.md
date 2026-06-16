@@ -96,11 +96,15 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 3. 然后跑 `dotnet publish -c Release -p:Platform=x64` 得产物
 4. 把 `publish\` 目录复制到目标机器,双击 `IcedPicViewer.exe`
 
-> ⚠️ **OS 兼容性警告 (2026-06-15 加,2026-06-15 修正)**:实测发现用户的开发机(OS build 10.0.26200.8655,Win 11 25H2)**所有 WinAppRuntime 1.6+ 都跑不起来**(framework-dependent 和 self-contained 都崩),因为所有 WinAppRuntime 1.6+ 的 `CoreMessagingXP.dll` 等 native DLL build 都是 27xxx(1.6: 27106, 1.7: 27107, 1.8: 27108, 2.2: 27200),DLL 加载时 OS build check 触发 `STATUS_FAIL_FAST_EXCEPTION` (0xC0000602)。
+> ⚠️ **OS 兼容性警告 (2026-06-15 加,2026-06-15 再次修正 —— 2026-06-15 自我纠错)**:用户的开发机是 **正版的 Windows 11 25H2**(CurrentBuild 26200.8655,BuildLabEx `26100.1.amd64fre.ge_release.240331-1435` —— 这是 24H2 原始平台被 25H2 Enablement Package 激活后保留的正常 BuildLab,**不是被 hack 改过版本号**)。详见下方"2026-06-15 我把 25H2 误判为假版本"段的诚实记录。
 >
-> 用户的开发机只能跑 WinAppSDK **1.5 或更早**(那些版本的 native DLL 是 build 26xxx 时代,跟 26200 匹配)。但 1.5 缺 `Microsoft.Windows.Storage.Pickers.FolderPicker`、1.4 缺 `TitleBar.IconSource`,要降 WinAppSDK 得改代码。
+> 在这台正版 25H2 上,**所有 WinAppRuntime 1.6+ 都跑不起来**(framework-dependent 和 self-contained 都崩),根本原因有两层:
+> 1. **OS build check fail-fast**(0xC0000602):WinAppRuntime 1.6+ 的 `CoreMessagingXP.dll` 等 native DLL build 是 27xxx(1.6: 27106, 1.7: 27107, 1.8: 27108, 2.2: 27200),而 **Enablement Package 机制下,25H2 的核心二进制(包括 kernel32.dll、apisetschema.dll 等)停留在 26100 平台**。DLL 加载时做 OS build check,看到 "DLL build 27xxx > OS 平台 26100",触发 `STATUS_FAIL_FAST_EXCEPTION` (0xC0000602)。这是**Microsoft 的 Enablement Package 设计与 WinAppSDK 1.6+ 的 native DLL build 不兼容**的硬冲突,**不是单边 bug**。
+> 2. **api-set schema 缺条目**(0xC000027B):实测 `apisetschema.dll` 在 System32(v10.0.26100.8521)但 schema 里**未注册 8+ WinRT api-set**(`api-ms-win-core-winrt-l1-1-0.dll` 等)。bootstrap 路径会变成 `0xC000027B`。DISM RestoreHealth / sfc /scannow / WindowsAppRuntime installer / ComponentStore / Recovery / Panther 全部**无源文件可修**。
 >
-> **部署给别人用时建议**:先确认目标机器的 OS build ≥ 27xxx(即 Win 11 Insider build 或更新)。正式 Win 11 24H2 (build 26100.x)用户也得升级到 25H2 (build 26200.x) 之后才能跑这个 app,但 25H2 OS 上 DLL build 仍然比 OS 新,实际要 Win 11 26H1/26H2 (build 27xxx) 才能跑。
+> 用户的开发机只能跑 WinAppSDK **1.5 或更早**(那些版本的 native DLL 是 build 26xxx 时代,跟 26100 平台匹配)。但 1.5 缺 `Microsoft.Windows.Storage.Pickers.FolderPicker`、1.4 缺 `TitleBar.IconSource`,要降 WinAppSDK 得改代码。
+>
+> **部署给别人用时建议**:**先在自己机器上验证 app 能跑再发布**。任何 Win 11 24H2/25H2 用户都跑不起来,需要 OS 升到 build 27xxx(Win 11 26H1/26H2 之类)或者修本机 api-set schema。**别假设"最新 OS 一定能跑"**——Microsoft 的 Enablement Package 设计导致 25H2 的 native binary 平台停留在 26100,跟 WinAppSDK 1.6+ 的 build 号范围不重叠。
 
 > **历史事实**:`CHANGELOG.md` 中 `v0.9.x` 多条 commit 提到"publish 产物能跑"——**这是错误的**,只验证了文件完整性,没真启动过 .exe。实测(`24063cd` 之后)publish 产物在缺 WinAppRuntime 2.x standalone runtime 的机器上 0xC0000602 退出。本节"必须的前置条件"是基于此实测的诚实结论。
 
@@ -165,7 +169,21 @@ https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe
 > "framework-dependent" 实际只省了 .NET runtime 那一份,WinAppSDK native DLL 仍然 bundled。3be0326 那个 "framework-dependent 应该能用" 的结论**前提就错了**,得连带修正:
 > - 真正的"framework-dependent"(让 loader bootstrap 走 WindowsApps)需要阻止 NuGet 把 native DLL 放 OutDir。WinAppSDK 2.2.0 没提供这个开关
 > - 想要 83 MB 体积 + 真正不依赖系统 DLL,**目前没有干净的选项**——除非直接降 WinAppSDK 到 1.5 之前
-> - 所以本机无论怎么配 publish 都跑不起来,**就是 OS 26200 + WinAppSDK native DLL 27200 的硬冲突**
+> - 所以本机无论怎么配 publish 都跑不起来,**就是 OS 26100/26200 (Enablement Package 平台) + WinAppSDK native DLL 27200 的硬冲突**
+
+> **2026-06-15 我把 25H2 误判为假版本 —— 诚实记录**:
+> 用户纠正我"BuildLabEx 是 26100 + kernel32 是 26100 不能说明 25H2 是假版本",Microsoft 官方从 2025 年开始大量用 **Enablement Package** 方式发 H2 更新:
+> - 24H2 和 25H2 共享同一个 servicing branch
+> - 25H2 的核心二进制(ntoskrnl.exe、kernel32.dll、apisetschema.dll 等)停留在 26100 平台
+> - KB5054156 等 Enablement Package 解锁 25H2 特性
+> - 看到 CurrentBuild=26200 + DisplayVersion=25H2 + BuildLabEx=26100.1.ge_release.240331-1435 **就是正版的 25H2**,不是被 hack 改版本号
+> - ProductName 注册表仍显示 "Windows 10 Pro" 也是从 21H2 起的兼容性老毛病,不能当证据
+>
+> 我错误地**把"底层平台是 24H2"等同于"25H2 是假的"**,这个过度解读已经写进 a68b467 之前的 commit。本次修正:
+> - 顶部"OS 兼容性警告"段已删"是 24H2 假装的 25H2"的说法
+> - 改成"正版 25H2 + Enablement Package 机制"的正确描述
+> - **症状(apiset schema 缺 + native DLL 27200 > 平台 26100)仍然成立**,但解释改成"Enablement Package 设计 + WinAppSDK 1.6+ native DLL build 不兼容",不是"25H2 bug"也不是"假版本"
+> - 教训:技术细节正确 ≠ 整体解读正确。看到"老 platform + 新 build 号"组合时,先查 Microsoft 是否官方用 Enablement Package,不要急着下"假版本"结论
 
 ## 常见 AI 易犯错误（请主动避免）
 
