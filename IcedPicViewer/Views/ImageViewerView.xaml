@@ -21,69 +21,69 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
-                <Button Content="Close" Command="{x:Bind ViewModel.CloseCommand}" Padding="12,6"/>
-                <TextBlock Text="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"
-                           VerticalAlignment="Center"
+        <CommandBar Grid.Row="0"
+                    DefaultLabelPosition="Collapsed"
+                    Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+            <CommandBar.Content>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                    <TextBlock Text="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                               Margin="0,0,8,0"
+                               TextTrimming="CharacterEllipsis" MaxWidth="200"/>
+                    <TextBlock VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Margin="0,0,8,0" FontSize="12">
+                        <Run Text="{x:Bind ViewModel.ActualWidth, Mode=OneWay}"/>
+                        <Run Text="×"/>
+                        <Run Text="{x:Bind ViewModel.ActualHeight, Mode=OneWay}"/>
+                    </TextBlock>
+                    <TextBlock VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Margin="0,0,8,0" FontSize="12">
+                        <Run Text="{x:Bind ViewModel.CurrentImage.FileSizeText, Mode=OneWay}"/>
+                    </TextBlock>
+                    <TextBlock Text="{x:Bind ViewModel.ImagePath, Mode=OneWay}"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               FontSize="11"
+                               TextTrimming="CharacterEllipsis" MaxWidth="400"/>
+                </StackPanel>
+            </CommandBar.Content>
+            <AppBarButton Icon="Cancel"
+                          Label="Close"
+                          Command="{x:Bind ViewModel.CloseCommand}"/>
+            <AppBarSeparator/>
+            <AppBarButton Icon="Previous"
+                          Label="上一张"
+                          Command="{x:Bind ViewModel.NavigatePreviousCommand}"/>
+            <AppBarElementContainer>
+                <TextBlock VerticalAlignment="Center"
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                           Margin="16,0"
-                           TextTrimming="CharacterEllipsis" MaxWidth="200"/>
-                <TextBlock VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           Margin="8,0" FontSize="12">
-                    <Run Text="{x:Bind ViewModel.ActualWidth, Mode=OneWay}"/>
-                    <Run Text="×"/>
-                    <Run Text="{x:Bind ViewModel.ActualHeight, Mode=OneWay}"/>
-                </TextBlock>
-                <TextBlock VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           Margin="8,0" FontSize="12">
-                    <Run Text="{x:Bind ViewModel.CurrentImage.FileSizeText, Mode=OneWay}"/>
-                </TextBlock>
-                <TextBlock Text="{x:Bind ViewModel.ImagePath, Mode=OneWay}"
-                           VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                           Margin="16,0" FontSize="11"
-                           TextTrimming="CharacterEllipsis" MaxWidth="400"/>
-            </StackPanel>
-
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
-                <Button Content="&lt;"
-                        Command="{x:Bind ViewModel.NavigatePreviousCommand}"
-                        Width="36" Height="36" FontSize="18" Margin="4,0"
-                        AutomationProperties.Name="上一张"
-                        AutomationProperties.AccessibilityView="Control"/>
-                <TextBlock VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                           Margin="8,0">
+                           Margin="4,0">
                     <Run Text="{x:Bind ViewModel.DisplayIndex, Mode=OneWay}"/>
                     <Run Text="/"/>
                     <Run Text="{x:Bind ViewModel.TotalCount, Mode=OneWay}"/>
                 </TextBlock>
-                <Button Content="&gt;"
-                        Command="{x:Bind ViewModel.NavigateNextCommand}"
-                        Width="36" Height="36" FontSize="18" Margin="4,0"
-                        AutomationProperties.Name="下一张"
-                        AutomationProperties.AccessibilityView="Control"/>
-
-                <!-- 单图模式下的 Load More（支持到底自动加载更多） -->
-                <Button Content="Load More"
-                        Command="{x:Bind ViewModel.LoadMoreImagesCommand}"
-                        Visibility="{x:Bind ViewModel.LoadMoreImagesVisibility, Mode=OneWay}"
-                        Margin="12,0,0,0"
-                        Padding="8,4"/>
-
-                <Button x:Name="FitModeBtn" Content="Fit" Click="FitModeBtn_Click"
-                        MinWidth="50" Height="36" FontSize="12" Margin="16,0,0,0" Padding="8,0"
-                        AutomationProperties.Name="切换适应/原始大小"/>
-            </StackPanel>
-        </Grid>
+            </AppBarElementContainer>
+            <AppBarButton Icon="Next"
+                          Label="下一张"
+                          Command="{x:Bind ViewModel.NavigateNextCommand}"/>
+            <AppBarSeparator/>
+            <AppBarButton x:Name="FitModeBtn"
+                          Icon="Zoom"
+                          Label="Fit"
+                          Click="FitModeBtn_Click"/>
+            <AppBarButton Icon="Refresh"
+                          Label="Load More"
+                          Command="{x:Bind ViewModel.LoadMoreImagesCommand}"
+                          Visibility="{x:Bind ViewModel.LoadMoreImagesVisibility, Mode=OneWay}"/>
+            <CommandBar.SecondaryCommands>
+                <AppBarButton Icon="OpenFile"
+                              Label="打开文件位置"
+                              Click="OpenFileLocation_Click"/>
+            </CommandBar.SecondaryCommands>
+        </CommandBar>
 
         <Viewbox x:Name="FitContainer" Grid.Row="1" Stretch="Uniform">
             <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
