@@ -1,5 +1,36 @@
 # 更新日志
 
+## v0.13.2 (2026-06-16)
+
+**主题:Refresh 按钮 — 手动重新扫描当前目录**
+
+### 背景
+
+应用已经用 `FileSystemWatcher` 监听当前目录的 Created / Deleted / Modified / Renamed 事件自动更新瀑布流。但在以下场景 watcher 不可靠或事件会被错过:
+
+- 网络盘(UNC / SMB)经常丢事件,watcher buffer 溢出静默吞事件
+- archive (.zip / .rar)内部 entry 改动 watcher 看不到(watcher 只感知 archive 文件本身,感知不到 entry 级别改动)
+- 用户中途误操作 kill 重建了 watcher(`StartWatching` 失败路径下 watcher 是 null)
+- 用户希望"重置一下"瀑布流(滚回顶部 + 清掉现有视图再重新扫描)
+
+### 改动
+
+顶 bar 在 **Open Folder** 右边新增 **Refresh** 按钮(字体图标 Segoe Fluent `&#xE72C;` Refresh):
+
+- 实现:`GalleryViewModel.RefreshCommand` 直接调 `LoadDirectoryAsync(CurrentFolderPath)`,复用整套扫描 / 分页 / watcher 重建 / 状态栏更新逻辑,**不引入**新分支
+- CanExecute:目录已加载且**不**在 Scanning 中(扫描中按钮 disabled,避免和正在跑的扫描叠加状态混乱)
+- Scroll 行为:`Images.Clear()` 让 MasonryPanel 自动滚回顶部;同时 `LastViewedYOffset = 0`,下次从 viewer 退回 gallery 也从顶部开始 — 因为刷新后文件顺序 / 数量可能已变,旧的 offset 不再指向同一张图
+- `CurrentFolderPath` 用 `[ObservableProperty]` 暴露,加载成功后 = 设置为新 path;既是 Refresh 的数据源,也方便以后扩展("最近目录"等功能)
+
+### 设计权衡
+
+考虑过做**增量 reconcile**(对比新 scan 结果和当前 `Images` 集合,只 add / remove / update 差异项),但:
+
+- watcher 本来就做增量更新;手动 refresh 的主要价值就是"强制全量重新同步",而 reconcile 还会留下"watcher 漏掉的那条"没补上
+- reconcile 需要处理一堆边界(thumbnail 缓存、scroll position、total count、scan errors 列表的去重/合并、watcher 期间到达的事件 vs 新 scan 的 race)
+- 现有 `LoadDirectoryAsync` 已经 cancel + dispose 旧 cts,从头跑一遍对几 GB 的图库也只多花一两秒
+- 简单胜过聪明 — 真出现"刷新太慢"的痛点再优化
+
 ## v0.13.1 (2026-06-17)
 
 **主题:坏 archive 不再中断扫描(DirectoryScanner.ToList 修复)+ 7z 支持评估决定**

@@ -54,10 +54,15 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private readonly IProgress<ScanError> _scanErrorProgress;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     public partial LoadingState LoadingState { get; set; }
 
     [ObservableProperty]
     public partial string StatusText { get; set; } = "Select a folder to start";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+    public partial string? CurrentFolderPath { get; set; }
 
     [ObservableProperty]
     public partial int TotalCount { get; set; }
@@ -260,6 +265,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         oldCts?.Cancel();
         oldCts?.Dispose();
 
+        CurrentFolderPath = path;
+
         try
         {
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, newCts.Token);
@@ -331,6 +338,17 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
 
     private bool CanLoadMoreCommand() => CanLoadMore && !IsLoadingMore;
+
+    [RelayCommand(CanExecute = nameof(CanRefreshCommand))]
+    public async Task RefreshAsync()
+    {
+        if (string.IsNullOrEmpty(CurrentFolderPath)) return;
+        LastViewedYOffset = 0;
+        await LoadDirectoryAsync(CurrentFolderPath);
+    }
+
+    private bool CanRefreshCommand() => !string.IsNullOrEmpty(CurrentFolderPath)
+        && LoadingState != LoadingState.Scanning;
 
     private async Task LoadNextPageAsync(CancellationToken ct)
     {
