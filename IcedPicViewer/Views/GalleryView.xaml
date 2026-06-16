@@ -50,56 +50,38 @@
                             Padding="4"
                             DoubleTapped="ImageItem_DoubleTapped"
                             RightTapped="ImageItem_RightTapped"
-                            Tapped="ImageItem_Tapped"
-                            PointerEntered="ImageItem_PointerEntered"
-                            PointerExited="ImageItem_PointerExited"
                             AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"
                             AutomationProperties.HelpText="{x:Bind DisplayLocation, Mode=OneWay}">
-                            <Border.ContextFlyout>
-                                <MenuFlyout>
-                                    <MenuFlyoutItem Text="打开文件位置" Click="OpenFileLocation_Click"/>
-                                    <MenuFlyoutItem Text="删除" Click="DeleteMenuItem_Click"/>
-                                </MenuFlyout>
-                            </Border.ContextFlyout>
-                            <Grid MinHeight="120">
-                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}"
-                                       Stretch="Uniform"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"/>
-                                <Border x:Name="NameOverlay"
-                                        Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
-                                        BorderBrush="{ThemeResource SystemControlBackgroundChromeHighBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="2"
-                                        Padding="6,4"
-                                        HorizontalAlignment="Center"
-                                        VerticalAlignment="Bottom"
-                                        Margin="0,0,0,8"
-                                        Visibility="Collapsed">
-                                    <StackPanel>
-                                        <TextBlock Text="{x:Bind Name, Mode=OneWay}"
-                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                                   FontSize="12"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   MaxWidth="200"/>
-                                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   FontSize="10"
-                                                   MaxWidth="200">
-                                            <Run Text="{x:Bind OriginalSizeText, Mode=OneTime}"/>
-                                            <Run Text=" · "/>
-                                            <Run Text="{x:Bind FileSizeText, Mode=OneTime}"/>
-                                        </TextBlock>
-                                        <TextBlock Text="{x:Bind DisplayLocation, Mode=OneWay}"
-                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                   FontSize="10"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   MaxWidth="200"
-                                                   ToolTipService.ToolTip="{x:Bind DisplayLocation, Mode=OneWay}"/>
-                                    </StackPanel>
-                                </Border>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
+                        <ToolTipService.ToolTip>
+                            <StackPanel>
+                                <TextBlock Text="{x:Bind Name, Mode=OneTime}" FontWeight="SemiBold"/>
+                                <TextBlock FontSize="11"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                                    <Run Text="{x:Bind OriginalSizeText, Mode=OneTime}"/>
+                                    <Run Text=" · "/>
+                                    <Run Text="{x:Bind FileSizeText, Mode=OneTime}"/>
+                                </TextBlock>
+                                <TextBlock Text="{x:Bind DisplayLocation, Mode=OneWay}"
+                                           FontSize="11"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxWidth="280"/>
+                            </StackPanel>
+                        </ToolTipService.ToolTip>
+                        <Border.ContextFlyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="打开文件位置" Click="OpenFileLocation_Click"/>
+                                <MenuFlyoutItem Text="删除" Click="DeleteMenuItem_Click"/>
+                            </MenuFlyout>
+                        </Border.ContextFlyout>
+                        <Grid MinHeight="120">
+                            <Image Source="{x:Bind Thumbnail, Mode=OneWay}"
+                                   Stretch="Uniform"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
