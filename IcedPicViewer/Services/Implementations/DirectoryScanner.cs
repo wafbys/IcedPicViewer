@@ -86,14 +86,23 @@ public class DirectoryScanner : IDirectoryScanner
         IProgress<ScanError>? errorReporter,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
-        IEnumerable<ArchiveEntryInfo> entries;
+        List<ArchiveEntryInfo> entries;
         try
         {
-            // ListEntries opens its own file stream + reader. Run on a worker so
-            // we don't block the calling thread (the scanner's BFS enqueues
-            // archives one at a time, but each archive's central directory can
-            // be tens of KB).
-            entries = await Task.Run(() => ArchiveHelper.ListEntries(archivePath, extensionSet), ct);
+            // ListEntries returns a lazy IEnumerable (it's a generator). If we
+            // await the raw IEnumerable out of Task.Run, the lambda finishes
+            // without ever enumerating — the first MoveNext happens later in
+            // the foreach below, OUTSIDE this try/catch, so any exception
+            // (e.g. "Cannot determine compressed stream type" on a .7z file
+            // that SharpCompress 0.49.1 doesn't support) escapes the generator
+            // and bubbles all the way up to LoadDirectoryAsync's outer catch,
+            // which sets StatusText = "Error: ..." and leaves the gallery
+            // empty — even files after the bad archive are dropped.
+            //
+            // .ToList() forces enumeration inside the lambda, so the exception
+            // (if any) is raised on the await line and caught here. One bad
+            // archive → reported to status bar + skipped, scan continues.
+            entries = await Task.Run(() => ArchiveHelper.ListEntries(archivePath, extensionSet).ToList(), ct);
         }
         catch (OperationCanceledException)
         {
