@@ -32,6 +32,13 @@
          DefSubclassProc) and for the legacy MessageBoxW fallback. Both are internal-only
          and never cross a marshalling boundary, so source-gen AOT benefits don't apply. -->
     <NoWarn>$(NoWarn);SYSLIB1054</NoWarn>
+    <!-- CA2020 warns that (int)IntPtr cast doesn't throw on overflow in unchecked context.
+         MainWindow's WH_KEYBOARD hook explicitly uses this cast to avoid an
+         OverflowException from IntPtr.ToInt32() (which DOES throw on .NET 6+ when
+         the IntPtr value is out of int range — observed in practice on Win11 25H2
+         + MSIX packaged, where the OS hands us wParam/lParam with garbage high bits).
+         The unchecked truncation is exactly what we want here. -->
+    <NoWarn>$(NoWarn);CA2020</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

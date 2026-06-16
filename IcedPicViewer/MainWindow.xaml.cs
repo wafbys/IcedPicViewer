@@ -154,18 +154,24 @@ public sealed partial class MainWindow : Window
         {
             if (nCode >= 0)
             {
-                // Wrap every cast/convert in unchecked to make sure no checked
-                // context slips in (e.g. if a future maintainer wraps this
-                // method body in `checked { ... }` for some reason). The
-                // bitwise-AND in the isKeyUp test and the int→enum cast for
-                // VirtualKey have no logical reason to throw, but on Win11
-                // 25H2 + MSIX we keep seeing hook callback threw:
-                // OverflowException — so we trace with full stack and
-                // explicitly mark the casts unchecked.
+                // CRITICAL: do NOT call IntPtr.ToInt32() here. That method
+                // throws OverflowException on .NET Core 2.1+ whenever the
+                // IntPtr value is outside the Int32 range — the Win11 25H2 +
+                // MSIX build appears to hand us wParam/lParam with garbage
+                // in the high 32 bits, which trips that check. The
+                // `(int)IntPtr` cast below is an unchecked C# conversion that
+                // simply truncates to the low 32 bits and never throws,
+                // matching the Win32 32-bit semantics of these params.
+                //
+                // (The C# `unchecked` keyword only affects compile-time
+                // arithmetic checks; it does NOT change the runtime behavior
+                // of .NET BCL methods like IntPtr.ToInt32().)
                 unchecked
                 {
-                    var vk = (Windows.System.VirtualKey)wParam.ToInt32();
-                    bool isKeyUp = (lParam.ToInt32() & int.MinValue) != 0;
+                    int wParam32 = (int)wParam;
+                    int lParam32 = (int)lParam;
+                    var vk = (Windows.System.VirtualKey)wParam32;
+                    bool isKeyUp = (lParam32 & unchecked((int)0x80000000)) != 0;
                     if (!isKeyUp)
                     {
                         LogKbd($"WH_KEYBOARD vk={vk} page={RootFrame.Content?.GetType().Name ?? "<null>"}");
@@ -181,8 +187,6 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             // Last-resort: never let a hook exception reach the OS.
-            // Capture full stack so the next log reading can pin down the
-            // exact offending line without further trial-and-error builds.
             LogKbd($"hook callback threw: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
         }
         return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
