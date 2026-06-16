@@ -229,16 +229,25 @@ public sealed partial class MainWindow : Window
         switch (key)
         {
             case Windows.System.VirtualKey.Left:
-                if (vm.NavigatePreviousCommand.CanExecute(null))
-                    vm.NavigatePreviousCommand.Execute(null);
+                {
+                    var can = vm.NavigatePreviousCommand.CanExecute(null);
+                    LogKbd($"  prev: idx={vm.CurrentIndex}/{vm.Images.Count} CanExecute={can}");
+                    if (can) vm.NavigatePreviousCommand.Execute(null);
+                }
                 break;
             case Windows.System.VirtualKey.Right:
-                if (vm.NavigateNextCommand.CanExecute(null))
-                    vm.NavigateNextCommand.Execute(null);
+                {
+                    var can = vm.NavigateNextCommand.CanExecute(null);
+                    LogKbd($"  next: idx={vm.CurrentIndex}/{vm.Images.Count} CanLoadMoreImages={vm.CanLoadMoreImages} IsLoadingMore={vm.IsLoadingMoreImages} CanExecute={can}");
+                    if (can) vm.NavigateNextCommand.Execute(null);
+                }
                 break;
             case Windows.System.VirtualKey.Delete:
-                if (vm.DeleteCommand.CanExecute(null))
-                    vm.DeleteCommand.Execute(null);
+                {
+                    var can = vm.DeleteCommand.CanExecute(null);
+                    LogKbd($"  del: CanExecute={can} currentImage={vm.CurrentImage?.Name ?? "<null>"}");
+                    if (can) vm.DeleteCommand.Execute(null);
+                }
                 break;
             case Windows.System.VirtualKey.Escape:
                 vm.CloseCommand.Execute(null);
