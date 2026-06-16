@@ -23,7 +23,7 @@
 
         <CommandBar Grid.Row="0"
                     DefaultLabelPosition="Collapsed"
-                    Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+                    Background="{ThemeResource SubtleFillColorSecondaryBrush}">
             <CommandBar.Content>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                     <TextBlock Text="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"
@@ -130,8 +130,8 @@
         <Grid x:Name="MinimapOverlay" Grid.Row="1"
               HorizontalAlignment="Right" VerticalAlignment="Bottom"
               Margin="0,0,16,16" Visibility="Collapsed">
-            <Border Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
-                    BorderBrush="{ThemeResource SystemControlBackgroundChromeHighBrush}"
+            <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
                     BorderThickness="1"
                     CornerRadius="4" Padding="4">
                 <Grid>
