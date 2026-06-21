@@ -57,6 +57,30 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     public partial LoadingState LoadingState { get; set; }
 
+    // UI-friendly derivatives of LoadingState. We expose these as plain
+    // computed properties (not separate [ObservableProperty] fields) so the
+    // source of truth is the enum and we never have to keep two booleans in
+    // sync. IsScanning powers the scan progress ring in the status bar; it
+    // is true while LoadDirectoryAsync is enumerating the filesystem and
+    // false once the first page starts loading. The IsScanning change
+    // notification is raised from OnLoadingStateChanged below.
+    public bool IsScanning => LoadingState == LoadingState.Scanning;
+    public Visibility IsScanningVisibility => IsScanning ? Visibility.Visible : Visibility.Collapsed;
+
+    // Live count of image sources the scanner has discovered so far. Used
+    // by the status bar to show "Scanning... N images found" while a
+    // whole-drive scan is in progress. Updated via a throttled IProgress
+    // sink (see LoadDirectoryAsync) so a scan of tens of thousands of files
+    // does not raise a property change per file.
+    [ObservableProperty]
+    public partial int DiscoveredCount { get; set; }
+
+    partial void OnLoadingStateChanged(LoadingState value)
+    {
+        OnPropertyChanged(nameof(IsScanning));
+        OnPropertyChanged(nameof(IsScanningVisibility));
+    }
+
     [ObservableProperty]
     public partial string StatusText { get; set; } = "Select a folder to start";
 
@@ -280,6 +304,30 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             TotalCount = 0;
             CanLoadMore = false;
             _scanErrors.Clear();
+            DiscoveredCount = 0;
+
+            // Throttled progress sink for the scan. A whole-drive scan can
+            // yield tens of thousands of sources in a few seconds; reporting
+            // every single one would cause a property change (and a status
+            // bar redraw) per file. The lambda therefore coalesces reports
+            // by both count delta (50) and wall clock (200 ms) — whichever
+            // trips first wins. Closure variables are safe: Progress<T>
+            // dispatches to the captured sync context (UI thread here), so
+            // the throttler always runs single-threaded.
+            int lastReportedCount = 0;
+            long lastReportedTick = 0;
+            var throttledScanProgress = new Progress<int>(count =>
+            {
+                var now = Environment.TickCount64;
+                if (count - lastReportedCount < 50 && now - lastReportedTick < 200)
+                {
+                    return;
+                }
+                lastReportedCount = count;
+                lastReportedTick = now;
+                DiscoveredCount = count;
+                StatusText = $"Scanning... {count} images found";
+            });
 
             // First pass: discover all images (usually fast)
             var allSources = new List<ImageSource>();
@@ -288,6 +336,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 recursive: true,
                 extensions: _imageLoader.SupportedExtensions,
                 errorReporter: _scanErrorProgress,
+                discoveredReporter: throttledScanProgress,
                 ct: linkedCts.Token))
             {
                 if (linkedCts.Token.IsCancellationRequested) break;

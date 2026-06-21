@@ -106,6 +106,19 @@
 
         <Grid Grid.Row="2" Background="{ThemeResource LayerFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
+                <!-- Scan progress ring. Active while the directory scanner is
+                     enumerating the filesystem (typically a few seconds for a
+                     Pictures folder, tens of seconds for a whole drive). The
+                     StatusText binding next to it shows the running count
+                     ("Scanning... 1234 images found") updated by a throttled
+                     progress sink in the VM. -->
+                <ProgressRing Width="16"
+                              Height="16"
+                              IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}"
+                              Visibility="{x:Bind ViewModel.IsScanningVisibility, Mode=OneWay}"
+                              VerticalAlignment="Center"
+                              Margin="0,0,8,0"/>
+
                 <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" VerticalAlignment="Center" FontSize="12"/>
 
                 <!-- Incremental loading button to reduce initial lag while keeping masonry visual -->

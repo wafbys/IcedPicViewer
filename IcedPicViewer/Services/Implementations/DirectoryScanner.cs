@@ -21,6 +21,7 @@ public class DirectoryScanner : IDirectoryScanner
         bool recursive,
         IEnumerable<string>? extensions = null,
         IProgress<ScanError>? errorReporter = null,
+        IProgress<int>? discoveredReporter = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         var extensionSet = extensions != null
@@ -28,6 +29,13 @@ public class DirectoryScanner : IDirectoryScanner
             : null;
         var directories = new Queue<string>();
         directories.Enqueue(rootPath);
+
+        // Running count of image sources yielded so far. Reported through
+        // discoveredReporter (when supplied) so callers can show a live scan
+        // progress, e.g. when opening a whole drive where the scan can run
+        // for tens of seconds. IProgress<T>.Report is fire-and-forget on the
+        // captured sync context, so it does not stall the scan loop.
+        var discovered = 0;
 
         while (directories.Count > 0)
         {
@@ -68,11 +76,15 @@ public class DirectoryScanner : IDirectoryScanner
                     {
                         await foreach (var imageSource in EnumerateArchiveAsync(entry, extensionSet, errorReporter, ct))
                         {
+                            discovered++;
+                            if (discoveredReporter is not null) discoveredReporter.Report(discovered);
                             yield return imageSource;
                         }
                     }
                     else if (extensionSet == null || extensionSet.Contains(Path.GetExtension(entry)))
                     {
+                        discovered++;
+                        if (discoveredReporter is not null) discoveredReporter.Report(discovered);
                         yield return ImageSource.FromFile(entry);
                     }
                 }

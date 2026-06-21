@@ -30,11 +30,20 @@ public interface IDirectoryScanner
     /// <see cref="IProgress{T}"/> synchronisation context (typically the UI
     /// thread for VM callers), so the VM does not need its own locking.
     /// </param>
+    /// <param name="discoveredReporter">
+    /// Optional sink for the running count of image sources the scanner has
+    /// yielded so far. Reported roughly once per yielded source; the
+    /// Progress&lt;T&gt; post is fire-and-forget on the captured sync context,
+    /// so a slow reporter cannot stall the scan loop. The VM is expected to
+    /// throttle before raising property change so the UI does not redraw
+    /// thousands of times per second on a whole-drive scan.
+    /// </param>
     IAsyncEnumerable<ImageSource> ScanAsync(
         string rootPath,
         bool recursive,
         IEnumerable<string>? extensions = null,
         IProgress<ScanError>? errorReporter = null,
+        IProgress<int>? discoveredReporter = null,
         CancellationToken ct = default);
 
     IDisposable Watch(string rootPath, bool recursive, Action<FileChangeInfo> onChanged);
