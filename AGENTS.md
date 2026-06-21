@@ -7,7 +7,7 @@
 这是一个基于 **WinUI 3 + Windows App SDK** 的图片查看器桌面应用（MSIX 打包）。
 
 - 使用 **MasonryPanel** 实现瀑布流视觉效果（这是用户明确选择保留的设计，不建议轻易改成虚拟化列表）。
-- 采用 **边扫边加载**（scanner 后台 yield source → 50ms batch flush → UI thread 灌入 gallery，第一张图约 200ms 内可见）+ **Load More 按钮**（手动一次 150 张）+ **滚动到底自动加载**。
+- 采用 **边扫边灌到 150 张停**（scanner 后台 yield source → 50ms batch flush → UI thread 灌入 gallery，第一张图约 200ms 内可见 → 满 150 张后 drain 退出，scanner 继续跑 TotalCount 增长但不自动灌图）+ **Load More 按钮**（手动一次 150 张）+ **滚动到底自动加载**。
 - 使用 CommunityToolkit.Mvvm + Microsoft.Extensions.DependencyInjection。
 - 重视**可维护性**，但反对为了“正确”而过度设计。
 
@@ -56,7 +56,10 @@
 - **异常处理**：禁止空 catch 吞掉异常，至少要用 `Trace.TraceError` 记录。
 - **扫描/加载 pipeline 不变量**（v0.14.0+）：
   - scanner 永远在 `Task.Run` 包住的 worker thread,`yield` 不能跑在 UI thread
-  - `IngestScanBatch` 内部必须 fire-and-forget `LoadNextPageAsync`,**不要**再加回 page fill timer
+  - `IngestScanBatch` 内部必须 fire-and-forget **单一** `DrainPageFillAsync` 循环(用 `_pageFillInFlight` flag),**不要**每次都启动新 `LoadNextPageAsync`(多重并发会把 UI thread marshal 压垮,导致"窗口消失"症状)
+  - `IngestScanBatch` 启动 drain 条件 + drain 内部退出条件: `Images.Count < PageSize` —— **混合模式**(边扫边灌到 150 张停)的不变量,150 张后 drain 退出,scanner 继续跑但不再自动灌图
+  - **不要**再加回 page fill timer;不要在 fire-and-forget 路径 set `IsLoadingMore`(那是 `LoadMoreAsync` / "Load More" 按钮的)
+  - `LoadDirectoryAsync` 轮询完成条件:`!_pageFillInFlight && !IsLoadingMode` —— **不要**等 `_remainingFilePaths.Count == 0`(drain 提前退会留 source,会卡死轮询)
   - `ScanPageSize=30` / `PageSize=150` 两个 page size 分工,不要合并
   - `GetImageSizeAsync` 必须经 6 路 `_sizeFetchSemaphore` 限流
   - `IsThumbnailLoading` setter 必须经 `dispatcher.TryEnqueue`,不能 worker thread 直接写
@@ -191,9 +194,11 @@ dotnet publish -c Release -p:Platform=$Platform
 
 - **scanner 永远在 worker thread**:`Task.Run(RunScanAndBatchAsync)` 包住整个 `await foreach`;`yield` 是 worker 上下文,不抓 UI 同步上下文,scanner 内部 `Directory.GetFileSystemEntries` 阻塞几秒不会卡 UI。
 - **`batchStartTick` 而非 `lastFlushTick`**:`batch.Count == 0` 时设 `batchStartTick = now`,**保证第一张 source 50ms 内必 flush**。用 scan 起始时间做锚点的话,scanner 慢(每张 5 秒)要等更久才显示第一张。
-- **`IngestScanBatch` 内部 fire-and-forget `LoadNextPageAsync`**:**完全删了 page fill timer**。`IsLoadingMore` 是天然 re-entry guard,所以即使 scanner 持续 yield 触发多次 IngestScanBatch,LoadNextPageAsync 也只在 `IsLoadingMore=false` 时启动。
+- **`IngestScanBatch` 内部 fire-and-forget `LoadNextPageAsync`**:**完全删了 page fill timer**。但 fire-and-forget 路径**不**复用 `IsLoadingMore`(那个 flag 归 `LoadMoreAsync` 管,被 "Load More" 按钮 `CanExecute` 观察),而是使用私有 `_pageFillInFlight` flag + `DrainPageFillAsync` 单一消费者循环(详见下面"单一消费者循环")。否则每次 IngestScanBatch 都启动一个新的 LoadNextPageAsync,整盘扫描时 10+ 并发 GetImageSizeAsync fetchahead 会把 UI thread marshal 压垮 → "窗口不见"症状(进程在,UI 不刷新)。
 - **`ScanPageSize=30` vs `PageSize=150`**:scan-time 用 30(避免一次 layout 30 个 Border 让 UI 卡死),手动 Load More 按钮用 150(用户主动操作期望大块加载)。`LoadNextPageAsync` 接受 `pageSize` 参数,默认走 `PageSize`。
 - **6 路 fetchahead**:`LoadNextPageAsync` 内部 `Task.WhenAll(batch.Select(...))` 并行 30 个 source 的 `GetSourceMetadataAsync + GetImageSizeAsync`。`BitmapDecoder.CreateAsync` 是 WinRT STA-bound,6 路限流(独立 `_sizeFetchSemaphore` 跟 `_thumbnailLoadSemaphore` 对称)避免 marshal 把 UI thread 压垮。
+- **单一消费者循环**(`DrainPageFillAsync`):第一个 `IngestScanBatch` 设 `_pageFillInFlight=true` 并 fire-and-forget 启动 drain 循环,之后所有 `IngestScanBatch` 调用都是 no-op(同时 gate 在 `Images.Count < PageSize` 上,见下)。drain 循环内**串行** `await LoadNextPageAsync(Min(ScanPageSize, PageSize-Images.Count))` 直到 `_remainingFilePaths.Count == 0` 或 `Images.Count >= PageSize`,finally 释放 flag。保证同时只有**一个** `LoadNextPageAsync` 在跑(fetchahead 6 路 + 自身 1 路 = 7 路 marshal 上限,UI thread 不死锁)。这是修复"窗口消失"的关键。
+- **混合模式:边扫边灌到 150 张停**(v0.14.1+):drain 每次循环计算精确 `target = PageSize - Images.Count`,到 150 张就 `break` 退出;`IngestScanBatch` 启动条件也 gate 在 `Images.Count < PageSize` 上,150 张之后**不**再触发 drain。**scanner 继续在后台跑,`TotalCount` 持续增长**,只是 `Images` 集合不再自动灌入——用户手动点 "Load More" 触发 `LoadMoreAsync`(默认 `PageSize=150`)拉下一批。`LoadDirectoryAsync` 轮询条件从"`remaining == 0 && !IsLoadingMore`"改为"`!_pageFillInFlight && !IsLoadingMore`"——drain 提前退后 `_remainingFilePaths` 里可能还有几千个 source,不能等它清空。这是用户选择的"既保留立即可见,又把控制权还给用户"的折中。
 
 **`IsThumbnailLoading` 状态机**(`Models/ImageItem.cs`):
 

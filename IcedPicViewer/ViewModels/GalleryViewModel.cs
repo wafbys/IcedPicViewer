@@ -27,6 +27,24 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private IDisposable? _fileWatcher;
     private bool _disposed;
 
+    // Re-entry guard for the scan-time, fire-and-forget page fill. The
+    // IngestScanBatch callback fires roughly every 50 ms during a scan and
+    // each call would otherwise start a new LoadNextPageAsync — that path
+    // never sets IsLoadingMore (that flag is owned by LoadMoreAsync), so
+    // without this guard a whole-drive scan would end up with N concurrent
+    // LoadNextPageAsync tasks, each spawning 6 GetImageSizeAsync fetchahead
+    // calls, and the WinRT STA marshal back to the UI thread (60+ in
+    // flight) would freeze the dispatcher. The result is a "window stops
+    // updating" symptom even though the process is still alive.
+    //
+    // We deliberately use a private flag instead of IsLoadingMore because
+    // the latter is what the "Load More" button observes — the button must
+    // stay enabled when the scan is auto-filling pages in the background.
+    // The flag is only ever mutated on the UI thread (IngestScanBatch runs
+    // there; DrainPageFillAsync's finally runs there too), so a plain bool
+    // is sufficient — no Interlocked needed.
+    private bool _pageFillInFlight;
+
     // Limit concurrent thumbnail loads
     private readonly SemaphoreSlim _thumbnailLoadSemaphore = new(initialCount: 6, maxCount: 6);
 
@@ -417,14 +435,16 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // remaining sources before declaring the load complete. Poll
             // lightly — 50 ms is fast enough to feel snappy on small
             // folders and cheap enough not to matter on big ones.
-            while (true)
+            // Wait for the scan-time page fill and any user-triggered
+            // "Load More" to settle before declaring Completed. We do NOT
+            // require _remainingFilePaths to be empty here — the hybrid
+            // mode (边扫边灌到 150 张停) leaves the rest of the queue
+            // untouched for the user to pull manually. If the scan is
+            // still in flight we are also fine to declare Completed: the
+            // user has a full first page and a working Load More button.
+            while (_pageFillInFlight || IsLoadingMore)
             {
-                int remaining;
-                lock (_remainingLock)
-                {
-                    remaining = _remainingFilePaths.Count;
-                }
-                if (remaining == 0 && !IsLoadingMore) break;
+                if (token.IsCancellationRequested) break;
                 await Task.Delay(50, token);
             }
 
@@ -512,12 +532,23 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// <summary>
     /// Runs on the UI thread. Adds the batched sources to the pending queue
     /// (under <c>_remainingLock</c>) and bumps <see cref="TotalCount"/>.
-    /// Immediately kicks off a <c>LoadNextPageAsync</c> if one is not
-    /// already in flight — this is what makes the *first* discovered image
-    /// reach the gallery in tens of milliseconds instead of waiting for a
-    /// periodic timer. <see cref="IsLoadingMore"/> is the natural re-entry
-    /// guard: while a previous LoadNextPageAsync is awaiting its fetchahead,
-    /// additional IngestScanBatch calls don't pile up nested awaits.
+    /// The first call after a quiescent period starts
+    /// <see cref="DrainPageFillAsync"/>; subsequent calls while the drain
+    /// loop is still running are no-ops (the drain loop polls the queue
+    /// itself). This is the only sane re-entry strategy: the fire-and-forget
+    /// path never sets <see cref="IsLoadingMore"/>, which is owned by
+    /// <c>LoadMoreAsync</c> and observed by the "Load More" button.
+    ///
+    /// We also gate the start on <c>Images.Count &lt; PageSize</c>: the
+    /// auto-fill only ever fills the first page (150 items by default).
+    /// Past that, the user pulls more manually via "Load More". This
+    /// restores the classic "first 150 + Load More" control feel that the
+    /// "边扫边灌到 150 张停" hybrid mode is built around — without it the
+    /// drain would auto-inject items into the gallery for the entire scan
+    /// and the user would never get a moment of stillness to look at what
+    /// they have. The scanner keeps running in the background and
+    /// continues to accumulate sources into <c>_remainingFilePaths</c>;
+    /// only the auto-injection into <see cref="Images"/> stops.
     /// </summary>
     private void IngestScanBatch(List<ImageSource> batch, CancellationToken ct)
     {
@@ -528,9 +559,56 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
         TotalCount += batch.Count;
         UpdateScanningStatusText();
-        if (!IsLoadingMore)
+
+        if (!_pageFillInFlight && Images.Count < PageSize)
         {
-            _ = LoadNextPageAsync(ct, ScanPageSize);
+            _pageFillInFlight = true;
+            _ = DrainPageFillAsync(ct);
+        }
+    }
+
+    /// <summary>
+    /// Single-consumer page-fill loop. Started by the first IngestScanBatch
+    /// after a quiescent period; runs until the first page
+    /// (<see cref="PageSize"/> items) is in the gallery, the queue is
+    /// drained, or the load cts is cancelled. Each iteration awaits one
+    /// <c>LoadNextPageAsync</c> — yielding up to <see cref="ScanPageSize"/>
+    /// items into the gallery — then loops. The loop body is a single
+    /// async sequence, so there is never more than one LoadNextPageAsync
+    /// in flight even when IngestScanBatch fires every 50 ms.
+    ///
+    /// The page size is clamped to <c>PageSize - Images.Count</c> on each
+    /// iteration so the loop never overshoots the first page: if the
+    /// previous iteration left 120 items visible, the next take is at most
+    /// 30 — exactly enough to hit 150. Without this clamp the gallery
+    /// could land on 160 or 180 items on a fast scan.
+    /// </summary>
+    private async Task DrainPageFillAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                int remaining;
+                lock (_remainingLock)
+                {
+                    remaining = _remainingFilePaths.Count;
+                }
+                if (remaining == 0) break;
+                int target = PageSize - Images.Count;
+                if (target <= 0) break;
+                int pageSize = Math.Min(ScanPageSize, target);
+                await LoadNextPageAsync(ct, pageSize);
+            }
+        }
+        finally
+        {
+            // Always release the re-entry guard, even on cancellation or
+            // exception. If the load cts was cancelled the next
+            // LoadDirectoryAsync will replace it and set up a fresh drain
+            // loop; if it was a transient fault, leaving the flag set would
+            // permanently disable the auto-fill.
+            _pageFillInFlight = false;
         }
     }
 
