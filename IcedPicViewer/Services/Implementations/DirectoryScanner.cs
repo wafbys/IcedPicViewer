@@ -22,6 +22,7 @@ public class DirectoryScanner : IDirectoryScanner
         IEnumerable<string>? extensions = null,
         IProgress<ScanError>? errorReporter = null,
         IProgress<int>? discoveredReporter = null,
+        IProgress<string>? currentPathReporter = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         var extensionSet = extensions != null
@@ -44,6 +45,12 @@ public class DirectoryScanner : IDirectoryScanner
             var currentDir = directories.Dequeue();
 
             if (IsRecycleBin(currentDir)) continue;
+
+            // Announce the directory *before* the blocking GetFileSystemEntries
+            // call. On a slow NTFS folder that call can take several seconds,
+            // and reporting after it would leave the status bar stuck on the
+            // previous folder during that window.
+            if (currentPathReporter is not null) currentPathReporter.Report(currentDir);
 
             string[] entries;
             try
@@ -74,6 +81,11 @@ public class DirectoryScanner : IDirectoryScanner
                 {
                     if (ArchiveHelper.IsArchiveFileName(entry) && ArchiveHelper.IsArchive(entry))
                     {
+                        // For archive enumeration we report the archive's own
+                        // path (not the entry key — entry keys are
+                        // archive-internal paths like "folder/img.jpg" and
+                        // are not actionable for the user).
+                        if (currentPathReporter is not null) currentPathReporter.Report(entry);
                         await foreach (var imageSource in EnumerateArchiveAsync(entry, extensionSet, errorReporter, ct))
                         {
                             discovered++;

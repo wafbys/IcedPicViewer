@@ -30,12 +30,35 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     // Limit concurrent thumbnail loads
     private readonly SemaphoreSlim _thumbnailLoadSemaphore = new(initialCount: 6, maxCount: 6);
 
+    // Same 6-wide cap, but for the metadata + size fetch in LoadNextPageAsync.
+    // Without this, 150 sequential awaits on GetImageSizeAsync would freeze
+    // the perceived responsiveness for ~5 s on a populated page. The bound
+    // is intentionally equal to the thumbnail cap so the two phases share
+    // roughly the same number of in-flight WinRT marshal calls.
+    private readonly SemaphoreSlim _sizeFetchSemaphore = new(initialCount: 6, maxCount: 6);
+
     // For incremental loading while keeping masonry visual.
     // Both LoadNextPageAsync (worker thread) and OnFileChanged (dispatcher thread) read/write
     // this list, so guard it with _remainingLock to avoid race conditions.
     private readonly object _remainingLock = new();
     private List<ImageSource> _remainingFilePaths = new();
     private const int PageSize = 150;
+
+    // The scanner yields sources one at a time on a worker thread. We
+    // batch up to ScanBatchSize items before dispatching to the UI thread
+    // (size cap) OR flush every ~50 ms (time cap) — see RunScanAndBatchAsync
+    // for why both triggers are needed.
+    private const int ScanBatchSize = 100;
+
+    // Page size used while the scan-time page fill is feeding the gallery.
+    // Deliberately small so a single LoadNextPageAsync only adds 30 items
+    // to the ItemsControl (≈30 layout passes on the non-virtualising
+    // MasonryPanel) instead of the full 150 that a manual "Load More"
+    // uses — the trade-off is "feel responsive" vs "load big chunks on
+    // demand". The page fill is driven directly by IngestScanBatch (no
+    // timer), so a steady stream of small pages appears as continuous
+    // growth instead of a multi-second freeze.
+    private const int ScanPageSize = 30;
 
     // O(1) source-id → item lookup. Mirrors the Images collection; maintained
     // via the CollectionChanged handler in the constructor. Keys are
@@ -74,6 +97,14 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     // does not raise a property change per file.
     [ObservableProperty]
     public partial int DiscoveredCount { get; set; }
+
+    // Path the scanner is currently working on. Reported by the scanner
+    // before entering each directory (or before enumerating each archive),
+    // throttled in the VM to ~10 Hz so the status bar text does not flicker
+    // wildly on a whole-drive scan where the queue churns through hundreds
+    // of folders per second.
+    [ObservableProperty]
+    public partial string CurrentScanningPath { get; set; } = "";
 
     partial void OnLoadingStateChanged(LoadingState value)
     {
@@ -176,6 +207,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 _loadCts?.Cancel();
                 _loadCts?.Dispose();
                 _thumbnailLoadSemaphore.Dispose();
+                _sizeFetchSemaphore.Dispose();
                 Images.CollectionChanged -= OnImagesCollectionChanged;
             }
             _disposed = true;
@@ -294,6 +326,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         try
         {
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, newCts.Token);
+            var token = linkedCts.Token;
 
             LoadingState = LoadingState.Scanning;
             Images.Clear();
@@ -305,57 +338,95 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             CanLoadMore = false;
             _scanErrors.Clear();
             DiscoveredCount = 0;
+            CurrentScanningPath = "";
 
-            // Throttled progress sink for the scan. A whole-drive scan can
-            // yield tens of thousands of sources in a few seconds; reporting
-            // every single one would cause a property change (and a status
-            // bar redraw) per file. The lambda therefore coalesces reports
-            // by both count delta (50) and wall clock (200 ms) — whichever
-            // trips first wins. Closure variables are safe: Progress<T>
-            // dispatches to the captured sync context (UI thread here), so
-            // the throttler always runs single-threaded.
+            // Throttled progress sinks for the scan. A whole-drive scan can
+            // yield tens of thousands of sources in a few seconds and churn
+            // through hundreds of folders per second; reporting every single
+            // one of either would cause a property change (and a status bar
+            // redraw) per file. Each lambda therefore coalesces by both
+            // count/identity delta and wall clock — whichever trips first
+            // wins. Closure variables are safe: Progress<T> dispatches to
+            // the captured sync context (UI thread here), so the throttlers
+            // always run single-threaded. Both call into the same
+            // UpdateScanningStatusText() so the displayed text is always
+            // self-consistent regardless of which progress source fired last.
             int lastReportedCount = 0;
-            long lastReportedTick = 0;
+            long lastDiscoveredTick = 0;
             var throttledScanProgress = new Progress<int>(count =>
             {
                 var now = Environment.TickCount64;
-                if (count - lastReportedCount < 50 && now - lastReportedTick < 200)
+                if (count - lastReportedCount < 50 && now - lastDiscoveredTick < 200)
                 {
                     return;
                 }
                 lastReportedCount = count;
-                lastReportedTick = now;
+                lastDiscoveredTick = now;
                 DiscoveredCount = count;
-                StatusText = $"Scanning... {count} images found";
+                UpdateScanningStatusText();
             });
 
-            // First pass: discover all images (usually fast)
-            var allSources = new List<ImageSource>();
-            await foreach (var source in _scanner.ScanAsync(
-                path,
-                recursive: true,
-                extensions: _imageLoader.SupportedExtensions,
-                errorReporter: _scanErrorProgress,
-                discoveredReporter: throttledScanProgress,
-                ct: linkedCts.Token))
+            long lastPathTick = 0;
+            var throttledPathProgress = new Progress<string>(currentPath =>
             {
-                if (linkedCts.Token.IsCancellationRequested) break;
-                allSources.Add(source);
-            }
+                var now = Environment.TickCount64;
+                // Path changes can fire hundreds of times per second on a
+                // whole-drive scan. ~10 Hz is enough to feel live without
+                // the status bar text flickering on each directory.
+                if (now - lastPathTick < 100)
+                {
+                    return;
+                }
+                lastPathTick = now;
+                CurrentScanningPath = currentPath;
+                UpdateScanningStatusText();
+            });
 
-            if (linkedCts.Token.IsCancellationRequested)
+            // The scan below runs on a worker thread and the page fill is
+            // driven directly by IngestScanBatch — no timer is needed.
+            // First image appears in the gallery within ~50 ms of being
+            // discovered (the time-based flush in RunScanAndBatchAsync).
+
+            // Run the scan on a worker thread so the UI thread can render
+            // the first page as soon as the scanner yields PageSize sources.
+            // The scanner runs to completion; while it runs, the page-fill
+            // timer is feeding _remainingFilePaths into the gallery.
+            //
+            // Implemented as a named async method rather than a Task.Run
+            // lambda because C# does not allow `yield return` / `yield break`
+            // inside an anonymous method (CS1621). The actual `break` out
+            // of the await foreach is plain; only the original `yield break`
+            // would need replacing.
+            var scanTask = Task.Run(
+                () => RunScanAndBatchAsync(
+                    path,
+                    _scanErrorProgress,
+                    throttledScanProgress,
+                    throttledPathProgress,
+                    token),
+                token);
+
+            await scanTask;
+
+            if (token.IsCancellationRequested)
             {
                 return;
             }
 
-            lock (_remainingLock)
+            // Scan is done. Wait for the page-fill timer to drain the
+            // remaining sources before declaring the load complete. Poll
+            // lightly — 50 ms is fast enough to feel snappy on small
+            // folders and cheap enough not to matter on big ones.
+            while (true)
             {
-                _remainingFilePaths = allSources;
+                int remaining;
+                lock (_remainingLock)
+                {
+                    remaining = _remainingFilePaths.Count;
+                }
+                if (remaining == 0 && !IsLoadingMore) break;
+                await Task.Delay(50, token);
             }
-            TotalCount = allSources.Count;
-
-            // Load first page
-            await LoadNextPageAsync(linkedCts.Token);
 
             StartWatching(path);
             LoadingState = LoadingState.Completed;
@@ -369,6 +440,106 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Background scan runner. Enumerates the scanner, buffering sources
+    /// into batches of up to <see cref="ScanBatchSize"/> and dispatching
+    /// each batch to the UI thread for ingestion. Two flush triggers keep
+    /// latency low even on slow scans:
+    ///   - size: <see cref="ScanBatchSize"/> sources accumulated (caps the
+    ///     dispatcher queue depth on a whole-drive scan);
+    ///   - time: 50 ms since the last flush (guarantees the very first
+    ///     source is on screen within ~50 ms even if the scanner is slow).
+    /// Without the time-based flush the user would only see the first
+    /// image once the scanner had already discovered ~100 sources, which
+    /// is fine on a fast SSD but unacceptable on a slow network share.
+    /// </summary>
+    private async Task RunScanAndBatchAsync(
+        string path,
+        IProgress<ScanError> errorReporter,
+        IProgress<int> discoveredReporter,
+        IProgress<string> currentPathReporter,
+        CancellationToken token)
+    {
+        var batch = new List<ImageSource>(ScanBatchSize);
+        // Anchor of "the first source in the current batch was just added
+        // at this tick". We reset it to 0 (== "no batch") when the batch
+        // is empty so the next source starts a fresh 50 ms window. The
+        // size cap is unchanged — 100 sources in a single dispatcher
+        // post — but the time cap is measured from the *first* source in
+        // the batch, not from scan start, so a slow scanner that yields
+        // one source per 5 s still flushes within 50 ms of each yield.
+        long batchStartTick = 0;
+        await foreach (var source in _scanner.ScanAsync(
+            path,
+            recursive: true,
+            extensions: _imageLoader.SupportedExtensions,
+            errorReporter: errorReporter,
+            discoveredReporter: discoveredReporter,
+            currentPathReporter: currentPathReporter,
+            ct: token))
+        {
+            if (token.IsCancellationRequested) break;
+            if (batch.Count == 0) batchStartTick = Environment.TickCount64;
+            batch.Add(source);
+            var now = Environment.TickCount64;
+            if (batch.Count >= ScanBatchSize || now - batchStartTick >= 50)
+            {
+                FlushScanBatch(batch, token);
+                batch = new List<ImageSource>(ScanBatchSize);
+                batchStartTick = 0;
+            }
+        }
+        if (batch.Count > 0)
+        {
+            FlushScanBatch(batch, token);
+        }
+    }
+
+    /// <summary>
+    /// Hands a batch of newly-discovered image sources to the UI thread for
+    /// ingestion. Called from the background scan task — never on the UI
+    /// thread directly — so the work item is marshalled through the
+    /// captured DispatcherQueue. The batch is captured by value into the
+    /// lambda, so the caller's local list can be reused for the next batch
+    /// immediately after this call returns.
+    /// </summary>
+    private void FlushScanBatch(List<ImageSource> batch, CancellationToken ct)
+    {
+        var b = batch;
+        _dispatcher.TryEnqueue(() => IngestScanBatch(b, ct));
+    }
+
+    /// <summary>
+    /// Runs on the UI thread. Adds the batched sources to the pending queue
+    /// (under <c>_remainingLock</c>) and bumps <see cref="TotalCount"/>.
+    /// Immediately kicks off a <c>LoadNextPageAsync</c> if one is not
+    /// already in flight — this is what makes the *first* discovered image
+    /// reach the gallery in tens of milliseconds instead of waiting for a
+    /// periodic timer. <see cref="IsLoadingMore"/> is the natural re-entry
+    /// guard: while a previous LoadNextPageAsync is awaiting its fetchahead,
+    /// additional IngestScanBatch calls don't pile up nested awaits.
+    /// </summary>
+    private void IngestScanBatch(List<ImageSource> batch, CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested) return;
+        lock (_remainingLock)
+        {
+            _remainingFilePaths.AddRange(batch);
+        }
+        TotalCount += batch.Count;
+        UpdateScanningStatusText();
+        if (!IsLoadingMore)
+        {
+            _ = LoadNextPageAsync(ct, ScanPageSize);
+        }
+    }
+
+    /// <summary>
+    /// Starts the repeating timer that drains <c>_remainingFilePaths</c>
+    /// into the gallery while the scan is in progress. A no-op if a timer
+    /// from a previous load is somehow still alive (defensive — LoadDirectoryAsync
+    /// already stops the old one).
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanLoadMoreCommand))]
     public async Task LoadMoreAsync(CancellationToken ct = default)
     {
@@ -399,8 +570,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private bool CanRefreshCommand() => !string.IsNullOrEmpty(CurrentFolderPath)
         && LoadingState != LoadingState.Scanning;
 
-    private async Task LoadNextPageAsync(CancellationToken ct)
+    private async Task LoadNextPageAsync(CancellationToken ct, int pageSize = -1)
     {
+        if (pageSize < 0) pageSize = PageSize;
+
         List<ImageSource> batch;
         lock (_remainingLock)
         {
@@ -409,26 +582,49 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 CanLoadMore = false;
                 return;
             }
-            batch = _remainingFilePaths.Take(PageSize).ToList();
+            batch = _remainingFilePaths.Take(pageSize).ToList();
             _remainingFilePaths.RemoveRange(0, batch.Count);
             CanLoadMore = _remainingFilePaths.Count > 0;
         }
 
-        foreach (var source in batch)
+        // Fetchahead: pre-fetch (size, mtime, WxH) for the whole batch with
+        // bounded concurrency before producing any ImageItem. Two reasons:
+        //   1. GetImageSizeAsync opens a FileStream + BitmapDecoder for each
+        //      source; on a 150-item page that is several seconds of
+        //      sequential I/O. Running them with a 6-wide cap drops the
+        //      wall time by ~5x.
+        //   2. Each `Images.Add` triggers a MasonryPanel layout pass, and
+        //      the panel is non-virtualising — emitting 150 Add work items
+        //      in one Tick freezes the UI for the entire layout burst. With
+        //      pageSize=30 the burst is small enough to feel incremental.
+        var fetched = await Task.WhenAll(batch.Select(async source =>
         {
+            var meta = await GetSourceMetadataAsync(source, ct);
+            await _sizeFetchSemaphore.WaitAsync(ct);
+            try
+            {
+                // Reads only the image header (BitmapDecoder, ~ms even for
+                // multi-MP files). Populates ImageItem.OriginalWidth/Height
+                // so the gallery overlay and the image viewer info bar
+                // show real dimensions instead of "Unknown".
+                var dimensions = await _imageLoader.GetImageSizeAsync(source, ct);
+                return (source, meta, dimensions);
+            }
+            finally
+            {
+                _sizeFetchSemaphore.Release();
+            }
+        }));
+
+        foreach (var entry in fetched)
+        {
+            // If a new LoadDirectoryAsync fired while we were awaiting the
+            // batch, ct is now cancelled — abandon the rest. Items already
+            // enqueued below will see the cancelled token when they run and
+            // early-exit.
             if (ct.IsCancellationRequested) break;
 
-            (long size, DateTime mtime) = await GetSourceMetadataAsync(source, ct);
-            // GetImageSizeAsync reads only the image header (BitmapDecoder, ~ms even
-            // for multi-MP files). Used to populate ImageItem.OriginalWidth/Height
-            // so the gallery overlay and the image viewer info bar can show real
-            // dimensions instead of "Unknown".
-            var dimensions = await _imageLoader.GetImageSizeAsync(source, ct);
-
-            // If a new LoadDirectoryAsync fired while we were awaiting above,
-            // ct is now cancelled — abandon the rest of the batch. Items already
-            // enqueued below will see the cancelled token when they run and early-exit.
-            if (ct.IsCancellationRequested) break;
+            var (source, (size, mtime), dimensions) = entry;
 
             var item = new ImageItem(
                 source: source,
@@ -516,6 +712,26 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         StatusText = _scanErrors.Count == 1
             ? $"{baseText} — 1 file skipped ({first}: {_scanErrors[0].Reason})"
             : $"{baseText} — {_scanErrors.Count} files skipped (first: {first})";
+    }
+
+    /// <summary>
+    /// Formats the "Scanning: ..." status text shown while the directory
+    /// scanner is running. Called from both the discovered-count and
+    /// current-path throttled progress sinks so the rendered text is always
+    /// self-consistent — the most recent path + the most recent count,
+    /// regardless of which progress source fired last.
+    /// </summary>
+    private void UpdateScanningStatusText()
+    {
+        if (string.IsNullOrEmpty(CurrentScanningPath))
+        {
+            // Pre-first-throttle window: no path reported yet.
+            StatusText = $"Scanning... {DiscoveredCount} images found";
+        }
+        else
+        {
+            StatusText = $"Scanning: {CurrentScanningPath}  ({DiscoveredCount} found)";
+        }
     }
 
     private void StartWatching(string path)
@@ -779,38 +995,51 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     private async Task LoadThumbnailAsync(ImageItem item, CancellationToken ct)
     {
-        if (item.Thumbnail != null)
-        {
-            if (!item.Source.IsInArchive && File.Exists(item.Source.Path))
-            {
-                var fileInfo = new FileInfo(item.Source.Path);
-                if (fileInfo.LastWriteTime == item.ModifiedTime)
-                {
-                    return;
-                }
-            }
-            item.Thumbnail = null;
-        }
-
-        await _thumbnailLoadSemaphore.WaitAsync(ct);
+        // Outer try/finally so the gallery template's "thumbnail loading"
+        // spinner is always cleared — regardless of whether we hit the
+        // cache, succeeded, failed to decode, or were cancelled while
+        // waiting on the semaphore. The setter must be marshalled to the
+        // UI thread (Progress<T> / PropertyChanged notifications expect
+        // a single thread) so it goes through the dispatcher.
         try
         {
-            var thumbnail = await _imageLoader.LoadThumbnailAsync(item.Source, 400, ct);
-            if (thumbnail != null)
+            if (item.Thumbnail != null)
             {
-                _dispatcher.TryEnqueue(() =>
+                if (!item.Source.IsInArchive && File.Exists(item.Source.Path))
                 {
-                    item.Thumbnail = thumbnail;
-                });
+                    var fileInfo = new FileInfo(item.Source.Path);
+                    if (fileInfo.LastWriteTime == item.ModifiedTime)
+                    {
+                        return;
+                    }
+                }
+                item.Thumbnail = null;
             }
-        }
-        catch (Exception ex)
-        {
-            Trace.TraceError($"LoadThumbnailAsync error for {item.Id}: {ex.Message}");
+
+            await _thumbnailLoadSemaphore.WaitAsync(ct);
+            try
+            {
+                var thumbnail = await _imageLoader.LoadThumbnailAsync(item.Source, 400, ct);
+                if (thumbnail != null)
+                {
+                    _dispatcher.TryEnqueue(() =>
+                    {
+                        item.Thumbnail = thumbnail;
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"LoadThumbnailAsync error for {item.Id}: {ex.Message}");
+            }
+            finally
+            {
+                _thumbnailLoadSemaphore.Release();
+            }
         }
         finally
         {
-            _thumbnailLoadSemaphore.Release();
+            _dispatcher.TryEnqueue(() => item.IsThumbnailLoading = false);
         }
     }
 }

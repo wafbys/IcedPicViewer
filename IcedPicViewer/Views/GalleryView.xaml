@@ -97,6 +97,24 @@
                                    Stretch="Uniform"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
+                            <!--
+                                Loading indicator shown over the empty Image
+                                while the thumbnail is decoding. Without this
+                                overlay the card would just be a blank
+                                light-coloured rectangle (Image with null
+                                source is transparent; the card's CardBackground
+                                brush shows through) and the user can't tell
+                                whether the gallery is stuck or still loading.
+                                IsThumbnailLoading is set true in the ImageItem
+                                ctor and cleared by GalleryViewModel's
+                                LoadThumbnailAsync finally block.
+                            -->
+                            <ProgressRing IsActive="{x:Bind IsThumbnailLoading, Mode=OneWay}"
+                                          Visibility="{x:Bind IsThumbnailLoadingVisibility, Mode=OneWay}"
+                                          Width="32"
+                                          Height="32"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
                         </Grid>
                     </Border>
                 </DataTemplate>
@@ -119,7 +137,11 @@
                               VerticalAlignment="Center"
                               Margin="0,0,8,0"/>
 
-                <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           TextTrimming="CharacterEllipsis"
+                           MaxWidth="900"/>
 
                 <!-- Incremental loading button to reduce initial lag while keeping masonry visual -->
                 <Button Content="Load More"

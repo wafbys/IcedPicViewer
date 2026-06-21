@@ -38,12 +38,23 @@ public interface IDirectoryScanner
     /// throttle before raising property change so the UI does not redraw
     /// thousands of times per second on a whole-drive scan.
     /// </param>
+    /// <param name="currentPathReporter">
+    /// Optional sink for the path the scanner is currently working on.
+    /// Reported before entering each directory (so the UI sees it even if
+    /// <c>Directory.GetFileSystemEntries</c> blocks for several seconds on
+    /// a slow NTFS folder) and before enumerating each archive's contents
+    /// (the archive file path is reported, not the entry key — entry keys
+    /// are archive-internal and meaningless to the user). The VM is
+    /// expected to throttle; without throttling a whole-drive scan would
+    /// produce thousands of path reports per second.
+    /// </param>
     IAsyncEnumerable<ImageSource> ScanAsync(
         string rootPath,
         bool recursive,
         IEnumerable<string>? extensions = null,
         IProgress<ScanError>? errorReporter = null,
         IProgress<int>? discoveredReporter = null,
+        IProgress<string>? currentPathReporter = null,
         CancellationToken ct = default);
 
     IDisposable Watch(string rootPath, bool recursive, Action<FileChangeInfo> onChanged);

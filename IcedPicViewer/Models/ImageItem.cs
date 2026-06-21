@@ -2,6 +2,7 @@
 
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace IcedPicViewer.Models;
@@ -22,6 +23,21 @@ public partial class ImageItem : ObservableObject
     [ObservableProperty]
     public partial BitmapImage? FullImage { get; set; }
 
+    // True while the thumbnail is being decoded on a worker thread. The
+    // gallery template overlays a ProgressRing on top of the empty Image
+    // while this is true, replacing what would otherwise be a blank /
+    // light-coloured placeholder card. The flag is set on construction
+    // (the caller is about to schedule LoadThumbnailAsync) and cleared
+    // by GalleryViewModel.LoadThumbnailAsync's outer finally — that way
+    // every exit path (cache hit, success, decode failure, cancellation)
+    // reliably hides the spinner.
+    [ObservableProperty]
+    public partial bool IsThumbnailLoading { get; set; }
+
+    public Visibility IsThumbnailLoadingVisibility => IsThumbnailLoading
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
     public ImageItem(
         ImageSource source,
         long fileSize,
@@ -38,6 +54,13 @@ public partial class ImageItem : ObservableObject
         ModifiedTime = modifiedTime;
         OriginalWidth = originalWidth;
         OriginalHeight = originalHeight;
+        // Construction time = "thumbnail not yet decoded". The gallery
+        // template renders a ProgressRing for every item that has this
+        // bit set, and GalleryViewModel.LoadThumbnailAsync's finally
+        // block clears it. Items that find a valid cached thumbnail in
+        // the LRU still go through LoadThumbnailAsync — the finally
+        // there clears the bit even on the early-return cache-hit path.
+        IsThumbnailLoading = true;
     }
 
     public string FileSizeText

@@ -7,7 +7,7 @@
 这是一个基于 **WinUI 3 + Windows App SDK** 的图片查看器桌面应用（MSIX 打包）。
 
 - 使用 **MasonryPanel** 实现瀑布流视觉效果（这是用户明确选择保留的设计，不建议轻易改成虚拟化列表）。
-- 采用 **增量加载**（首次 150 张 + Load More + 滚动到底自动加载）。
+- 采用 **边扫边加载**（scanner 后台 yield source → 50ms batch flush → UI thread 灌入 gallery，第一张图约 200ms 内可见）+ **Load More 按钮**（手动一次 150 张）+ **滚动到底自动加载**。
 - 使用 CommunityToolkit.Mvvm + Microsoft.Extensions.DependencyInjection。
 - 重视**可维护性**，但反对为了“正确”而过度设计。
 
@@ -54,6 +54,13 @@
   - **改 ThemeResource brush 名前必须查权威 list,不要凭 Fluent 1 旧名猜**。WinUI 3 真实存在的 brush 是 Fluent 2 命名(`SubtleFillColorSecondaryBrush` / `SolidBackgroundFillColorBaseBrush` / `ControlStrokeColorDefaultBrush` / `CardStrokeColorDefaultBrush` / `LayerFillColorDefaultBrush` 等);Fluent 1 旧名(`SystemControlBackgroundChromeMediumLowBrush` / `SystemControlBackgroundChromeHighBrush` / `SystemControlBackgroundBlackHighBrush` 等)在 WinAppSDK 2.2+ 全部**不存在**,build 不会报但跑起来 XamlParseException。验证方法:在 `App.OnLaunched` 顶部 reflection 枚举 `Application.Current.Resources.MergedDictionaries` 全部 key 写到 `%LOCALAPPDATA%\IcedPicViewer\brushes.txt`,`grep` 查目标名。cf6734d / a48b77a / fc16401 这 3 个 commit 修过这个坑(顶 bar / Page / minimap),未来再改 ThemeResource 不要重复踩。
 - **资源清理**：IDisposable 必须正确释放（尤其是 FileSystemWatcher、CancellationTokenSource、Stream）。
 - **异常处理**：禁止空 catch 吞掉异常，至少要用 `Trace.TraceError` 记录。
+- **扫描/加载 pipeline 不变量**（v0.14.0+）：
+  - scanner 永远在 `Task.Run` 包住的 worker thread,`yield` 不能跑在 UI thread
+  - `IngestScanBatch` 内部必须 fire-and-forget `LoadNextPageAsync`,**不要**再加回 page fill timer
+  - `ScanPageSize=30` / `PageSize=150` 两个 page size 分工,不要合并
+  - `GetImageSizeAsync` 必须经 6 路 `_sizeFetchSemaphore` 限流
+  - `IsThumbnailLoading` setter 必须经 `dispatcher.TryEnqueue`,不能 worker thread 直接写
+  - 详见下面 "Gallery 扫描/加载 pipeline" 章节
 
 ## 关于“其他详细规则”
 
@@ -155,6 +162,57 @@ dotnet publish -c Release -p:Platform=$Platform
 `api-ms-win-*.dll` 系列(api-set)是**虚拟 forwarder**,由 `apisetschema.dll` 解析 serve。`System32` 里"找不到文件"是正常现象,不是缺失;grep 字符串 0 match 是因为 schema 用二进制编码。要验证某 api-set 是否真的可用,正确做法是 PowerShell `[System.Runtime.InteropServices.NativeLibrary]::Load("api-ms-win-xxx.dll")`,而不是看文件存不存在。
 
 之前对 IcedPicViewer 0xC0000602 错误的"api-set 缺失"猜测**已推翻**;这个事实本身仍然有用(下次不要被"找不到 api-set DLL"表象误导)。
+
+---
+
+### Gallery 扫描/加载 pipeline（v0.14.0+）
+
+打开目录的整条 pipeline 是这次重写的重点。**核心目标**:让整盘扫描也能在 ~200ms 内看到第一张图,而不是空白几十秒到几分钟。
+
+**4 个数据通路 + 5 个组件协作**(`IcedPicViewer/ViewModels/GalleryViewModel.cs` + `Services/Implementations/DirectoryScanner.cs`):
+
+```
+  scanner (worker thread)
+      │ yield source (worker thread,无 SyncContext)
+      ▼
+  RunScanAndBatchAsync ── 攒 batch (≤100 个 OR 50ms batchStartTick 时间) ── FlushScanBatch
+      │ dispatcher TryEnqueue (UI thread queue)
+      ▼
+  IngestScanBatch (UI thread) ── _remainingFilePaths.AddRange + TotalCount++ + 触发 LoadNextPageAsync
+      │ (fire-and-forget)
+      ▼
+  LoadNextPageAsync (UI thread) ── 6 路 fetchahead GetSize+Meta ── 30 个 ImageItem 灌入 Images
+      │ (IsLoadingMore = true 期间防重入)
+      ▼
+  LoadThumbnailAsync (worker, 6 路 _thumbnailLoadSemaphore) ── BitmapImage ── item.Thumbnail
+```
+
+**关键设计决策(都是经验教训,改了会回归卡死)**:
+
+- **scanner 永远在 worker thread**:`Task.Run(RunScanAndBatchAsync)` 包住整个 `await foreach`;`yield` 是 worker 上下文,不抓 UI 同步上下文,scanner 内部 `Directory.GetFileSystemEntries` 阻塞几秒不会卡 UI。
+- **`batchStartTick` 而非 `lastFlushTick`**:`batch.Count == 0` 时设 `batchStartTick = now`,**保证第一张 source 50ms 内必 flush**。用 scan 起始时间做锚点的话,scanner 慢(每张 5 秒)要等更久才显示第一张。
+- **`IngestScanBatch` 内部 fire-and-forget `LoadNextPageAsync`**:**完全删了 page fill timer**。`IsLoadingMore` 是天然 re-entry guard,所以即使 scanner 持续 yield 触发多次 IngestScanBatch,LoadNextPageAsync 也只在 `IsLoadingMore=false` 时启动。
+- **`ScanPageSize=30` vs `PageSize=150`**:scan-time 用 30(避免一次 layout 30 个 Border 让 UI 卡死),手动 Load More 按钮用 150(用户主动操作期望大块加载)。`LoadNextPageAsync` 接受 `pageSize` 参数,默认走 `PageSize`。
+- **6 路 fetchahead**:`LoadNextPageAsync` 内部 `Task.WhenAll(batch.Select(...))` 并行 30 个 source 的 `GetSourceMetadataAsync + GetImageSizeAsync`。`BitmapDecoder.CreateAsync` 是 WinRT STA-bound,6 路限流(独立 `_sizeFetchSemaphore` 跟 `_thumbnailLoadSemaphore` 对称)避免 marshal 把 UI thread 压垮。
+
+**`IsThumbnailLoading` 状态机**(`Models/ImageItem.cs`):
+
+- ctor 设 `IsThumbnailLoading = true`(缩略图未就绪,UI 叠 ProgressRing)
+- `LoadThumbnailAsync` **外层** try/finally 一定 `IsThumbnailLoading = false`(覆盖所有出口:cache 命中早 return / semaphore 等待被 cancel / 解码成功 / 解码失败)
+- set 必须 `dispatcher.TryEnqueue` 派回 UI thread(避免 worker thread 触发 PropertyChanged 跨线程)
+
+**取消语义**(用户切目录时):
+
+- 旧 cts `Cancel()` + `Dispose()` → scanner 看到 token 退出 await foreach
+- 旧 batch 通过 dispatcher enqueue 的 IngestScanBatch 检查 token 直接 return,不污染新目录
+- LoadNextPageAsync 内部 await 期间检查 token 早退,已 enqueue 的 `Images.Add` 也会看到 cancelled 后 return
+
+**绝对不要**:
+- 把 `await foreach (... scanner.ScanAsync ...)` 同步吞光再统一 Load —— 整盘扫描时用户看空白几十秒
+- 改回 timer 驱动 page fill(已删)—— IngestScanBatch 内部 fire-and-forget 才是正解
+- 把 `ScanPageSize` 调回 150 —— 整批 150 个 `Images.Add` 触发 MasonryPanel 150 次 layout pass,UI 体感卡死
+- `GetImageSizeAsync` 不做 6 路限流全并发 —— BitmapDecoder CreateAsync marshal 100+ 次把 UI thread 压垮
+- `LoadThumbnailAsync` 内部直接 `item.IsThumbnailLoading = false` 而不通过 dispatcher —— 跨线程 PropertyChanged 报 COMException
 
 ---
 
