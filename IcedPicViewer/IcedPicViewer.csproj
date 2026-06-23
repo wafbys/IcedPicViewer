@@ -21,6 +21,12 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!--
+      AllowUnsafeBlocks: FFmpeg.AutoGen requires `unsafe` blocks for native
+      pointer interop. Only FFmpegProbeService.cs (gated by IPV_FFMPEG_PROBE
+      env var) uses this — production code paths do not.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- 完全删除多语言支持：不包含任何 satellite resources（af-ZA 等所有 xx-XX 文件夹）。
          本应用无自定义本地化资源（无 .resw），框架语言包对发布体积无益，全部剥离。 -->
     <SatelliteResourceLanguages></SatelliteResourceLanguages>
@@ -91,9 +97,84 @@
     -->
     <PackageReference Include="SharpCompress" Version="0.49.1" />
 
+    <!--
+      FFmpeg.AutoGen (8.1.0):
+      Pure-managed C# bindings for FFmpeg 8.1 native libraries. The package
+      does NOT ship native binaries — we drop them at runtimes\win-x64\native\
+      below (BtbN FFmpeg-Builds, LGPL 2.1+ shared builds, see README in that
+      folder). This binding is MIT-licensed; the bundled FFmpeg DLLs retain
+      their original LGPL 2.1+ license and are surfaced to the user in
+      AboutPage + License\ffmpeg-LGPL.txt (TODO: when video support lands).
+
+      Currently used only by FFmpegProbeService (gated by IPV_FFMPEG_PROBE
+      env var) to verify native DLL loading + frame extraction works in
+      MSIX-packaged deployment. Will be wired into VideoMetadataService
+      once the probe passes.
+    -->
+    <PackageReference Include="FFmpeg.AutoGen" Version="8.1.0" />
+
     <!-- Static Analysis -->
     <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="*" />
   </ItemGroup>
+
+  <!--
+    FFmpeg native runtime DLLs.
+    Sourced from BtbN/FFmpeg-Builds (LGPL 2.1+ shared builds):
+      https://github.com/BtbN/FFmpeg-Builds/releases/latest
+      (ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip)
+    See runtimes\win-x64\native\README.md for the exact source build hash and
+    license compliance notes (LGPL requires that the DLLs be replaceable by
+    the user — that's automatic when they sit in the AppX package).
+
+    The default .NET SDK globs (`**/*.dll` under project root, etc.) DO pull
+    in `runtimes/<rid>/native/*.dll` as native runtime assets, but they get
+    placed under `bin/.../runtimes/win-x64/native/` rather than the AppX
+    root. WinAppSDK's MSIX packaging knows to flatten them to the AppX root
+    so LoadLibrary("avcodec-62") resolves at runtime. The explicit
+    <Content> entries below make the build behaviour deterministic and
+    visible in build logs.
+
+    AlwaysCopyToPublishDirectory ensures the DLLs land in BOTH:
+      - `dotnet build`  → bin\...\AppX\runtimes\win-x64\native\ (appx layout)
+      - `dotnet publish`→ bin\...\AppPackages\...\runtimes\win-x64\native\
+        (MSIX staged source) — without this, the published .msix is missing
+        the DLLs and LoadLibrary fails at first user launch.
+  -->
+  <ItemGroup>
+    <Content Include="runtimes\win-x64\native\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!--
+    CopyFFmpegDllsToAppX: WinAppSDK 2.2.x MSIX packaging does NOT pick up
+    files placed under runtimes/<rid>/native/ as direct AppX payload. For
+    MSIX-packaged deployment, FFmpeg's LoadLibrary("avcodec-62") must find
+    the DLLs at the AppX package install directory root, not in a
+    runtimes/<rid>/native/ subfolder.
+
+    This target copies the 7 FFmpeg DLLs flat into the AppX layout root
+    ($(OutDir)AppX\) so the packaged app's process can LoadLibrary them at
+    startup. Runs AfterBuild (debug + release) and also re-runs after the
+    AppX layout target if it exists, to handle incremental rebuilds.
+
+    Skipped if WindowsPackageType is None (unpackaged) — the regular
+    runtimes/<rid>/native/ convention works fine there.
+  -->
+  <Target Name="CopyFFmpegDllsToAppX" AfterTargets="Build" Condition="'$(WindowsPackageType)' != 'None' and '$(_DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_FFmpegSourceDir>$(MSBuildProjectDirectory)\runtimes\win-x64\native\</_FFmpegSourceDir>
+      <_FFmpegAppXDir>$(OutDir)AppX\</_FFmpegAppXDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_FFmpegDlls Include="$(_FFmpegSourceDir)*.dll" />
+    </ItemGroup>
+    <MakeDir Directories="$(_FFmpegAppXDir)" Condition="!Exists('$(_FFmpegAppXDir)')" />
+    <Copy SourceFiles="@(_FFmpegDlls)"
+          DestinationFolder="$(_FFmpegAppXDir)"
+          SkipUnchangedFiles="true" />
+    <Message Text="CopyFFmpegDllsToAppX: copied @(_FFmpegDlls) -> $(_FFmpegAppXDir)" Importance="high" Condition="@(_FFmpegDlls) != ''" />
+  </Target>
 
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>

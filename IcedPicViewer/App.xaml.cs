@@ -107,6 +107,25 @@ public partial class App : Application
         _window = new MainWindow();
         _window.AppWindow.Closing += OnAppWindowClosing;
         _window.Activate();
+
+        // FFmpeg probe (development-only). Runs only when:
+//   - IPV_FFMPEG_PROBE=1 env var (does NOT propagate through MSIX
+//     `winapp.exe launch` — see FFmpegProbeService doc comment), OR
+//   - %LOCALAPPDATA%\IcedPicViewer\ffmpeg-probe.flag file exists, OR
+//   - FFmpegProbeService.ForceRunForDiagnostic is flipped at compile time.
+// By default the app boots without touching FFmpeg, so users who don't
+// enable the probe see no behavior change. Results go to
+// %LOCALAPPDATA%\IcedPicViewer\ffmpeg-probe.log. See FFmpegProbeService.
+// Fire-and-forget — OnLaunched is void and the probe's RunAsync does
+// its own Task.Run to keep decode off the UI thread.
+if (FFmpegProbeService.IsProbeRequested || File.Exists(
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IcedPicViewer",
+            "ffmpeg-probe.flag")))
+{
+    _ = new FFmpegProbeService().RunAsync();
+}
     }
 
     private void OnAppWindowClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
