@@ -74,20 +74,19 @@
                           ToolTipService.ToolTip="下一张"/>
             <AppBarSeparator/>
             <!--
-                Fit/1:1 toggle only makes sense for still images. For videos the
-                MediaPlayerElement uses its own Stretch=Uniform behaviour, and a
-                1:1 mode would mean scrolling a 1920x1080 surface on a 1080p
-                monitor — useful rarely, distracting usually. Hide the button
-                when the current item is a video; the visibility binding re-evaluates
-                on every Next/Prev (CurrentImage change fires the
-                [NotifyPropertyChangedFor] in the VM).
+                Fit/1:1 toggle now works for both images and videos.
+                For images: toggles between Viewbox (Fit) and ScrollViewer
+                with the minimap (1:1). For videos: toggles between
+                MediaPlayerElement.Stretch=Uniform (Fit) and Stretch=None
+                inside a ScrollViewer (1:1, native resolution). Visibility
+                stays Visible for both kinds — the user always gets the
+                same affordance.
             -->
             <AppBarButton x:Name="FitModeBtn"
                           Icon="Zoom"
                           Label="Fit"
                           Click="FitModeBtn_Click"
-                          ToolTipService.ToolTip="Fit / 1:1 切换"
-                          Visibility="{x:Bind ViewModel.FitModeBtnVisibility, Mode=OneWay}"/>
+                          ToolTipService.ToolTip="Fit / 1:1 切换"/>
             <AppBarButton Icon="Refresh"
                           Label="Load More"
                           Command="{x:Bind ViewModel.LoadMoreImagesCommand}"
@@ -195,22 +194,57 @@
                 <FontIcon Glyph="&#xE768;" FontSize="36" Foreground="White"/>
             </Button>
             <!--
-                MediaPlayerElement. The MediaPlayer can't be x:Bind directly
-                (read-only in WinUI 3) — instead the page's code-behind
-                subscribes to ViewModel.PropertyChanged and calls
-                Player.SetMediaPlayer(...) whenever the VM's MediaPlayer
-                property changes. The element is always present in the
-                tree; visibility on PlayerHost (driven by
-                IsVideo && IsVideoPlaying) decides whether the surface
-                is on screen. AreTransportControlsEnabled gives us the
-                standard play/pause/scrubber/volume chrome; the WH_KEYBOARD
-                hook in MainWindow skips the play command when
-                IsVideoPlaying is true so Space doesn't fight the
-                transport controls for pause.
+                ScrollViewer wrapping the MediaPlayerElement so 1:1 mode
+                (Stretch=None) can pan past the viewport edges. In Fit
+                mode the scroll modes are both Disabled so the user
+                can't drag a non-existent "view"; in 1:1 mode they're
+                Enabled so the full 1920x1080 (or whatever native size)
+                is reachable. The bar visibility is also gated by the
+                scroll mode — Auto shows a bar only when scrolling is
+                possible, which means the bar correctly disappears in
+                Fit mode (no need to scroll → no bar) and appears in
+                1:1 mode (and disappears when the content fits).
             -->
-            <MediaPlayerElement x:Name="Player"
-                                AreTransportControlsEnabled="True"
-                                Stretch="Uniform"/>
+            <ScrollViewer x:Name="PlayerScrollViewer"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollMode="{x:Bind ViewModel.PlayerScrollMode, Mode=OneWay}"
+                          VerticalScrollMode="{x:Bind ViewModel.PlayerScrollMode, Mode=OneWay}">
+                <!--
+                    MediaPlayerElement. The MediaPlayer can't be x:Bind directly
+                    (read-only in WinUI 3) — instead the page's code-behind
+                    subscribes to ViewModel.PropertyChanged and calls
+                    Player.SetMediaPlayer(...) whenever the VM's MediaPlayer
+                    property changes.
+
+                    Visibility is bound to PlayerElementVisibility
+                    (IsVideo && IsVideoPlaying) so the element is hidden until
+                    PlayAsync has actually attached a live MediaPlayer.
+                    Without this, the element would lay out in a "no media"
+                    state — opaque, on top of the PlayOverlay button — and
+                    pointer events on the centered ▶ would hit the dead
+                    transport controls instead of the button. Space still
+                    works because the WH_KEYBOARD hook routes through the VM
+                    directly and bypasses the visual tree entirely.
+
+                    Stretch is bound to PlayerStretch (Uniform in Fit, None
+                    in 1:1) so the FitModeBtn toggles the video surface
+                    between scaled-to-fit and native-resolution scrollable.
+
+                    AreTransportControlsEnabled gives us the standard
+                    play/pause/scrubber/volume chrome; the WH_KEYBOARD hook
+                    in MainWindow skips the play command when IsVideoPlaying
+                    is true so Space doesn't fight the transport controls
+                    for pause. Note: in 1:1 mode the transport controls
+                    scroll with the content (they're part of the
+                    MediaPlayerElement, not pinned to the bottom); users
+                    who lose the controls can scroll down to find them.
+                -->
+                <MediaPlayerElement x:Name="Player"
+                                    Visibility="{x:Bind ViewModel.PlayerElementVisibility, Mode=OneWay}"
+                                    AreTransportControlsEnabled="True"
+                                    Stretch="{x:Bind ViewModel.PlayerStretch, Mode=OneWay}"/>
+            </ScrollViewer>
         </Grid>
 
         <ProgressRing Grid.Row="1"

@@ -1005,11 +1005,12 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Enumerates image entries in the given archive and creates an
-    /// <see cref="ImageItem"/> for each. Returns the list of items plus an
-    /// optional <see cref="ScanError"/> if the archive could not be read at
-    /// all (caller surfaces it in the status bar alongside initial scan
-    /// errors).
+    /// Enumerates entries in the given archive and creates a
+    /// <see cref="MediaItem"/> for each (image or video, dispatched by
+    /// the entry's extension). Returns the list of items plus an
+    /// optional <see cref="ScanError"/> if the archive could not be
+    /// read at all (caller surfaces it in the status bar alongside
+    /// initial scan errors).
     /// </summary>
     private async Task<(List<MediaItem> Items, ScanError? Error)> AddArchiveEntriesAsync(
         string archivePath, CancellationToken token)
@@ -1020,29 +1021,58 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             var archiveInfo = new FileInfo(archivePath);
             var mtime = archiveInfo.Exists ? archiveInfo.LastWriteTime : DateTime.MinValue;
 
+            // Build the extension → kind lookup once and use it both
+            // for ListEntries (extension set) and per-entry kind
+            // stamping. The full media list covers both image and
+            // video; an archive's entries go through the same
+            // dispatch as loose files.
+            var extensionMap = new Dictionary<string, MediaKind>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (ext, kind) in _imageLoader.SupportedMedia)
+            {
+                extensionMap[ext] = kind;
+            }
+            var extensionSet = new HashSet<string>(extensionMap.Keys, StringComparer.OrdinalIgnoreCase);
+
             await Task.Run(async () =>
             {
-                var entries = ArchiveHelper.ListEntries(archivePath, _imageLoader.SupportedExtensions
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase));
+                var entries = ArchiveHelper.ListEntries(archivePath, extensionSet);
                 foreach (var entry in entries)
                 {
                     if (token.IsCancellationRequested) break;
-                    // Archive entries are image-only in this release
-                    // (videos inside archives are out of scope) so the
-                    // Kind is left at the record-struct default (Image).
-                    var source = ImageSource.FromArchive(archivePath, entry.Key);
+                    var ext = Path.GetExtension(entry.Key);
+                    if (!extensionMap.TryGetValue(ext, out var kind)) continue;
+                    var source = ImageSource.FromArchive(archivePath, entry.Key, kind);
                     if (_imageIndex.ContainsKey(source.ToString())) continue;
-                    // GetImageSizeAsync uses BitmapDecoder, which only reads the
-                    // header (few KB) — cheap enough to do for every entry. This
-                    // also gives the gallery overlay a real WxH instead of "Unknown".
-                    var dims = await _imageLoader.GetImageSizeAsync(source, token);
 
-                    result.Add(new ImageItem(
-                        source: source,
-                        fileSize: entry.UncompressedSize,
-                        modifiedTime: mtime,
-                        originalWidth: dims?.Width ?? 0,
-                        originalHeight: dims?.Height ?? 0));
+                    // Dispatch on kind: image goes through the cheap
+                    // BitmapDecoder header read, video through
+                    // FFmpeg's container parse. Both are bounded by
+                    // the per-entry 6-wide _sizeFetchSemaphore
+                    // indirectly (LoadNextPageAsync is the only
+                    // concurrent caller; AddArchiveEntriesAsync is
+                    // called serially from the watcher event handler).
+                    if (kind == MediaKind.Video)
+                    {
+                        var videoMeta = await _videoMetadataService.GetVideoMetadataAsync(source, token);
+                        result.Add(new VideoItem(
+                            source: source,
+                            fileSize: entry.UncompressedSize,
+                            modifiedTime: mtime,
+                            originalWidth: videoMeta?.Width ?? 0,
+                            originalHeight: videoMeta?.Height ?? 0,
+                            duration: videoMeta?.Duration ?? TimeSpan.Zero,
+                            hasAudio: videoMeta?.HasAudio ?? false));
+                    }
+                    else
+                    {
+                        var dims = await _imageLoader.GetImageSizeAsync(source, token);
+                        result.Add(new ImageItem(
+                            source: source,
+                            fileSize: entry.UncompressedSize,
+                            modifiedTime: mtime,
+                            originalWidth: dims?.Width ?? 0,
+                            originalHeight: dims?.Height ?? 0));
+                    }
                 }
             }, token);
         }

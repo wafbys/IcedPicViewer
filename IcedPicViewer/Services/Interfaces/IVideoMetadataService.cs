@@ -18,8 +18,10 @@ namespace IcedPicViewer.Services.Interfaces;
 public readonly record struct VideoMetadata(int Width, int Height, TimeSpan Duration, bool HasAudio);
 
 /// <summary>
-/// Reads video metadata and extracts the first usable frame as a
-/// gallery-style thumbnail. Kept deliberately separate from
+/// Reads video metadata, extracts the first usable frame as a gallery-
+/// style thumbnail, and exposes a "playable file path" so
+/// <c>MediaPlayerElement</c> can play archive entries that don't have
+/// a real on-disk file. Kept deliberately separate from
 /// <see cref="IImageLoader"/>: image loading is a pure WinRT path
 /// (BitmapDecoder), while video is an FFmpeg AutoGen native-pointer
 /// path with very different lifetime and error semantics. Mixing them
@@ -31,8 +33,10 @@ public interface IVideoMetadataService
     /// Opens the video just long enough to read container-level metadata
     /// (codec params, duration, stream table), then closes. Does NOT
     /// decode any frames, so this is cheap (single disk read + parse).
-    /// Returns null when the file cannot be opened or contains no
-    /// decodable video stream.
+    /// For archive sources, the entry is extracted to a temp file
+    /// (under the service's temp dir) for the duration of the call,
+    /// then deleted. Returns null when the file cannot be opened or
+    /// contains no decodable video stream.
     /// </summary>
     Task<VideoMetadata?> GetVideoMetadataAsync(ImageSource source, CancellationToken ct = default);
 
@@ -42,7 +46,31 @@ public interface IVideoMetadataService
     /// <see cref="BitmapImage"/> scaled to fit <paramref name="maxSize"/>
     /// on the longer edge. The returned bitmap has DecodePixelWidth set,
     /// so the WIC pipeline only materialises the scaled pixels in
-    /// managed memory. Returns null on any decode / open failure.
+    /// managed memory. For archive sources, the entry is extracted to a
+    /// temp file for the duration of the call, then deleted. Returns
+    /// null on any decode / open failure.
     /// </summary>
     Task<BitmapImage?> ExtractVideoThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns a file path that <c>MediaPlayer</c> / <c>MediaSource</c> can
+    /// read. For a loose file, this is just <see cref="ImageSource.Path"/>.
+    /// For an archive entry, the entry is extracted to a fresh temp
+    /// file (in the service's temp dir) that lives until the caller
+    /// invokes <see cref="ReleasePlaybackFilePath"/>. The caller is
+    /// responsible for invoking that release exactly once for every
+    /// successful GetPlaybackFilePathAsync call.
+    /// </summary>
+    Task<string> GetPlaybackFilePathAsync(ImageSource source, CancellationToken ct = default);
+
+    /// <summary>
+    /// Releases a previously-returned playback file path. For loose
+    /// files this is a no-op (the path points at the user's real
+    /// file). For archive extracts it deletes the temp file the
+    /// service created. Idempotent — calling it with a path that
+    /// wasn't returned by <see cref="GetPlaybackFilePathAsync"/> is
+    /// a safe no-op, and calling it twice on the same path only
+    /// deletes once.
+    /// </summary>
+    void ReleasePlaybackFilePath(string path);
 }

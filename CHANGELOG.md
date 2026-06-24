@@ -1,5 +1,164 @@
 # 更新日志
 
+## v0.14.2 (2026-06-24)
+
+**主题: IThumbnailCache 共享 LRU + 视频 archive 支持 + 1:1 视频模式 + 修 PlayOverlay 被遮挡 bug**
+
+### 背景
+
+v0.14.1 把视频播放 pipeline 接上,但在手动测试中发现一个 XAML 层级 bug
+(MediaPlayerElement 在没 player 时也占顶层 + 显 transport controls,挡住
+PlayOverlay 按钮 + 控件 play 也因没 player 无效 —— Space 能 work 是因为
+绕过了整个 XAML 指针路径)。同时本 session 落实 3 个之前 deferred 的任务:
+统一 IThumbnailCache(video 也用同一个 LRU)、视频 archive 支持(temp file
+extract + 给 MediaPlayer 一个真实路径)、1:1 视频模式(native resolution
+可滚)。
+
+### 改动
+
+**Bug fix: PlayOverlay 被 MediaPlayerElement 遮挡**
+
+- 现象:第一次打开视频,鼠标点中间 ▶ 按钮 + 点 transport controls 的
+  ▶ 都无效,只有 Space 能播。Space 播了之后 controls 的 ▶ 才 work。
+- 根因:`PlayerHost` 里有三层 (Image / PlayOverlay / MediaPlayerElement),
+  XAML 后渲染的 MediaPlayerElement 在 z-order 顶层。`IsVideoPlaying=false`
+  时 element 没有 MediaPlayer,但 `AreTransportControlsEnabled=True` 让它
+  仍然渲染"no media"状态的 transport controls,不透明 + 占据空间 + 拦
+  截所有指向 PlayOverlay 区域的指针事件。Space 走的是 WH_KEYBOARD hook
+  → VM.PlayCommand → 创建 MediaPlayer,完全绕开 XAML 树,所以能 work。
+- 修复:加 `PlayerElementVisibility` computed property (`IsVideo &&
+  IsVideoPlaying`),绑到 MediaPlayerElement 的 Visibility。还没 player
+  时 element Collapsed,PlayOverlay 浮到顶层可点;PlayAsync 创建 MediaPlayer
+  之后 element 变 Visible,transport controls 也才有意义。
+- `[NotifyPropertyChangedFor]` 挂在 `CurrentImage` 和 `IsVideoPlaying` 上,
+  Next/Prev/重新打开都自动重置。
+
+**Task 1: 统一 IThumbnailCache (image LRU + video cache)**
+
+- 新 `Services/Interfaces/IThumbnailCache.cs` + `Implementations/ThumbnailCache.cs`:
+  hand-rolled `Dictionary<string, LinkedListNode<Entry>>` + `LinkedList`
+  + 单 lock,capacity 200,32-80 MB worst case。LRU 的本质是 hit 时 move-to-
+  front,本来就不是 lock-free,单 lock 比分块 CAS 简单且比 ConcurrentDictionary
+  干净。
+- `IImageLoader` 把自己的 LRU 字段 + `TryGetCached`/`SetCached` 删了,
+  ctor 注入 `IThumbnailCache`。cache key 改 `$"{source}|{maxSize}|{source.Kind}"`
+  (加 Kind 防止同 path 图像/视频 thumb 互相覆盖)。
+- `IVideoMetadataService.ExtractVideoThumbnailAsync` 也接 `IThumbnailCache`。
+  方法名 `Set` 触发 CA1716 警告 (VB.NET reserved keyword,本项目 `Microsoft.
+  VisualBasic.FileIO.FileSystem` 已用),改名 `Store`。
+- App.xaml.cs 注册 `IThumbnailCache` (Singleton)。ThumbnailCache
+  没有 FFmpeg 副作用,跟其他 video metadata 状态独立,Single 域就够。
+
+**Task 2: 视频 archive 支持 (temp file extract)**
+
+- `ArchiveHelper.ExtractEntryToFile(archivePath, entryKey, destPath)`:新
+  static helper,把 entry 解到文件 (`FileMode.Create` overwrite + `FileShare.
+  Read` 允许 FFmpeg 后续 FileStream 读)。给 `VideoMetadataService` 用
+  (FFmpeg 只接 file path 或 AVIO 自定义 callback,没现成 path 接
+  SharpCompress 的 MemoryStream)。
+- `DirectoryScanner.EnumerateArchiveAsync` 改签名:`extensionSet` →
+  `extensionMap` (full `(extension, kind)[]`)。原 `GetImageOnlyExtensions`
+  helper 删了。yield 时按 entry 的 extension 查 kind。
+- `GalleryViewModel.AddArchiveEntriesAsync` dispatch on kind:image 走
+  `IImageLoader.GetImageSizeAsync`,video 走 `IVideoMetadataService.
+  GetVideoMetadataAsync`,archive entry 大小用 `ArchiveEntryInfo.
+  UncompressedSize`,archive 自身 mtime 仍是 entry 的 mtime 信号。
+- `IVideoMetadataService` 加 `GetPlaybackFilePathAsync(source)` /
+  `ReleasePlaybackFilePath(path)`:loose file 直接 return `source.Path`
+  (no-op release);archive entry 抽到 `%LOCALAPPDATA%\IcedPicViewer\
+  TempVideo\ipv-video-<guid>.<ext>`,tracked list,release 时删。
+  命名用 `ipv-video-` 前缀,operator 看 temp dir 一眼能认。
+- `VideoMetadataService` 实现 `IDisposable`,ctor 启动时 sweep 残留
+  temp 文件(进程崩了也会清),Dispose 兜底清 tracked 列表。
+- `ImageViewModel.PlayAsync` 用 `GetPlaybackFilePathAsync` 拿路径 →
+  `StorageFile.GetFileFromPathAsync` → `MediaSource.CreateFromStorageFile`
+  → `MediaPlayer`。存 `_currentPlaybackPath` field,`StopAndDisposePlayer`
+  里 release。
+- 异常路径 cleanup:PlayAsync 任何中间步骤失败(包括 GetPlaybackFilePath
+  成功但 MediaPlayer 创建失败)都把已抽出来的 temp file release 掉,
+  不泄漏。
+
+**Task 3: 1:1 视频模式 (native resolution + 滚)**
+
+- `ImageViewModel.IsFitMode` (ObservableProperty, default `true`):
+  把原本 view-local 的 `_isFitMode` field 提升到 VM,加
+  `[NotifyPropertyChangedFor(PlayerStretch, PlayerScrollMode)]`。
+- 两个 computed property:
+  - `PlayerStretch` = `IsFitMode ? Stretch.Uniform : Stretch.None`
+  - `PlayerScrollMode` = `IsFitMode ? ScrollMode.Disabled : ScrollMode.Enabled`
+- `ImageViewerView.xaml`:MediaPlayerElement 包到 `ScrollViewer` 里,
+  ScrollViewer 的 `HorizontalScrollMode`/`VerticalScrollMode` 绑
+  `PlayerScrollMode`,`MediaPlayerElement.Stretch` 绑 `PlayerStretch`。
+  Fit 模式: 不透明 ScrollViewer + Stretch=Uniform,等价于原来行为;
+  1:1 模式: ScrollViewer 可滚 + Stretch=None 显原生分辨率(1920×1080
+  之类),用户可以拖到边缘看完整画面。
+- `ImageViewerView.xaml.cs`:删 `_isFitMode` field,4 处 `if (!_isFitMode)`
+  改成 `if (!ViewModel.IsFitMode)`,`FitModeBtn_Click` 委派 VM,
+  新 `ApplyImageFitMode` helper 集中处理 FitContainer / ActualSizeContainer
+  / MinimapOverlay visibility + minimap 更新触发。`OnViewModelPropertyChanged`
+  加 `IsFitMode` 分支调 `ApplyImageFitMode`。视频 1:1 模式 transport
+  controls 跟着内容滚(已知 UX 限制,用户可滚到底找回),1:1 不阻塞
+  ScrollViewer 本身能滚到边缘就够。
+- `FitModeBtn` 删除 `Visibility="{x:Bind ViewModel.FitModeBtnVisibility}"`
+  绑(那个 computed `!IsVideo`),FitModeBtn 现在对图和对视频都可见。
+
+### 已决定的取舍
+
+- **不**加视频 archive 的 AVIO 自定义 callback 方案:temp file 简单可靠
+  (FFmpeg 接口最稳),AVIO callback 写起来要 unsafe C + 跨语言 ABI
+  风险(temp file 仅 1-3 GB 临时占用磁盘,可接受)。
+- **不**在每次 metadata / thumbnail 调用时复用 temp file:每次
+  extract → use → delete,简单干净;不维护"entry 还在内存里"的
+  复杂状态。LRU 缓存 thumbnail BitmapImage 让第二次显示零成本
+  (解码后的像素存 managed memory,不再需要文件)。
+- **不**为视频 archive 的 temp 文件做更激进的清理 (DeleteOnClose) :
+  Default `FileShare.Read` 让 MediaPlayer 在播放期间能并发读,FFmpeg
+  decode 期间能并发读。`FileShare.Delete` 也试过但 FFmpeg
+  `avformat_open_input` 内部 seek 行为在文件被删的边缘 race
+  表现不稳。ReleasePlaybackFilePath 在用户主动关播放时清,
+  Dispose 兜底清,这条路径已经够覆盖。
+- **不**为 1:1 视频模式做 minimap:1080p 屏 + 1920×1080 视频 = minimap
+  退化成一个色块,UI 上是噪声。复用 minimap 的代码不划算。
+- **不**在 PlayAsync 把整个 MediaPlayer 创建包进 try:MediaPlayer 自身的
+  ctor / 内部初始化失败会抛 (虽然 WinAppSDK 2.2.x 实测几乎不抛),但
+  catch 兜底已经够;FFmpeg 抽文件失败、StorageFile 拿不到、MediaSource
+  构造失败 全部在同一个 try 内,任一抛 → 走 catch 路径,MediaPlayer
+  field 留 null,IsVideoPlaying 留 false,PlayOverlay 留着等用户重试。
+
+### 手动验证清单(本 session 不跑,环境 headless)
+
+1. **Bug 复现 → 修后**:打开视频,鼠标点中间 ▶ → 应播放 (v0.14.1
+   之前是 no-op)。点 transport controls 的 ▶ → 应播放 (之前也是 no-op)。
+2. **LRU 共享**:打开一个 .jpg 一个 .mp4,缩略图都正常显示;
+   `IThumbnailCache.TryGet` 在两边都被命中 (cache key 包含 Kind,不会
+   互相覆盖)。
+3. **视频 archive**:打开一个含 .mp4 的 .zip,瀑布流里出现视频卡 + ▶
+   overlay,点 ▶ → 静态首帧 → 真播放(从 temp file 读)。切到下一个
+   视频 → 上一个 temp file 被 release,新的 temp file 创建。
+4. **archive 清理**:正常用完后 `%LOCALAPPDATA%\IcedPicViewer\TempVideo\`
+   应为空或只有当前播放的。Kill 进程后再开 → ctor sweep 清残留。
+5. **1:1 视频模式**:开 1080p 视频 → Fit 显示缩放;点 Fit/1:1 → 显示原生
+   1920×1080,可拖到边缘。transport controls 跟着内容滚到底找回。
+6. **跨导航**:Next/Prev 来回切 → temp file 不累积(`_currentPlaybackPath`
+   每次切都 release 旧的,StopAndDisposePlayer 调用链覆盖)。
+7. **Dispose 兜底**:反复开关 viewer 10 次 + 关 app → Memory profiler
+   `Windows.Media.Playback.MediaPlayer` 实例数 = 0,temp file 残留
+   = 0 (next launch ctor sweep 兜底)。
+
+### build 状态
+
+0 errors / 0 warnings(`dotnet build -c Debug -p:Platform=x64` 干净通过)。
+
+### 下一 session 待办(不在本 session 范围)
+
+- ThumbnailCache 的内存上限硬编码 200,可以根据设备内存自适应
+  (现 200 ≈ 30-80 MB 静态估算)。
+- 视频 archive temp file 在播放期间可被 AV 扫描软件锁住导致 release
+  失败 → silent warning。如果用户报"播放完有残留 temp 文件"再
+  做"下次启动 ctor sweep 多试几次"或 Windows Defender exclusion。
+- 1:1 视频模式下 transport controls 跟内容滚的问题,可以让 controls
+  钉在底部 (把 ScrollViewer 只包视频帧不包 controls);当前是简化版。
+
 ## v0.14.1 (2026-06-24)
 
 **主题:视频播放集成 — MediaPlayerElement + Space 键盘 + 完整 lifecycle**

@@ -162,6 +162,44 @@ public static class ArchiveHelper
             $"Entry '{entryKey}' was not found in archive '{archivePath}'.");
     }
 
+    /// <summary>
+    /// Extracts a single archive entry directly to a file on disk. Used
+    /// by <c>VideoMetadataService</c> to give FFmpeg a seekable file path
+    /// (FFmpeg's <c>avformat_open_input</c> only accepts file paths or
+    /// custom AVIO contexts; there's no built-in way to feed it a
+    /// SharpCompress MemoryStream short of an AVIO read callback, which
+    /// is significantly more code). The caller's
+    /// <paramref name="destinationPath"/> is overwritten if it exists.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="OpenEntryStream"/>, this is not seekable-friendly
+    /// for WIC (FFmpeg seeks internally) but is exactly what FFmpeg
+    /// needs: a real file path. Disk cost equals the entry's
+    /// decompressed size; for typical video this is the file itself,
+    /// 100 MB-2 GB. The caller is expected to clean up the temp file
+    /// after the consumer (FFmpeg / MediaPlayer) is done with it.
+    /// </remarks>
+    /// <exception cref="FileNotFoundException">
+    /// The entry was not found, or the entry is a directory marker.
+    /// </exception>
+    public static void ExtractEntryToFile(string archivePath, string entryKey, string destinationPath)
+    {
+        using var entryStream = OpenEntryStream(archivePath, entryKey);
+        // FileMode.Create overwrites; FileShare.Read keeps the file
+        // readable by FFmpeg (which opens it with its own FileStream)
+        // after this method returns. The destination's parent directory
+        // must already exist — the caller picks the path and is
+        // responsible for ensuring its directory tree.
+        using var destStream = new FileStream(
+            destinationPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.Read,
+            bufferSize: 4096,
+            useAsync: false);
+        entryStream.CopyTo(destStream);
+    }
+
     private static FileStream OpenArchiveFile(string archivePath) =>
         new(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
 }

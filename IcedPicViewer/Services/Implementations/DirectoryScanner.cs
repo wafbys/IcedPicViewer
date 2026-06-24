@@ -96,12 +96,16 @@ public class DirectoryScanner : IDirectoryScanner
                         // For archive enumeration we report the archive's own
                         // path (not the entry key — entry keys are
                         // archive-internal paths like "folder/img.jpg" and
-                        // are not actionable for the user). Archive entries
-                        // are still image-only in this release (videos inside
-                        // archives are out of scope) so EnumerateArchiveAsync
-                        // only takes the image-only extension set.
+                        // are not actionable for the user). v0.14.2+ archive
+                        // entries include both image and video kinds; the
+                        // full (image+video) extension map is passed through
+                        // so EnumerateArchiveAsync can stamp the right Kind
+                        // on each yielded source. The downstream VM +
+                        // services dispatch on Kind for metadata + thumbnail
+                        // extraction; VideoMetadataService handles the
+                        // archive case by extracting to a temp file.
                         if (currentPathReporter is not null) currentPathReporter.Report(entry);
-                        await foreach (var imageSource in EnumerateArchiveAsync(entry, GetImageOnlyExtensions(extensions), errorReporter, ct))
+                        await foreach (var imageSource in EnumerateArchiveAsync(entry, extensionMap, errorReporter, ct))
                         {
                             discovered++;
                             if (discoveredReporter is not null) discoveredReporter.Report(discovered);
@@ -138,10 +142,29 @@ public class DirectoryScanner : IDirectoryScanner
 
     private static async IAsyncEnumerable<ImageSource> EnumerateArchiveAsync(
         string archivePath,
-        HashSet<string>? extensionSet,
+        Dictionary<string, MediaKind>? extensionMap,
         IProgress<ScanError>? errorReporter,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
+        // Translate the (extension → kind) map into the
+        // extension-only hash set that ArchiveHelper.ListEntries
+        // expects for its own filter parameter. ListEntries is
+        // deliberately kind-agnostic — the kind lives in the
+        // caller's dispatch, not in the archive helper. We do the
+        // kind lookup here per-entry to keep the archive helper
+        // simple and to make the scanner's contract explicit: "give
+        // me entries whose extension is in this set, I'll tag them
+        // with the right kind on the way out".
+        HashSet<string>? extensionSet = null;
+        if (extensionMap != null)
+        {
+            extensionSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var ext in extensionMap.Keys)
+            {
+                extensionSet.Add(ext);
+            }
+        }
+
         List<ArchiveEntryInfo> entries;
         try
         {
@@ -174,32 +197,18 @@ public class DirectoryScanner : IDirectoryScanner
         foreach (var entry in entries)
         {
             ct.ThrowIfCancellationRequested();
-            // Archive entries are image-only in this release — Kind is left
-            // at the record-struct default (Image). When/if we add video
-            // archive support, mirror the loose-file lookup here.
-            yield return ImageSource.FromArchive(archivePath, entry.Key);
+            // Look up the kind from the entry's extension. Falls back to
+            // Image (the record-struct default) for an entry whose
+            // extension isn't in the map — a defensive default in case
+            // the filter was set to a different superset than what
+            // ListEntries saw (e.g., if a future caller passes a
+            // permissive filter).
+            var ext = Path.GetExtension(entry.Key);
+            var kind = extensionMap != null && extensionMap.TryGetValue(ext, out var k)
+                ? k
+                : MediaKind.Image;
+            yield return ImageSource.FromArchive(archivePath, entry.Key, kind);
         }
-    }
-
-    /// <summary>
-    /// Pulls the image-only extension list out of the (extension, kind)
-    /// tuple list passed to <see cref="ScanAsync"/>. Used by the archive
-    /// path because video entries inside archives are out of scope for
-    /// this release. Returns null when the caller passed no filter
-    /// (scanner falls back to "list every entry in the archive").
-    /// </summary>
-    private static HashSet<string>? GetImageOnlyExtensions(
-        IEnumerable<(string Extension, MediaKind Kind)>? extensions)
-    {
-        if (extensions is null) return null;
-        HashSet<string>? result = null;
-        foreach (var (ext, kind) in extensions)
-        {
-            if (kind != MediaKind.Image) continue;
-            result ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            result.Add(ext);
-        }
-        return result;
     }
 
     /// <summary>

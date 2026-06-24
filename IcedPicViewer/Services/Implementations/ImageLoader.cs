@@ -28,14 +28,15 @@ public class ImageLoader : IImageLoader
     private static readonly HashSet<string> _supportedVideoExtensions =
         [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"];
 
-    // Bounded LRU cache for thumbnails. Cap is intentionally modest: a 400px BitmapImage
-    // averages ~150-400 KB, so 200 entries ≈ 30-80 MB worst case instead of "unbounded".
-    private const int ThumbnailCacheCapacity = 200;
-    private readonly Dictionary<string, LinkedListNode<CacheEntry>> _cacheMap = new();
-    private readonly LinkedList<CacheEntry> _cacheOrder = new();
-    private readonly object _cacheLock = new();
+    // Thumbnail LRU is injected as IThumbnailCache so the video pipeline
+    // (VideoMetadataService) shares the same backing store. Capacity
+    // tuning lives in the ThumbnailCache implementation.
+    private readonly IThumbnailCache _thumbnailCache;
 
-    private readonly record struct CacheEntry(string Key, BitmapImage Image);
+    public ImageLoader(IThumbnailCache thumbnailCache)
+    {
+        _thumbnailCache = thumbnailCache;
+    }
 
     public IEnumerable<string> SupportedExtensions => _supportedExtensions;
 
@@ -116,8 +117,16 @@ public class ImageLoader : IImageLoader
 
     public async Task<BitmapImage?> LoadThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default)
     {
-        var cacheKey = $"{source}|{maxSize}";
-        if (TryGetCached(cacheKey, out var cached))
+        // Cache key includes the source's MediaKind so a path that's
+        // been decoded as an image doesn't collide with a (rare) future
+        // decode of the same path as a video. Source.ToString() (the
+        // path/!entry id) doesn't include the kind tag by design — two
+        // files with the same path and different kinds can't coexist
+        // on a real filesystem, but a thumbnail cache is per-process
+        // and the kind is part of the cache's identity, not the
+        // filesystem's.
+        var cacheKey = $"{source}|{maxSize}|{source.Kind}";
+        if (_thumbnailCache.TryGet(cacheKey, out var cached))
         {
             return cached;
         }
@@ -156,7 +165,7 @@ public class ImageLoader : IImageLoader
             using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
             await bitmapImage.SetSourceAsync(fileStream.AsRandomAccessStream());
 
-            SetCached(cacheKey, bitmapImage);
+            _thumbnailCache.Store(cacheKey, bitmapImage);
             return bitmapImage;
         }
         catch (Exception ex)
@@ -180,7 +189,7 @@ public class ImageLoader : IImageLoader
             using var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
             await bitmapImage.SetSourceAsync(entryStream.AsRandomAccessStream());
 
-            SetCached(cacheKey, bitmapImage);
+            _thumbnailCache.Store(cacheKey, bitmapImage);
             return bitmapImage;
         }
         catch (Exception ex)
@@ -221,47 +230,6 @@ public class ImageLoader : IImageLoader
         {
             Trace.TraceError($"GetImageSizeAsync archive error for {source}: {ex.Message}");
             return null;
-        }
-    }
-
-    private bool TryGetCached(string key, out BitmapImage? image)
-    {
-        lock (_cacheLock)
-        {
-            if (_cacheMap.TryGetValue(key, out var node))
-            {
-                _cacheOrder.Remove(node);
-                _cacheOrder.AddLast(node);
-                image = node.Value.Image;
-                return true;
-            }
-            image = null;
-            return false;
-        }
-    }
-
-    private void SetCached(string key, BitmapImage image)
-    {
-        lock (_cacheLock)
-        {
-            if (_cacheMap.TryGetValue(key, out var existing))
-            {
-                _cacheOrder.Remove(existing);
-                _cacheMap.Remove(key);
-            }
-            else if (_cacheMap.Count >= ThumbnailCacheCapacity)
-            {
-                var oldest = _cacheOrder.First;
-                if (oldest is not null)
-                {
-                    _cacheOrder.RemoveFirst();
-                    _cacheMap.Remove(oldest.Value.Key);
-                }
-            }
-
-            var node = new LinkedListNode<CacheEntry>(new CacheEntry(key, image));
-            _cacheOrder.AddLast(node);
-            _cacheMap[key] = node;
         }
     }
 }

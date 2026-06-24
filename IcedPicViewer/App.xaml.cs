@@ -75,6 +75,13 @@ public partial class App : Application
         services.AddSingleton<IDirectoryScanner, DirectoryScanner>();
         services.AddSingleton<IImageLoader, ImageLoader>();
 
+        // Shared thumbnail LRU. Consumed by both IImageLoader (BitmapDecoder
+        // thumbs) and IVideoMetadataService (FFmpeg first-frame thumbs) so
+        // the 200-cap budget covers both kinds and a path can't be cached
+        // twice under different shapes. Capacity tuning lives in
+        // ThumbnailCache.
+        services.AddSingleton<IThumbnailCache, ThumbnailCache>();
+
         // Video metadata + thumbnail extraction (FFmpeg-backed).
         // Singleton — service holds no per-request state, and the
         // constructor fires the FFmpeg warm-up task (see

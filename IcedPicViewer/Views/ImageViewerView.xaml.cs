@@ -22,7 +22,6 @@ public sealed partial class ImageViewerView : Page
     // state (CurrentImage, CurrentIndex, ...) survives across navigations.
     public ImageViewModel ViewModel { get; }
 
-    private bool _isFitMode = true;
     private double _minimapWidth = 150;
     private double _minimapHeight = 120;
     private Rectangle? _viewportRect;
@@ -100,6 +99,36 @@ public sealed partial class ImageViewerView : Page
             // detach is the whole point.
             Player.SetMediaPlayer(ViewModel.MediaPlayer);
         }
+        else if (e.PropertyName == nameof(ImageViewModel.IsFitMode))
+        {
+            // The video surface (MediaPlayerElement.Stretch + the
+            // wrapping ScrollViewer modes) is x:Bound and updates
+            // automatically. The image surface (FitContainer /
+            // ActualSizeContainer / MinimapOverlay) is visibility-
+            // managed in code because it also has to keep the minimap
+            // in sync — the minimap is only relevant in 1:1 mode and
+            // its viewport rectangle has to be redrawn when the
+            // scrollable area changes size.
+            ApplyImageFitMode(ViewModel.IsFitMode);
+        }
+    }
+
+    private void ApplyImageFitMode(bool isFitMode)
+    {
+        if (isFitMode)
+        {
+            FitContainer.Visibility = Visibility.Visible;
+            ActualSizeContainer.Visibility = Visibility.Collapsed;
+            MinimapOverlay.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            FitContainer.Visibility = Visibility.Collapsed;
+            ActualSizeContainer.Visibility = Visibility.Visible;
+            MinimapOverlay.Visibility = Visibility.Visible;
+            // UpdateMinimap 会在 ActualSizeImage.ImageOpened / ActualSizeContainer.SizeChanged
+            // 事件里被自动触发;此处无需再手动调用,更不应用 Task.Delay 猜布局时机。
+        }
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -139,7 +168,7 @@ public sealed partial class ImageViewerView : Page
 
     private void UpdateMinimapDeferred()
     {
-        if (!_isFitMode)
+        if (!ViewModel.IsFitMode)
         {
             // Defer one dispatcher tick so the new image's layout pass
             // completes before we read ViewportWidth/Offset from the
@@ -152,23 +181,15 @@ public sealed partial class ImageViewerView : Page
 
     private void FitModeBtn_Click(object sender, RoutedEventArgs e)
     {
-        _isFitMode = !_isFitMode;
-        FitModeBtn.Content = _isFitMode ? "Fit" : "1:1";
-
-        if (_isFitMode)
-        {
-            FitContainer.Visibility = Visibility.Visible;
-            ActualSizeContainer.Visibility = Visibility.Collapsed;
-            MinimapOverlay.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            FitContainer.Visibility = Visibility.Collapsed;
-            ActualSizeContainer.Visibility = Visibility.Visible;
-            MinimapOverlay.Visibility = Visibility.Visible;
-            // UpdateMinimap 会在 ActualSizeImage.ImageOpened / ActualSizeContainer.SizeChanged
-            // 事件里被自动触发;此处无需再手动调用,更不应用 Task.Delay 猜布局时机。
-        }
+        // The state now lives on the VM (IsFitMode). Toggling it fires
+        // PropertyChanged, which OnViewModelPropertyChanged translates
+        // into the actual UI mutations: ImageHost swaps FitContainer /
+        // ActualSizeContainer (with minimap), PlayerHost's
+        // MediaPlayerElement.Stretch + ScrollViewer modes update
+        // automatically through x:Bind. The view's only job here is
+        // to flip the state and keep the button label in sync.
+        ViewModel.IsFitMode = !ViewModel.IsFitMode;
+        FitModeBtn.Content = ViewModel.IsFitMode ? "Fit" : "1:1";
     }
 
     private void ActualSizeContainer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
@@ -178,7 +199,7 @@ public sealed partial class ImageViewerView : Page
 
     private void ActualSizeImage_Loaded(object sender, RoutedEventArgs e)
     {
-        if (!_isFitMode)
+        if (!ViewModel.IsFitMode)
         {
             UpdateMinimap();
         }
@@ -186,7 +207,7 @@ public sealed partial class ImageViewerView : Page
 
     private void ActualSizeContainer_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (!_isFitMode)
+        if (!ViewModel.IsFitMode)
         {
             UpdateMinimap();
         }
@@ -194,7 +215,7 @@ public sealed partial class ImageViewerView : Page
 
     private void ActualSizeImage_ImageOpened(object sender, RoutedEventArgs e)
     {
-        if (!_isFitMode)
+        if (!ViewModel.IsFitMode)
         {
             MinimapImage.Source = null;
             UpdateMinimap();

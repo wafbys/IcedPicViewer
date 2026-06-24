@@ -16,7 +16,7 @@ namespace IcedPicViewer.Services.Implementations;
 
 /// <summary>
 /// Production wrapper around FFmpeg.AutoGen for video metadata + first-frame
-/// extraction. Two entry points:
+/// extraction + archive playback. Four entry points:
 ///
 /// <list type="bullet">
 ///   <item><see cref="GetVideoMetadataAsync"/> — opens the container, reads
@@ -28,6 +28,13 @@ namespace IcedPicViewer.Services.Implementations;
 ///         finds the video stream, decodes one frame, scales it down to
 ///         the requested max size, and returns it as a <see cref="BitmapImage"/>
 ///         that can be bound directly in XAML like an image thumbnail.</item>
+///   <item><see cref="GetPlaybackFilePathAsync"/> — returns a file path
+///         that <c>MediaPlayer</c> can read. For loose files this is the
+///         real path; for archive entries it materialises the entry to a
+///         fresh temp file that lives until the caller releases it.</item>
+///   <item><see cref="ReleasePlaybackFilePath"/> — cleans up the temp
+///         file a prior <see cref="GetPlaybackFilePathAsync"/> call
+///         created (no-op for loose files). Idempotent.</item>
 /// </list>
 ///
 /// <para>
@@ -53,26 +60,91 @@ namespace IcedPicViewer.Services.Implementations;
 /// </para>
 ///
 /// <para>
-/// <b>Archive scope:</b> video entries inside archives are not supported
-/// in this release. The scanner only yields videos from loose files,
-/// and the service short-circuits <c>source.IsInArchive</c> to null.
-/// Adding it would require either a temp-file extract (slow, doubles
-/// disk usage) or a custom <c>AVIO</c> read callback over
-/// <c>ArchiveHelper.OpenEntryStream</c>'s MemoryStream (much more
-/// complex; the FileSystemWatcher path also has to deal with the entry
-/// vanishing on archive delete). Deferred.
+/// <b>Archive support:</b> video entries inside archives are handled
+/// by extracting the entry to a fresh temp file in
+/// <c>%LOCALAPPDATA%\IcedPicViewer\TempVideo\</c> for the duration of
+/// the call (or for the duration of playback, in the playback path).
+/// FFmpeg needs a real file path or a custom AVIO context — there's
+/// no built-in way to feed it a SharpCompress MemoryStream short of
+/// the AVIO read callback, which is significantly more code. Temp
+/// files are tracked in <see cref="_playbackTempFiles"/> and deleted
+/// by <see cref="ReleasePlaybackFilePath"/> or the service's final
+/// cleanup in <see cref="Dispose"/>. Disk cost is the entry's
+/// decompressed size; for typical 1080p H.264 this is 1-3 GB during
+/// playback. The service also cleans up any stray files left in the
+/// temp dir at construction time (handles a previous unclean
+/// shutdown).
 /// </para>
 /// </summary>
-public sealed class VideoMetadataService : IVideoMetadataService
+public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
 {
     // 0 = not warmed up, 1 = warm-up task scheduled. Set via Interlocked
     // so the first instance to run EnsureWarmedUp schedules the work and
     // any later instances short-circuit.
     private static int _warmedUp;
 
-    public VideoMetadataService()
+    // Shared with IImageLoader so a video thumb and an image thumb with
+    // the same path don't collide (cache key includes MediaKind), and so
+    // a 200-cap LRU doesn't get dominated by whichever kind the user
+    // opens first.
+    private readonly IThumbnailCache _thumbnailCache;
+
+    // Temp files we've created for archive playback paths. The list is
+    // mutated on the UI thread (PlayAsync / ReleasePlaybackFilePath) and
+    // walked on the UI thread + the service's Dispose, so no lock is
+    // strictly needed; the lock is defensive in case a future async
+    // path lets two threads race on the same archive video.
+    private readonly List<string> _playbackTempFiles = new();
+    private readonly object _tempLock = new();
+
+    // %LOCALAPPDATA%\IcedPicViewer\TempVideo\ — created on first use,
+    // cleaned (files deleted) at construction + Dispose.
+    private readonly string _tempDir;
+
+    public VideoMetadataService(IThumbnailCache thumbnailCache)
     {
+        _thumbnailCache = thumbnailCache;
+        _tempDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IcedPicViewer",
+            "TempVideo");
+        Directory.CreateDirectory(_tempDir);
+
+        // Sweep any stale temp files from a previous (possibly crashed)
+        // process. Better to lose a couple of MB of old video data than
+        // to leave hundreds of GB lying around for months. Each file is
+        // deleted in isolation — a locked file (FFmpeg dll still has a
+        // handle) just stays put until next launch.
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(_tempDir, "ipv-video-*"))
+            {
+                try { File.Delete(file); }
+                catch (Exception ex) { Trace.TraceWarning($"VideoMetadataService: stale temp file cleanup failed for {file}: {ex.Message}"); }
+            }
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"VideoMetadataService: temp dir enumeration failed: {ex.Message}");
+        }
+
         EnsureWarmedUp();
+    }
+
+    public void Dispose()
+    {
+        // Best-effort cleanup of any temp files the caller forgot to
+        // release. Same isolation as the ctor sweep — one locked file
+        // doesn't block the others.
+        lock (_tempLock)
+        {
+            foreach (var file in _playbackTempFiles)
+            {
+                try { if (File.Exists(file)) File.Delete(file); }
+                catch (Exception ex) { Trace.TraceWarning($"VideoMetadataService.Dispose: failed to delete {file}: {ex.Message}"); }
+            }
+            _playbackTempFiles.Clear();
+        }
     }
 
     /// <summary>
@@ -109,40 +181,104 @@ public sealed class VideoMetadataService : IVideoMetadataService
         });
     }
 
-    public Task<VideoMetadata?> GetVideoMetadataAsync(ImageSource source, CancellationToken ct = default)
+    public async Task<VideoMetadata?> GetVideoMetadataAsync(ImageSource source, CancellationToken ct = default)
     {
         if (source.IsInArchive)
         {
-            // Out of scope for this release — see class doc.
-            return Task.FromResult<VideoMetadata?>(null);
+            // Extract to a temp file, then run the metadata read on
+            // that. The temp file is untracked — we delete it ourselves
+            // after the read, regardless of outcome (success or
+            // failure). Playback uses a different, longer-lived path.
+            var tempPath = CreateTempFilePathForSource(source);
+            try
+            {
+                await Task.Run(() => ArchiveHelper.ExtractEntryToFile(source.Path, source.ArchiveEntry!, tempPath), ct);
+                if (ct.IsCancellationRequested) return null;
+                if (!File.Exists(tempPath)) return null;
+                return await Task.Run(() => GetMetadataFromFile(tempPath, ct), ct);
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"VideoMetadataService.GetVideoMetadataAsync archive error for {source}: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
+            finally
+            {
+                TryDeleteTempFileUntracked(tempPath);
+            }
         }
         if (!File.Exists(source.Path))
         {
-            return Task.FromResult<VideoMetadata?>(null);
+            return null;
         }
-        return Task.Run(() => GetMetadataFromFile(source.Path, ct), ct);
+        return await Task.Run(() => GetMetadataFromFile(source.Path, ct), ct);
     }
 
     public async Task<BitmapImage?> ExtractVideoThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default)
     {
-        if (source.IsInArchive)
-        {
-            return null;
-        }
-        if (!File.Exists(source.Path))
-        {
-            return null;
-        }
         if (maxSize < 1)
         {
             return null;
         }
 
-        // 1. Decode + scale on a worker thread. FFmpeg P/Invoke is sync
-        //    and CPU-bound; running it inline would block the UI thread
-        //    for the entire decode.
-        var (bgra, width, height) = await Task.Run(() => ExtractAndScaleFrame(source.Path, maxSize, ct), ct);
-        if (bgra is null)
+        // Cache key shape matches IImageLoader (path|size|kind) so the
+        // shared LRU is one cache, not two parallel ones. We look this
+        // up BEFORE doing any file work — a hit on an archive source
+        // skips the temp-file extract entirely, and the same thumbnail
+        // gets reused across gallery scrolls even though the underlying
+        // extraction is expensive.
+        var cacheKey = $"{source}|{maxSize}|{source.Kind}";
+        if (_thumbnailCache.TryGet(cacheKey, out var cached))
+        {
+            return cached;
+        }
+
+        if (source.IsInArchive)
+        {
+            // Same extract→decode→delete shape as the metadata path.
+            // The temp file is untracked; it's gone before this
+            // method returns. The decoded bitmap lives on as a
+            // BitmapImage (which is what the gallery binds to), and
+            // its source on disk doesn't need to exist past the
+            // decode — the BitmapImage's pixel buffer is in managed
+            // memory by the time we return.
+            var tempPath = CreateTempFilePathForSource(source);
+            try
+            {
+                await Task.Run(() => ArchiveHelper.ExtractEntryToFile(source.Path, source.ArchiveEntry!, tempPath), ct);
+                if (ct.IsCancellationRequested) return null;
+                if (!File.Exists(tempPath)) return null;
+                var (bgra, width, height) = await Task.Run(() => ExtractAndScaleFrame(tempPath, maxSize, ct), ct);
+                if (bgra is null) return null;
+                if (ct.IsCancellationRequested) return null;
+                var bitmapImage = await BgraToBitmapImageAsync(bgra, width, height, ct);
+                if (bitmapImage != null)
+                {
+                    _thumbnailCache.Store(cacheKey, bitmapImage);
+                }
+                return bitmapImage;
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"VideoMetadataService.ExtractVideoThumbnailAsync archive error for {source}: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
+            finally
+            {
+                TryDeleteTempFileUntracked(tempPath);
+            }
+        }
+
+        if (!File.Exists(source.Path))
+        {
+            return null;
+        }
+
+        // Loose file: decode + scale on a worker thread. FFmpeg
+        // P/Invoke is sync and CPU-bound; running it inline would
+        // block the UI thread for the entire decode.
+        var (bgra2, width2, height2) = await Task.Run(() => ExtractAndScaleFrame(source.Path, maxSize, ct), ct);
+        if (bgra2 is null)
         {
             return null;
         }
@@ -151,11 +287,128 @@ public sealed class VideoMetadataService : IVideoMetadataService
             return null;
         }
 
-        // 2. Convert BGRA8 → BitmapImage. Runs on the calling thread
-        //    (UI thread for the gallery path). BitmapEncoder /
-        //    BitmapImage are safe here and need the dispatcher's STA
-        //    affinity for property access in the XAML layer.
-        return await BgraToBitmapImageAsync(bgra, width, height, ct);
+        // Convert BGRA8 → BitmapImage. Runs on the calling thread
+        // (UI thread for the gallery path). BitmapEncoder /
+        // BitmapImage are safe here and need the dispatcher's STA
+        // affinity for property access in the XAML layer.
+        var bitmapImage2 = await BgraToBitmapImageAsync(bgra2, width2, height2, ct);
+        if (bitmapImage2 != null)
+        {
+            _thumbnailCache.Store(cacheKey, bitmapImage2);
+        }
+        return bitmapImage2;
+    }
+
+    public async Task<string> GetPlaybackFilePathAsync(ImageSource source, CancellationToken ct = default)
+    {
+        if (!source.IsInArchive)
+        {
+            // Loose file: the user already paid for the disk
+            // allocation; we just hand the path back. No temp
+            // extraction, no tracking — the file lives as long as
+            // the user keeps it on disk.
+            return source.Path;
+        }
+
+        // Archive entry: extract to a fresh temp file, add to the
+        // tracked list, and return the path. The file lives until
+        // the caller invokes ReleasePlaybackFilePath (or the
+        // service's Dispose on app shutdown). We pick the extension
+        // from the entry key because FFmpeg's container detector
+        // uses it as a hint, and on cleanup we want to be able to
+        // tell at a glance which file is which.
+        var tempPath = CreateTempFilePathForSource(source);
+        ct.ThrowIfCancellationRequested();
+        await Task.Run(() => ArchiveHelper.ExtractEntryToFile(source.Path, source.ArchiveEntry!, tempPath), ct);
+        if (!File.Exists(tempPath))
+        {
+            // Extraction silently failed (corrupt entry, I/O
+            // error, ...). Don't track a non-existent path.
+            throw new FileNotFoundException($"Failed to extract archive entry to {tempPath}", tempPath);
+        }
+        lock (_tempLock)
+        {
+            _playbackTempFiles.Add(tempPath);
+        }
+        return tempPath;
+    }
+
+    public void ReleasePlaybackFilePath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+
+        // Loose files come back to us as their real on-disk path;
+        // those are not ours to delete. Only paths we explicitly
+        // tracked from GetPlaybackFilePathAsync are removed. The
+        // tracked-list membership check is what makes this safe to
+        // call on a path the caller obtained from somewhere else.
+        bool isTracked;
+        lock (_tempLock)
+        {
+            isTracked = _playbackTempFiles.Remove(path);
+        }
+        if (!isTracked)
+        {
+            // Not one of our temp files. Either a loose-file path
+            // (no-op) or a stale path from a previous process (the
+            // ctor sweep should have caught it, but if it didn't,
+            // we'd rather leave a stray file than delete a file the
+            // user owns).
+            return;
+        }
+
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Stale file locks, AV scanning, etc. The next
+            // launch's ctor sweep will catch it.
+            Trace.TraceWarning($"VideoMetadataService.ReleasePlaybackFilePath: failed to delete {path}: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Build a unique temp file path for an archive source. The
+    /// "ipv-video-" prefix lets the ctor sweep (and any operator
+    /// looking at the temp dir) identify our files at a glance. The
+    /// extension comes from the entry key so FFmpeg's container
+    /// detector has a hint; for archive entries that have no
+    /// extension (rare, but possible) we fall back to ".bin" which
+    /// FFmpeg will still try to parse via the file's magic bytes.
+    /// </summary>
+    private string CreateTempFilePathForSource(ImageSource source)
+    {
+        var ext = source.IsInArchive
+            ? Path.GetExtension(source.ArchiveEntry ?? string.Empty)
+            : Path.GetExtension(source.Path);
+        if (string.IsNullOrEmpty(ext)) ext = ".bin";
+        return Path.Combine(_tempDir, $"ipv-video-{Guid.NewGuid():N}{ext}");
+    }
+
+    /// <summary>
+    /// Delete a temp file we just used and no longer need — a
+    /// "we own this, but we don't keep a long-term reference"
+    /// variant of <see cref="ReleasePlaybackFilePath"/>. Used by
+    /// the metadata + thumbnail paths which extract to temp, decode,
+    /// and discard in a single call. Idempotent; a missing file is
+    /// not an error.
+    /// </summary>
+    private static void TryDeleteTempFileUntracked(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"VideoMetadataService: failed to delete temp file {path}: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     // -----------------------------------------------------------------

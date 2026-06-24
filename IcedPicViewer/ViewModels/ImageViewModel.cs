@@ -21,10 +21,12 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 {
     private readonly GalleryViewModel _galleryViewModel;
     private readonly IImageLoader _imageLoader;
+    private readonly IVideoMetadataService _videoMetadataService;
     private readonly INavigationService _navigationService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource? _loadCts;
     private MediaPlayer? _mediaPlayer;
+    private string? _currentPlaybackPath;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
@@ -34,6 +36,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ImageHostVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerHostVisibility))]
     [NotifyPropertyChangedFor(nameof(IsPlayOverlayVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerElementVisibility))]
     [NotifyPropertyChangedFor(nameof(FitModeBtnVisibility))]
     [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
     public partial MediaItem? CurrentImage { get; set; }
@@ -90,8 +93,26 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PlayerHostVisibility))]
     [NotifyPropertyChangedFor(nameof(IsPlayOverlayVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerElementVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerStretch))]
+    [NotifyPropertyChangedFor(nameof(PlayerScrollMode))]
     [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
     public partial bool IsVideoPlaying { get; set; }
+
+    /// <summary>
+    /// Fit-mode toggle, shared between the image and video surfaces. The
+    /// view binds each surface to its own visibility / Stretch / ScrollMode
+    /// based on this flag plus <see cref="IsVideo"/>. True = fit-to-view
+    /// (current default), false = 1:1 native resolution. For images
+    /// this swaps between the existing Viewbox and the ScrollViewer-with-
+    /// minimap; for videos it swaps between MediaPlayerElement.Stretch=
+    /// Uniform and Stretch=None inside a ScrollViewer (1:1 = scrollable
+    /// native resolution).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PlayerStretch))]
+    [NotifyPropertyChangedFor(nameof(PlayerScrollMode))]
+    public partial bool IsFitMode { get; set; } = true;
 
     /// <summary>
     /// The active <see cref="MediaPlayer"/> for video playback, or null
@@ -119,7 +140,42 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     public Visibility IsPlayOverlayVisibility => IsVideo && !IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>
+    /// The MediaPlayerElement is hidden until a <see cref="MediaPlayer"/>
+    /// is actually attached. With no player attached, the element
+    /// would still lay out and its built-in transport controls would
+    /// render in a "no media" state — opaque, on top of the
+    /// <see cref="IsPlayOverlayVisibility"/> button, so clicking the
+    /// ▶ button hits the dead player surface instead. Collapsing the
+    /// element while there's no player lets pointer events reach the
+    /// overlay button, and re-shows the element only after
+    /// <see cref="PlayAsync"/> has created a live <see cref="MediaPlayer"/>
+    /// (so the transport controls are actually functional).
+    /// </summary>
+    public Visibility PlayerElementVisibility => IsVideo && IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
+
     public Visibility FitModeBtnVisibility => !IsVideo ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// <see cref="MediaPlayerElement.Stretch"/> binding for the video
+    /// surface. Fit mode = Uniform (scale to fit the viewport); 1:1
+    /// mode = None (native resolution, scrollable via
+    /// <see cref="PlayerScrollMode"/>).
+    /// </summary>
+    public Microsoft.UI.Xaml.Media.Stretch PlayerStretch =>
+        IsFitMode ? Microsoft.UI.Xaml.Media.Stretch.Uniform : Microsoft.UI.Xaml.Media.Stretch.None;
+
+    /// <summary>
+    /// <see cref="Microsoft.UI.Xaml.Controls.ScrollViewer"/>'s scroll
+    /// mode for the video surface. Disabled in Fit mode (no point
+    /// scrolling when the player is already scaled to fit); enabled
+    /// in 1:1 mode so the user can scroll past the viewport edges to
+    /// see the full native-resolution frame.
+    /// </summary>
+    public Microsoft.UI.Xaml.Controls.ScrollMode PlayerScrollMode =>
+        IsFitMode
+            ? Microsoft.UI.Xaml.Controls.ScrollMode.Disabled
+            : Microsoft.UI.Xaml.Controls.ScrollMode.Enabled;
 
     [RelayCommand(CanExecute = nameof(CanPlay))]
     private async Task PlayAsync()
@@ -127,8 +183,16 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         if (CurrentImage is not VideoItem video) return;
         if (_mediaPlayer != null) return;
 
+        string? playbackPath = null;
         try
         {
+            // Get a file path MediaPlayer can read. For loose files this
+            // is just source.Path; for archive entries the service
+            // extracts to a tracked temp file. The temp file must be
+            // released via _videoMetadataService.ReleasePlaybackFilePath
+            // when playback ends — StopAndDisposePlayer does that.
+            playbackPath = await _videoMetadataService.GetPlaybackFilePathAsync(video.Source);
+
             // StorageFile is the supported handle for CreateFromStorageFile
             // in MSIX packaged apps. GetFileFromPathAsync works for any path
             // the process can read (it has already read the same file via
@@ -136,7 +200,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // guaranteed). A bare `new Uri(path)` / MediaSource.CreateFromUri
             // would be simpler but hits the file:// sandbox restrictions in
             // some packaged-app configurations.
-            var file = await StorageFile.GetFileFromPathAsync(video.Source.Path);
+            var file = await StorageFile.GetFileFromPathAsync(playbackPath);
             var source = MediaSource.CreateFromStorageFile(file);
 
             var player = new MediaPlayer();
@@ -148,6 +212,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // rendering into the surface even when collapsed) but feels
             // less responsive on slow first frames.
             MediaPlayer = player;
+            _currentPlaybackPath = playbackPath;
             IsVideoPlaying = true;
             player.Play();
         }
@@ -158,6 +223,16 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // throw — the play overlay stays visible and CanPlay stays true.
             IsVideoPlaying = false;
             MediaPlayer = null;
+            // If we successfully created a temp file before the
+            // MediaPlayer construction failed, release it so we don't
+            // leak the extract. If the failure was before
+            // GetPlaybackFilePathAsync returned a path, playbackPath
+            // is still null and the call below is a no-op.
+            if (playbackPath != null)
+            {
+                _videoMetadataService.ReleasePlaybackFilePath(playbackPath);
+                _currentPlaybackPath = null;
+            }
         }
     }
 
@@ -173,29 +248,54 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     private void StopAndDisposePlayer()
     {
         var oldPlayer = MediaPlayer;
+        var oldPath = _currentPlaybackPath;
         MediaPlayer = null;
+        _currentPlaybackPath = null;
         IsVideoPlaying = false;
-        if (oldPlayer is null) return;
+        if (oldPlayer is null && oldPath is null) return;
 
-        try
+        if (oldPlayer is not null)
         {
-            oldPlayer.Pause();
-            // Drop the MediaSource before Dispose so the source's underlying
-            // file handle is released before the player tears down its
-            // render pipeline. Order matters: Source = null on a still-
-            // playing player can race with Dispose; pausing first makes the
-            // release sequence deterministic.
-            oldPlayer.Source = null;
-            // The WinRT MediaPlayer implements IDisposable (not Close) in
-            // the Windows.Media.Playback contract exposed to .NET — Dispose
-            // walks the same teardown path as the UWP Close() sequence.
-            oldPlayer.Dispose();
+            try
+            {
+                oldPlayer.Pause();
+                // Drop the MediaSource before Dispose so the source's underlying
+                // file handle is released before the player tears down its
+                // render pipeline. Order matters: Source = null on a still-
+                // playing player can race with Dispose; pausing first makes the
+                // release sequence deterministic.
+                oldPlayer.Source = null;
+                // The WinRT MediaPlayer implements IDisposable (not Close) in
+                // the Windows.Media.Playback contract exposed to .NET — Dispose
+                // walks the same teardown path as the UWP Close() sequence.
+                oldPlayer.Dispose();
+            }
+            catch (Exception ex)
+            {
+                // Best-effort cleanup. A leaked native handle here is much
+                // less bad than a crash in the disposal path.
+                Trace.TraceError($"ImageViewModel.StopAndDisposePlayer error: {ex.GetType().Name}: {ex.Message}");
+            }
         }
-        catch (Exception ex)
+
+        // Release the temp file the service allocated for archive
+        // playback. For loose files the path IS the user's real file
+        // and ReleasePlaybackFilePath is a no-op on it. Always
+        // unconditional: the VM may have been constructed before
+        // _videoMetadataService was wired (e.g. during static init),
+        // but the only path that goes through the dependency
+        // injection is the constructor above, so by the time
+        // playback ever happens _videoMetadataService is non-null.
+        if (oldPath is not null)
         {
-            // Best-effort cleanup. A leaked native handle here is much
-            // less bad than a crash in the disposal path.
-            Trace.TraceError($"ImageViewModel.StopAndDisposePlayer error: {ex.GetType().Name}: {ex.Message}");
+            try
+            {
+                _videoMetadataService.ReleasePlaybackFilePath(oldPath);
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"ImageViewModel.StopAndDisposePlayer: release playback path error: {ex.GetType().Name}: {ex.Message}");
+            }
         }
     }
 
@@ -246,10 +346,11 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
     }
 
-    public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, INavigationService navigationService)
+    public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, IVideoMetadataService videoMetadataService, INavigationService navigationService)
     {
         _galleryViewModel = galleryViewModel;
         _imageLoader = imageLoader;
+        _videoMetadataService = videoMetadataService;
         _navigationService = navigationService;
 
         // Named handlers (not lambdas) so Dispose can unsubscribe — avoids lambda
