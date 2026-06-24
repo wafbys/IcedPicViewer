@@ -417,6 +417,94 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     public Visibility IsPlayOverlayVisibility => IsVideo && !IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
+    /// Visibility for the bottom pre-playback control strip (▶ + filename
+    /// + duration + volume slider). Visible only when the current item
+    /// is a video AND playback hasn't started yet — once playback starts
+    /// the MediaPlayerElement's own built-in transport controls take over
+    /// (in Fit mode) or the 1:1 mode custom strip takes over (when the
+    /// user has toggled to native resolution). Showing both at once would
+    /// duplicate the chrome and look messy.
+    ///
+    /// The center Play button (IsPlayOverlayVisibility) is shown in
+    /// parallel with this strip — different elements, same gating intent
+    /// ("we have a video ready to play, no player yet"). The center
+    /// button is the primary entry point; the strip is a secondary
+    /// surface for adjusting volume / seeing filename + duration before
+    /// committing to playback.
+    /// </summary>
+    public Visibility PrePlayStripVisibility => IsVideo && !IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// The current MediaPlayer volume, on the [0.0, 1.0] scale that
+    /// <see cref="MediaPlayer.Volume"/> uses internally. Bound by the
+    /// pre-playback strip's volume Slider and pushed into
+    /// <see cref="MediaPlayer.Volume"/> at construction time in
+    /// <see cref="PlayAsync"/>.
+    ///
+    /// <para>
+    /// Why this lives on the VM rather than directly on the player:
+    /// <see cref="MediaPlayer"/> only exists between Play() and
+    /// StopAndDisposePlayer(), but the user expects to see and adjust
+    /// volume before pressing play. Persisting this value across
+    /// sessions (see ISettingsService) means the user picks 50% once,
+    /// closes the app, reopens the same .mov — volume stays at 50%.
+    /// </para>
+    ///
+    /// <para>
+    /// The set range mirrors MediaPlayer.Volume's contract: values
+    /// outside [0.0, 1.0] are clamped to that range so a stuck-key
+    /// slider never produces a silent video (< 0) or a "loud enough
+    /// to clip the DAC" overdrive (> 1).
+    /// </para>
+    /// </summary>
+    [ObservableProperty]
+    public partial double Volume { get; set; } = 1.0;
+
+    partial void OnVolumeChanged(double value)
+    {
+        // Live-update an active player so the user hears the change
+        // immediately when adjusting the slider mid-playback. The
+        // pre-play strip hides once playback starts, but this still
+        // fires if Volume is changed from anywhere else (settings
+        // load, programmatic reset). The null check is critical —
+        // setting Volume on a disposed player throws.
+        if (_mediaPlayer is not null)
+        {
+            try
+            {
+                _mediaPlayer.Volume = Math.Clamp(value, 0.0, 1.0);
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning($"ImageViewModel.OnVolumeChanged: failed to push to MediaPlayer: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// "0:42" / "1:23:45" formatted duration for the pre-playback strip.
+    /// Empty when the current item isn't a video, so binding it directly
+    /// to a TextBlock produces "—" naturally for images.
+    /// </summary>
+    public string PrePlayDurationText =>
+        CurrentImage is VideoItem v && v.Duration > TimeSpan.Zero
+            ? FormatDuration(v.Duration)
+            : string.Empty;
+
+    private static string FormatDuration(TimeSpan d)
+    {
+        // hh:mm:ss only when ≥ 1 hour; mm:ss otherwise. Matches the
+        // format the existing PlayerControlsStrip uses (it has the same
+        // helper inline) — duplicated here rather than shared because
+        // the PlayerControlsStrip version is private to its file.
+        if (d.TotalHours >= 1.0)
+        {
+            return $"{(int)d.TotalHours}:{d.Minutes:00}:{d.Seconds:00}";
+        }
+        return $"{(int)d.TotalMinutes}:{d.Seconds:00}";
+    }
+
+    /// <summary>
     /// Visibility for the Grid that hosts the MediaPlayerElement in
     /// Fit mode. Collapsed when not a video, in 1:1 mode (the
     /// ScrollViewer host takes over), or not yet playing (the
@@ -490,6 +578,14 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             var source = MediaSource.CreateFromStorageFile(file);
 
             var player = new MediaPlayer();
+            // Push the user-configured volume in BEFORE Source / Play()
+            // so the very first decoded frame already plays at the
+            // user's level — MediaPlayer defaults to 1.0 (100%) on
+            // construction. OnVolumeChanged handles live updates while
+            // playback is active, but the initial set has to happen here
+            // explicitly because the player didn't exist when the user
+            // last dragged the slider.
+            player.Volume = Math.Clamp(Volume, 0.0, 1.0);
             player.Source = source;
             // Subscribe before SetSource so we don't miss a fast-failing
             // decode (e.g. unsupported codec → MediaFailed fires within
