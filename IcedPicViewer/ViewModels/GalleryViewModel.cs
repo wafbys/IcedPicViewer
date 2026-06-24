@@ -62,7 +62,18 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     // this list, so guard it with _remainingLock to avoid race conditions.
     private readonly object _remainingLock = new();
     private List<ImageSource> _remainingFilePaths = new();
-    private const int PageSize = 150;
+    // Page size for user-triggered Load More (button click OR auto-load
+    // when scrolling near the bottom). Each source is added to Images
+    // individually, so PageSize items ≈ PageSize MasonryPanel layout
+    // passes — at 200 that's ~75 ms on a typical machine, well under
+    // the user's "feels sluggish" threshold. Going to 300 would push
+    // that toward 150 ms and make aggressive scrolling visibly stutter;
+    // 200 is the sweet spot for "fewer Load More clicks" without
+    // paying a perceptible per-click cost. ScanPageSize stays at 30
+    // because the scan-time drain is the steady-state path that
+    // happens automatically while the scanner is running — see
+    // DrainPageFillAsync.
+    private const int PageSize = 200;
 
     // The scanner yields sources one at a time on a worker thread. We
     // batch up to ScanBatchSize items before dispatching to the UI thread
@@ -166,12 +177,14 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Interval the viewer's slideshow waits between auto-advances.
-    /// Read by the gallery's Slideshow button (which calls
-    /// <c>ImageViewModel.StartSlideshow</c>) and by the viewer's own
-    /// button so both surfaces stay in sync.
+    /// Interval the viewer's slideshow waits between auto-advances,
+    /// in seconds. Stored as <c>double</c> so the gallery's
+    /// (future) slider and the viewer's slider share the same
+    /// type. Mirrored to <c>ImageViewModel.SlideshowInterval</c> at
+    /// gallery's Slideshow-button click time — the viewer's own
+    /// slider writes directly to the ImageViewModel.
     /// </summary>
-    public TimeSpan SlideshowInterval { get; set; } = TimeSpan.FromSeconds(5);
+    public double SlideshowInterval { get; set; } = 5.0;
 
     public ObservableCollection<MediaItem> Images { get; } = new();
 
@@ -851,9 +864,24 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private void UpdateStatusText()
     {
         var loaded = Images.Count;
-        string baseText = (TotalCount > 0 && TotalCount != loaded)
+        // Video count out of the loaded set. We don't have a separate
+        // VideoTotalCount because the scanner reports a single combined
+        // discovered count (extensions are filtered per-source as we go,
+        // not pre-bucketed into image-vs-video totals). Showing only
+        // "N videos loaded" — without a total denominator — is the
+        // honest version. A user scanning for "how many videos are in
+        // this folder" can read the number once Load More has caught
+        // up to the scanner's progress.
+        var videos = loaded > 0 ? Images.Count(i => i.IsVideo) : 0;
+        var imageText = (TotalCount > 0 && TotalCount != loaded)
             ? $"Loaded {loaded} / {TotalCount} images"
             : $"Loaded {loaded} images";
+        // Append the video count only when non-zero — a pure-photo
+        // folder shouldn't grow the status text with a ", 0 videos"
+        // suffix.
+        string baseText = videos > 0
+            ? $"{imageText}, {videos} videos"
+            : imageText;
 
         if (_scanErrors.Count == 0)
         {
