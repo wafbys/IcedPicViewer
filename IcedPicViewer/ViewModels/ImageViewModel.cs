@@ -240,7 +240,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         return timer;
     }
 
-    private void OnSlideshowTick(DispatcherQueueTimer sender, object args)
+    private async void OnSlideshowTick(DispatcherQueueTimer sender, object args)
     {
         if (Images.Count == 0) return;
 
@@ -276,14 +276,23 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             var nextIdx = _shuffleQueue.Dequeue();
             _lastShuffleIndex = nextIdx;
             CurrentIndex = nextIdx;
+            // Direct CurrentIndex set bypasses NavigateNextCommand,
+            // which is the path that calls ShowCurrentImageAsync and
+            // populates DisplayImage for the view. Without this
+            // explicit call, the index updates in the UI (DisplayIndex
+            // + NavigationChanged) but the bitmap doesn't refresh —
+            // the viewer keeps showing the previous image.
+            await ShowCurrentImageAsync();
         }
         else if (IsSlideshowLooping && CurrentIndex >= Images.Count - 1)
         {
             // Loop semantics: wrap to the first image rather than
             // calling NavigateNext (which would short-circuit at
-            // the end via CanNavigateNext). Direct property set is
-            // the cleanest way to express "jump to first".
+            // the end via CanNavigateNext). Same caveat as the shuffle
+            // branch: direct CurrentIndex set means we have to drive
+            // ShowCurrentImageAsync ourselves.
             CurrentIndex = 0;
+            await ShowCurrentImageAsync();
         }
         else
         {
