@@ -465,7 +465,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // Wait for the scan-time page fill and any user-triggered
             // "Load More" to settle before declaring Completed. We do NOT
             // require _remainingFilePaths to be empty here — the hybrid
-            // mode (边扫边灌到 150 张停) leaves the rest of the queue
+            // mode (边扫边灌到 200 张停) leaves the rest of the queue
             // untouched for the user to pull manually. If the scan is
             // still in flight we are also fine to declare Completed: the
             // user has a full first page and a working Load More button.
@@ -567,10 +567,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// <c>LoadMoreAsync</c> and observed by the "Load More" button.
     ///
     /// We also gate the start on <c>Images.Count &lt; PageSize</c>: the
-    /// auto-fill only ever fills the first page (150 items by default).
+    /// auto-fill only ever fills the first page (200 items by default).
     /// Past that, the user pulls more manually via "Load More". This
-    /// restores the classic "first 150 + Load More" control feel that the
-    /// "边扫边灌到 150 张停" hybrid mode is built around — without it the
+    /// restores the classic "first 200 + Load More" control feel that the
+    /// "边扫边灌到 200 张停" hybrid mode is built around — without it the
     /// drain would auto-inject items into the gallery for the entire scan
     /// and the user would never get a moment of stillness to look at what
     /// they have. The scanner keeps running in the background and

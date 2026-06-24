@@ -233,7 +233,7 @@ v0.14.6 留了几件问题需要收尾:
 1. **F11 "假全屏"**: `AppWindow.SetPresenter(FullScreen)` 只藏 OS title bar,gallery 的 header (Open/Refresh/Slideshow/About) + status bar (Scan progress / Load More) 仍然显示,viewer 的图片盖住顶部 CommandBar — 视觉上是 "3 道 chrome 还在"。
 2. **viewer CommandBar 浮动显示会挤图片**:v0.14.6 用 `CommandBarRowHeight` (GridLength 48↔0) 让 row 伸缩,hover 上去时 row 从 0 变 48,**图片被往下挤**。row 伸缩方案 UX 不友好。
 3. **`App.MainWindow` 在 GalleryView ctor 期间是 null**:F11 / button click 触发 PropertyChanged 但 GalleryView 的 `if (App.MainWindow is not null)` 整块订阅静默跳过,chrome 永远不动。
-4. **Load More 需要频繁点击**:PageSize=150 + threshold=200px,拖动滚动到底部时还有 ~1.5 个 viewport 才触发,体验断档。
+4. **Load More 需要频繁点击**:PageSize=150(每点一次灌 150 张)+ threshold=200px(滚到距底 200px 才触发 auto-load),实际体感是 "拖到底部还要 ~1.5 个 viewport 才看到下一批",频繁点 Load More 按钮打断翻图节奏。
 5. **状态栏不显示视频数**:"Loaded 16 images" 没区分照片 / 视频,从根目录扫混合文件夹时无法一眼看出视频数量。
 
 ### 改动
