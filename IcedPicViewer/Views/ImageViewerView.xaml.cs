@@ -15,7 +15,7 @@ using Windows.Media.Playback;
 
 namespace IcedPicViewer.Views;
 
-public sealed partial class ImageViewerView : Page
+public sealed partial class ImageViewerView : Page, System.ComponentModel.INotifyPropertyChanged
 {
     // Exposed for x:Bind in the page-level markup. Constructor-assigned so
     // it's safe to read in OnLoaded (which fires after the ctor). DI gives
@@ -26,6 +26,29 @@ public sealed partial class ImageViewerView : Page
     private double _minimapWidth = 150;
     private double _minimapHeight = 120;
     private Rectangle? _viewportRect;
+
+    // Fullscreen button bindings. Read from App.MainWindow.IsFullscreen
+    // (which is itself a thin wrapper over AppWindow.Presenter.Kind) so
+    // the button glyph/label/tooltip reflect whatever the user did last
+    // — button click, F11, or anything else that toggles the presenter.
+    //
+    // IsFullscreen MUST stay an instance property: x:Bind compiles to
+    // an instance-member access on the page root, not a static call.
+    // CA1822 thinks the property is static-able because the body
+    // doesn't touch any instance state, but suppressing the warning
+    // is the correct call here — the page's x:Bind contract
+    // requires the instance form. The static helper below is the
+    // actual reader; the instance property is the XAML binding
+    // surface.
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; reading is delegated to the static helper below.")]
+    public bool IsFullscreen => IsFullscreenStatic();
+    public string IsFullscreenGlyph => IsFullscreen ? "\uE93C" : "\uE827"; // BackToWindow / FullScreen
+    public string IsFullscreenLabel => IsFullscreen ? "Exit Fullscreen" : "Fullscreen";
+    public string IsFullscreenTooltip => IsFullscreen
+        ? "Exit fullscreen (F11)"
+        : "Fullscreen (F11)";
+
+    private static bool IsFullscreenStatic() => App.MainWindow?.IsFullscreen ?? false;
 
     /// <summary>
     /// Centered play button on the static first frame. The handler
@@ -38,6 +61,56 @@ public sealed partial class ImageViewerView : Page
         if (ViewModel.PlayCommand.CanExecute(null))
         {
             ViewModel.PlayCommand.Execute(null);
+        }
+    }
+
+    /// <summary>
+    /// Fullscreen toggle. Delegates to the MainWindow's
+    /// <c>ToggleFullscreen</c> method (which swaps the AppWindow
+    /// presenter) and the bound IsFullscreen property drives the
+    /// button's glyph / label / tooltip update. Click handler
+    /// rather than Command because the toggle mutates a
+    /// window-level state that the VM has no business knowing
+    /// about (the VM is gallery / viewer-scoped, the window is
+    /// app-scoped).
+    /// </summary>
+    private void FullscreenBtn_Click(object sender, RoutedEventArgs e)
+    {
+        App.MainWindow?.ToggleFullscreen();
+    }
+
+    private void SlideshowLoopBtn_Click(object sender, RoutedEventArgs e)
+    {
+        // Toggle the loop flag directly. The next OnSlideshowTick
+        // reads IsSlideshowLooping so the change is live — no need
+        // to restart the slideshow.
+        ViewModel.IsSlideshowLooping = !ViewModel.IsSlideshowLooping;
+    }
+
+    private void SlideshowShuffleBtn_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.IsSlideshowShuffling = !ViewModel.IsSlideshowShuffling;
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged(string propertyName)
+        => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
+
+    private void OnMainWindowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindow.IsFullscreen))
+        {
+            // Re-raise the IsFullscreen-derived properties so the
+            // button's glyph/label/tooltip follow F11 toggles
+            // (which route through MainWindow.HandleViewerKey and
+            // never call our click handler). Without this, the
+            // x:Bind OneWay would freeze on the first-render value
+            // and the button would lie about the window state.
+            OnPropertyChanged(nameof(IsFullscreen));
+            OnPropertyChanged(nameof(IsFullscreenGlyph));
+            OnPropertyChanged(nameof(IsFullscreenLabel));
+            OnPropertyChanged(nameof(IsFullscreenTooltip));
         }
     }
 
@@ -80,6 +153,17 @@ public sealed partial class ImageViewerView : Page
         // navigate away" path (PlayerHost stops rendering and
         // StopAndDisposePlayer in the VM closes the native handle).
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+        // Wire the fullscreen button to the MainWindow's
+        // PropertyChanged so F11 (which routes through the WH_KEYBOARD
+        // hook and never enters our click handler) still updates the
+        // button's glyph / label / tooltip. Subscribed once in the
+        // ctor; unsubscribed in Unloaded to avoid keeping the page
+        // alive past navigation.
+        if (App.MainWindow is not null)
+        {
+            App.MainWindow.PropertyChanged += OnMainWindowPropertyChanged;
+        }
 
         // Named handlers (not lambdas) so Unloaded can unsubscribe — otherwise
         // the view would be kept alive by the lambda capture past navigation,
@@ -379,6 +463,10 @@ public sealed partial class ImageViewerView : Page
     {
         ViewModel.DisplayImageChanged -= OnDisplayImageChanged;
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        if (App.MainWindow is not null)
+        {
+            App.MainWindow.PropertyChanged -= OnMainWindowPropertyChanged;
+        }
 
         // Make sure the native player is detached from the visual tree
         // before the page is torn down. The VM also tears it down on

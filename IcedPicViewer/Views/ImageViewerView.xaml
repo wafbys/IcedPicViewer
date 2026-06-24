@@ -109,6 +109,49 @@
                     <FontIcon Glyph="{x:Bind ViewModel.SlideshowGlyph, Mode=OneWay}"/>
                 </AppBarButton.Icon>
             </AppBarButton>
+            <!--
+                Loop and Shuffle toggles. They modify the slideshow's
+                behaviour rather than the slideshow's start/stop state,
+                so they sit next to the Slideshow button (not nested
+                inside a flyout) and can be flipped while the slideshow
+                is running — the next tick picks up the new mode. The
+                glyphs are constant; the tooltip + label flip to
+                communicate the active state. WinUI 3's AppBarButton
+                doesn't have a built-in "toggled" visual style for
+                icons (the secondary Glyph stays the same), so a
+                tooltip-driven approach is the most reliable indicator.
+            -->
+            <AppBarButton Label="{x:Bind ViewModel.SlideshowLoopLabel, Mode=OneWay}"
+                          Click="SlideshowLoopBtn_Click"
+                          ToolTipService.ToolTip="{x:Bind ViewModel.SlideshowLoopTooltip, Mode=OneWay}">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="{x:Bind ViewModel.SlideshowLoopGlyph, Mode=OneWay}"/>
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton Label="{x:Bind ViewModel.SlideshowShuffleLabel, Mode=OneWay}"
+                          Click="SlideshowShuffleBtn_Click"
+                          ToolTipService.ToolTip="{x:Bind ViewModel.SlideshowShuffleTooltip, Mode=OneWay}">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="{x:Bind ViewModel.SlideshowShuffleGlyph, Mode=OneWay}"/>
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarSeparator/>
+            <!--
+                Fullscreen toggle. Glyph swaps between FullScreen (⛶)
+                and BackToWindow (⤢) based on IsFullscreen, which is
+                itself a live read of App.MainWindow.IsFullscreen so
+                it stays correct after F11 toggles the presenter from
+                outside the view. F11 keyboard shortcut fires the same
+                ToggleFullscreen method via the WH_KEYBOARD hook in
+                MainWindow.HandleViewerKey.
+            -->
+            <AppBarButton Label="{x:Bind IsFullscreenLabel, Mode=OneWay}"
+                          Click="FullscreenBtn_Click"
+                          ToolTipService.ToolTip="{x:Bind IsFullscreenTooltip, Mode=OneWay}">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="{x:Bind IsFullscreenGlyph, Mode=OneWay}"/>
+                </AppBarButton.Icon>
+            </AppBarButton>
             <CommandBar.SecondaryCommands>
                 <AppBarButton Icon="OpenFile"
                               Label="打开文件位置"

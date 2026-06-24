@@ -90,13 +90,53 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(SlideshowGlyph))]
     [NotifyPropertyChangedFor(nameof(SlideshowLabel))]
     [NotifyPropertyChangedFor(nameof(SlideshowTooltip))]
+    [NotifyCanExecuteChangedFor(nameof(SlideshowCommand))]
     public partial bool IsSlideshowActive { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SlideshowLoopGlyph))]
+    [NotifyPropertyChangedFor(nameof(SlideshowLoopLabel))]
+    [NotifyPropertyChangedFor(nameof(SlideshowLoopTooltip))]
+    public partial bool IsSlideshowLooping { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SlideshowShuffleGlyph))]
+    [NotifyPropertyChangedFor(nameof(SlideshowShuffleLabel))]
+    [NotifyPropertyChangedFor(nameof(SlideshowShuffleTooltip))]
+    public partial bool IsSlideshowShuffling { get; set; }
 
     public string SlideshowGlyph => IsSlideshowActive ? "\uE71A" /* Stop */ : "\uE768" /* Play */;
     public string SlideshowLabel => IsSlideshowActive ? "Stop Slideshow" : "Start Slideshow";
     public string SlideshowTooltip => IsSlideshowActive
         ? "Stop slideshow"
         : $"Start slideshow (auto-advance every {_slideshowInterval.TotalSeconds:0.#}s)";
+
+    // Loop button — same glyph in both states, but a different
+    // background tint would normally distinguish the active one.
+    // Tooltip + label flip on/off so the user still gets a visible
+    // hint. The "loop" semantic means "wrap to first when the
+    // slideshow reaches the end" — without it, the slideshow stops
+    // at the last image. Note: ignored in shuffle mode (a random
+    // pick at the end can land on any item, so the "end" is never
+    // reached in the conventional sense).
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind target — the property's value is read by XAML through an instance member access; the static-friendly body is intentional.")]
+    public string SlideshowLoopGlyph => "\uE8ED"; // RepeatAll
+    public string SlideshowLoopLabel => IsSlideshowLooping ? "Loop On" : "Loop Off";
+    public string SlideshowLoopTooltip => IsSlideshowLooping
+        ? "Looping: slideshow wraps from last image back to first"
+        : "Off: slideshow stops at the last image";
+
+    // Shuffle button — pick a random next index on each tick instead
+    // of incrementing CurrentIndex. Single Random instance per VM
+    // is sufficient (the slideshow is a singleton; new Random is
+    // only needed when many threads contend, which the dispatcher
+    // timer pattern doesn't).
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind target — the property's value is read by XAML through an instance member access; the static-friendly body is intentional.")]
+    public string SlideshowShuffleGlyph => "\uE8B1"; // Shuffle
+    public string SlideshowShuffleLabel => IsSlideshowShuffling ? "Shuffle On" : "Shuffle Off";
+    public string SlideshowShuffleTooltip => IsSlideshowShuffling
+        ? "Shuffling: slideshow picks a random next image each tick"
+        : "Sequential: slideshow advances in order";
 
     private TimeSpan _slideshowInterval = TimeSpan.FromSeconds(5);
 
@@ -163,18 +203,55 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     private void OnSlideshowTick(DispatcherQueueTimer sender, object args)
     {
-        // End of the loaded set: stop. The user can manually scroll
-        // for more, or hit Load More, then re-start the slideshow
-        // (or it will auto-resume from the next item if we choose to
-        // — for now we stop and require the user to restart, which
-        // is the most predictable behaviour).
-        if (CurrentIndex >= Images.Count - 1)
+        if (Images.Count == 0) return;
+
+        // End-of-set policy:
+        // - Loop: wrap CurrentIndex to 0 and continue.
+        // - No loop: stop the slideshow (user can re-start).
+        // - Shuffle: a random pick at the end can land on any
+        //   image (including the current), so the "end" check
+        //   is just a guard against Count == 1 (random pick would
+        //   have to exclude the only item, infinite loop). Skipped
+        //   in the normal case because the random pick rarely
+        //   lands on the very last index.
+        if (CurrentIndex >= Images.Count - 1 && !IsSlideshowLooping)
         {
             StopSlideshow();
             return;
         }
-        _ = NavigateNextCommand.ExecuteAsync(null);
+
+        if (IsSlideshowShuffling && Images.Count > 1)
+        {
+            // Pick a random index different from the current. The
+            // do/while handles the "only image in the set" edge
+            // case (where the only valid index IS the current, but
+            // we already short-circuited above) and avoids showing
+            // the same image twice in a row (which would feel like
+            // the slideshow got stuck). The Random instance is
+            // deliberately not thread-safe — slideshow ticks are
+            // always on the dispatcher thread.
+            int newIndex;
+            do
+            {
+                newIndex = _slideshowRandom.Next(Images.Count);
+            } while (newIndex == CurrentIndex);
+            CurrentIndex = newIndex;
+        }
+        else if (IsSlideshowLooping && CurrentIndex >= Images.Count - 1)
+        {
+            // Loop semantics: wrap to the first image rather than
+            // calling NavigateNext (which would short-circuit at
+            // the end via CanNavigateNext). Direct property set is
+            // the cleanest way to express "jump to first".
+            CurrentIndex = 0;
+        }
+        else
+        {
+            _ = NavigateNextCommand.ExecuteAsync(null);
+        }
     }
+
+    private readonly System.Random _slideshowRandom = new();
 
     // ----------------------------------------------------------------
     // Video playback state.

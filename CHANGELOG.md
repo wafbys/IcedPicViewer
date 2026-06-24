@@ -1,5 +1,131 @@
 # 更新日志
 
+## v0.14.5 (2026-06-25)
+
+**主题: 全屏模式 + Slideshow 循环/乱序**
+
+### 背景
+
+两个跨 session 累积的 UX 增强一起做。Fullscreen 是常用功能(很多
+图片查看器 F11 一键切),Slideshow 增强补全演示场景 — 循环让用户
+走开时不中断演示,乱序避免同一文件夹里图片按文件名/日期顺序重复看
+腻。
+
+### 改动
+
+**Fullscreen (MainWindow + App + ImageViewerView + MainWindow.HandleViewerKey)**
+
+- `App.MainWindow` 类型从 `Window?` 收窄为 `MainWindow?` (downcast),
+  视图层用 `App.MainWindow?.ToggleFullscreen()` 直接调,不需要
+  `(App.Current as App)` cast + 类型检查每个 call site。
+- `MainWindow.IsFullscreen` (computed `AppWindow.Presenter.Kind ==
+  AppWindowPresenterKind.FullScreen`) + `ToggleFullscreen()` 方法:
+  `AppWindow.SetPresenter(FullScreen)` 切全屏,`SetPresenter(Overlapped)`
+  切回。WinUI 3 推荐 API (UWP 的 `ApplicationView.TryEnterFullScreenMode`
+  在 desktop WinUI 3 不存在)。`PropertyChanged` 手动 fire 给
+  x:Bind consumer (AppWindow.Presenter.Kind 不会自动 notify)。
+- `ImageViewerView` 加 `IsFullscreen` + `IsFullscreenGlyph`/
+  `IsFullscreenLabel`/`IsFullscreenTooltip` 4 个 property 给 button
+  x:Bind (Glyph 切 U+E827 / U+E93C)。页面类显式
+  implement `INotifyPropertyChanged` (之前没实现,x:Bind OneWay
+  会报 WMC1506 警告)。
+- 页面 ctor 订阅 `App.MainWindow.PropertyChanged`,F11
+  触发 ToggleFullscreen → MainWindow fires PropertyChanged →
+  页面 re-raise IsFullscreen-derived properties → x:Bind
+  refresh (无这条链路时 F11 后 button glyph 冻在旧值)。
+- `MainWindow.HandleViewerKey` 加 `case VirtualKey.F11`:
+  调 `ToggleFullscreen()`,跟 view 按钮走同一方法,button
+  state 跟 F11 同步。
+- Fullscreen 时 OS title bar / window chrome 自动隐藏(presenter
+  行为),但 app 自己的 CommandBar(顶 bar)仍可见 — 用户可继续用
+  Next/Prev/Slideshow 等控件。完全 immersive (隐藏 CommandBar
+  + status bar) 留作下一 session (auto-hide on mouse move 类似
+  PowerPoint 演示模式)。
+
+**Slideshow Loop / Shuffle (ImageViewModel + ImageViewerView)**
+
+- 新 `IsSlideshowLooping` + `IsSlideshowShuffling` (ObservableProperty,
+  各自有 Glyph / Label / Tooltip computed property + `[NotifyPropertyChangedFor]`)。
+- 各自 x:Bind 到 viewer CommandBar 的两个新 AppBarButton。
+  Glyph 保持不变 (U+E8ED RepeatAll, U+E8B1 Shuffle),label + tooltip
+  flip on/off (WinUI 3 AppBarButton 没有 built-in "toggled" 视觉
+  状态,toggle 行为靠 tooltip/label 表达)。
+- `OnSlideshowTick` 重写:
+  - Loop on + 到末尾: `CurrentIndex = 0` 直接跳第一张 (不走
+    `NavigateNextCommand`,那个会因 `CanNavigateNext == false` 短路);
+  - Shuffle on + Images.Count > 1: 随机选一个不是当前的 index
+    (`do/while` 排除重复),`CurrentIndex = newIndex`;
+  - 都不 on: 走 `NavigateNextCommand` (跟之前一样);
+  - Loop off + Shuffle off + 到末尾: `StopSlideshow` (跟之前一样)。
+  Shuffle 跟 Loop 同时 on 是合法的 (走 shuffle 分支;Loop 分支只在
+  shuffle 关闭且到末尾时触发)。
+- `private readonly Random _slideshowRandom` 单例 (VM Singleton,
+  DispatcherQueueTimer 永远在 dispatcher thread 跑,不需要 thread-safe
+  Random)。`do/while` 处理 Count==1 edge case (虽然前面 short-circuit
+  但保险写法)。
+- Button click handler 只 toggle `ViewModel.IsSlideshowXxx`,不调
+  Start/Stop — slideshow 继续跑,下一个 tick 读新状态。这样用户
+  slideshow 跑着也能切 loop/shuffle,无需 stop+start。
+
+### 已决定的取舍(不重新讨论)
+
+- **不**在 fullscreen 时自动隐藏 app 的 CommandBar (`ExtendsContentIntoTitleBar`
+  之外的自定义 chrome)。理由:用户 F11 切全屏的典型场景是 "看大图 +
+  仍能用快捷键 / Next 按钮",完全隐藏 chrome 反而需要再做一个
+  auto-show-on-mouse-move (类似 PowerPoint 演示模式) 增加复杂度。
+  下一 session 想做可以基于 mouse move event + DispatcherTimer debounce
+  实现 auto-hide。
+- **不**让 Shuffle 在 Loop 关闭时把 "end" 当作 wrap point。Shuffle 随机
+  选 index,理论上可以无限循环;Loop 关闭时 Shuffle 仍然一直抽 (除非
+  Count==1 退化为 StopShideshow)。用户要 Shuffle + 限次数,要等
+  "smart shuffle" (下下 session)。
+- **不**让 Slideshow Loop 走 `NavigateNextCommand` 到末尾再走 `CurrentIndex = 0`
+  的两步式。直接 `CurrentIndex = 0` 更明确 (intent: jump to first),
+  也不依赖 `CanNavigateNext` 的语义。
+- **不**在 Loop/Shuffle button 加 visual "active" tint。WinUI 3
+  AppBarButton 没有 built-in ToggleButton 模式,加 custom style 改
+  Background tint 会跟 Mica 主题打架 (CommandBar 的
+  Background 是 SystemControlBackgroundChromeMediumBrush,改 inner
+  控件的 Background 容易出 theme resource 找不到的错)。
+  Tooltip + label 是更可靠的 affordance。
+- **不**给 SlideshowInterval 加 UI 改 interval。下一 session
+  (CHANGELOG 标记),要加就是 slider / picker + view x:Bind。
+
+### 手动验证清单(本 session 不跑,环境 headless)
+
+1. **Fullscreen**:
+   - F11 切全屏,再 F11 切回 → button Glyph 从 U+E827 (FullScreen) 切
+     到 U+E93C (BackToWindow) 再切回,label/tooltip 跟着变;
+   - 点 button 同样;
+   - 全屏时 OS title bar 消失,CommandBar 仍可见;
+   - 全屏时按 Esc 不退出 (Esc 是 viewer Close),按 Space 仍
+     play/pause video。
+2. **Slideshow Loop**:
+   - viewer 启动 Slideshow,Loop 关闭 → 到最后一张 Stop;
+   - Loop 打开 → 到最后一张跳回第一张继续;循环 5 圈验证确实循环;
+   - slideshow 跑着时切 Loop,下一 tick 生效。
+3. **Slideshow Shuffle**:
+   - Shuffle 打开 → 连续 10 个 tick 验证不是按文件顺序 (log
+     CurrentIndex 序列肉眼可见乱序);
+   - Shuffle + Loop 同时打开 → 永远不重复当前 image,任意 random;
+   - 单 image 文件夹 Shuffle on → 不死循环 (Count==1 short-circuit
+     Stop)。
+4. **Loop/Shuffle button state**:
+   - 启动 slideshow,Loop off → button label "Loop Off";
+   - 点 button → label "Loop On",立即生效 (下一个 tick wrap);
+   - 再点 → label "Loop Off",下次到末尾 Stop。
+
+### build 状态
+
+0 errors / 0 warnings(`dotnet build -c Debug -p:Platform=x64` 干净通过)。
+
+### 下一 session 待办(不在本 session 范围)
+
+- SlideshowInterval UI 改间隔 (slider 或 picker)
+- Fullscreen 时 auto-hide app chrome (mouse move 触发)
+- Slideshow 完成 "smart shuffle" (不重复直到看完所有图)
+- 数字键 1-9 跳到 10%-90% 位置 (vlc 习惯)
+
 ## v0.14.4 (2026-06-25)
 
 **主题: EXIF 自动旋转 + Slideshow + ThumbnailCache 容量自适应 + 1:1 视频 transport controls 钉在底部 + HEIC/AVIF decoder 探测**

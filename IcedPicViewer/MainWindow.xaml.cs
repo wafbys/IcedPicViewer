@@ -4,6 +4,7 @@ using IcedPicViewer.Services.Interfaces;
 using IcedPicViewer.ViewModels;
 using IcedPicViewer.Views;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Diagnostics;
@@ -27,6 +28,50 @@ public sealed partial class MainWindow : Window
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, SettingsFile);
     }
+
+    /// <summary>
+    /// True when the window is currently in fullscreen mode
+    /// (no title bar, no window chrome, fills the screen). Bound by
+    /// the viewer's fullscreen button glyph/label/tooltip so the
+    /// toggle shows the right state at all times — not just after
+    /// the user clicks the button, but also when F11 toggles it
+    /// from outside the view or after the OS reverts on focus loss.
+    /// </summary>
+    public bool IsFullscreen => AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
+
+    /// <summary>
+    /// Toggle between normal (overlapped) and fullscreen presentation.
+    /// Uses the WinUI 3 <see cref="Microsoft.UI.Windowing.AppWindow.SetPresenter"/>
+    /// API rather than the UWP <c>ApplicationView.TryEnterFullScreenMode</c>
+    /// pattern — the latter doesn't exist in desktop WinUI 3 and
+    /// <c>SetPresenter</c> is the documented replacement. Switching
+    /// presenters is a one-frame operation; the system remembers
+    /// the prior overlapped size / position so toggling back restores
+    /// the same window geometry.
+    /// </summary>
+    public void ToggleFullscreen()
+    {
+        if (IsFullscreen)
+        {
+            AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+        }
+        else
+        {
+            AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+        }
+        // Manually fire PropertyChanged so the viewer's x:Bind
+        // recomputes IsFullscreenGlyph / IsFullscreenLabel /
+        // IsFullscreenTooltip after each toggle. The AppWindow
+        // presenter itself doesn't notify, and we can't put a
+        // smarter binding on it without restructuring MainWindow
+        // to be a full INotifyPropertyChanged source.
+        OnPropertyChanged(nameof(IsFullscreen));
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged(string propertyName)
+        => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
 
     public MainWindow()
     {
@@ -229,6 +274,15 @@ public sealed partial class MainWindow : Window
                 // CanPlay guard for the gate that makes this safe.
                 if (vm.PlayCommand.CanExecute(null))
                     vm.PlayCommand.Execute(null);
+                break;
+            case Windows.System.VirtualKey.F11:
+                // F11 is the conventional "fullscreen" toggle key in
+                // most image viewers. Toggling here routes through the
+                // same ToggleFullscreen method as the viewer's button,
+                // so the presenter kind + the button's IsFullscreen-
+                // derived glyph/label/tooltip stay in sync regardless
+                // of which input triggered the change.
+                ToggleFullscreen();
                 break;
         }
     }

@@ -17,7 +17,13 @@ public partial class App : Application
     private static IServiceProvider? _services;
     private Window? _window;
 
-    public static Window? MainWindow => ((App)Current)._window;
+    /// <summary>
+    /// Strongly-typed accessor for the singleton <see cref="MainWindow"/>.
+    /// Pages call this from the view layer to toggle fullscreen and
+    /// otherwise reach window-level state without going through
+    /// Application.Current casts on every call site.
+    /// </summary>
+    public static MainWindow? MainWindow => (MainWindow?)((App)Current)._window;
 
     public App()
     {
