@@ -81,36 +81,4 @@ public interface IVideoMetadataService
     /// deletes once.
     /// </summary>
     void ReleasePlaybackFilePath(string path);
-
-    /// <summary>
-    /// Transcodes the source into an H.264 + AAC MP4 temp file, used
-    /// as a fallback when <see cref="GetPlaybackFilePathAsync"/>'s
-    /// container-only remux still leaves a codec that Windows Media
-    /// Foundation can't decode (e.g. Apple ProRes, DNxHD, VP9, AV1
-    /// in a non-MP4 container). The returned path is tracked just
-    /// like a <see cref="GetPlaybackFilePathAsync"/> result — release
-    /// with <see cref="ReleasePlaybackFilePath"/> when playback ends.
-    ///
-    /// <para>
-    /// For archive sources, the entry is extracted to a fresh temp
-    /// file first; the extracted file is deleted once transcode
-    /// succeeds, and the transcoded MP4 takes its place in the
-    /// tracking list. For loose files, only the transcoded MP4 is
-    /// produced — the original file is never written to.
-    /// </para>
-    ///
-    /// <para>
-    /// Transcode runs on a worker thread via <c>Task.Run</c>; <paramref name="progress"/>
-    /// receives fractional progress in [0, 1] based on input duration
-    /// encoded. Cancellation through <paramref name="ct"/> aborts
-    /// between packet writes — the partial output file is deleted
-    /// before the exception is raised. A failed transcode (codec
-    /// the FFmpeg build can't even decode) throws; callers should
-    /// catch and surface a user-friendly error.
-    /// </para>
-    /// </summary>
-    Task<string> TranscodeToMp4Async(
-        ImageSource source,
-        IProgress<double>? progress,
-        CancellationToken ct = default);
 }

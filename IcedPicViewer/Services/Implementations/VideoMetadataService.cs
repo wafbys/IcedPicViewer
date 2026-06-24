@@ -464,82 +464,28 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         }
     }
 
-    public async Task<string> TranscodeToMp4Async(
-        ImageSource source,
-        IProgress<double>? progress,
-        CancellationToken ct = default)
+    /// <summary>
+    /// Delete a temp file we just used and no longer need — a
+    /// "we own this, but we don't keep a long-term reference"
+    /// variant of <see cref="ReleasePlaybackFilePath"/>. Used by
+    /// the metadata + thumbnail + remux paths which extract or
+    /// remux to temp and discard in a single call. Idempotent; a
+    /// missing file is not an error.
+    /// </summary>
+    private static void TryDeleteTempFileUntracked(string path)
     {
-        if (source.IsInArchive)
-        {
-            // Archive entry: extract first, then transcode the extracted
-            // file. The extracted file is untracked (intermediate
-            // artifact); only the final .mp4 is added to the playback
-            // tracking list.
-            var extractPath = CreateTempFilePathForSource(source);
-            ct.ThrowIfCancellationRequested();
-            try
-            {
-                await Task.Run(() => ArchiveHelper.ExtractEntryToFile(source.Path, source.ArchiveEntry!, extractPath), ct);
-                if (!File.Exists(extractPath))
-                {
-                    throw new FileNotFoundException($"Failed to extract archive entry to {extractPath}", extractPath);
-                }
-
-                var remuxedPath = Path.Combine(_tempDir, $"ipv-transcode-{Guid.NewGuid():N}.mp4");
-                try
-                {
-                    await Task.Run(() => DoTranscode(extractPath, remuxedPath, progress, ct), ct);
-                }
-                catch
-                {
-                    TryDeleteTempFileUntracked(remuxedPath);
-                    throw;
-                }
-                if (!File.Exists(remuxedPath))
-                {
-                    TryDeleteTempFileUntracked(remuxedPath);
-                    throw new FileNotFoundException(
-                        $"Transcode produced no output for archive entry {source.ArchiveEntry}", remuxedPath);
-                }
-                TryDeleteTempFileUntracked(extractPath);
-                lock (_tempLock)
-                {
-                    _playbackTempFiles.Add(remuxedPath);
-                }
-                return remuxedPath;
-            }
-            catch
-            {
-                TryDeleteTempFileUntracked(extractPath);
-                throw;
-            }
-        }
-
-        // Loose file: transcode directly. Original file is untouched
-        // (we never write to it).
-        var destPath = Path.Combine(_tempDir, $"ipv-transcode-{Guid.NewGuid():N}.mp4");
+        if (string.IsNullOrEmpty(path)) return;
         try
         {
-            await Task.Run(() => DoTranscode(source.Path, destPath, progress, ct), ct);
+            if (File.Exists(path)) File.Delete(path);
         }
-        catch
+        catch (Exception ex)
         {
-            TryDeleteTempFileUntracked(destPath);
-            throw;
+            Trace.TraceWarning($"VideoMetadataService: failed to delete temp file {path}: {ex.GetType().Name}: {ex.Message}");
         }
-        if (!File.Exists(destPath))
-        {
-            TryDeleteTempFileUntracked(destPath);
-            throw new FileNotFoundException(
-                $"Transcode produced no output for {source.Path}", destPath);
-        }
-        lock (_tempLock)
-        {
-            _playbackTempFiles.Add(destPath);
-        }
-        return destPath;
     }
 
+    // -----------------------------------------------------------------
     /// <summary>
     /// Build a unique temp file path for an archive source. The
     /// "ipv-video-" prefix lets the ctor sweep (and any operator
@@ -559,30 +505,223 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
     }
 
     /// <summary>
-    /// Delete a temp file we just used and no longer need — a
-    /// "we own this, but we don't keep a long-term reference"
-    /// variant of <see cref="ReleasePlaybackFilePath"/>. Used by
-    /// the metadata + thumbnail paths which extract to temp, decode,
-    /// and discard in a single call. Idempotent; a missing file is
-    /// not an error.
+    /// True when the file's container is one Windows Media Foundation
+    /// (the engine behind WinUI MediaPlayer) does NOT recognize on a
+    /// clean Win10/11 install and therefore must be remuxed to MP4
+    /// before playback. False when the container is already MP4-family
+    /// (MF plays these natively, so we can hand the original path
+    /// straight to MediaPlayer and skip the remux round-trip).
+    ///
+    /// <para>
+    /// Background: since the 2018 QuickTime CVE cleanup Microsoft
+    /// removed the .mov container demuxer from Media Foundation; .mkv
+    /// and .avi are also not in the stock MF source-resolver list.
+    /// The check is intentionally coarse (extension-only) — a finer
+    /// "can MF decode this exact file" check would require sniffing
+    /// the codec set, which FFmpeg already does at remux time, so
+    /// we'd just be duplicating work.
+    /// </para>
     /// </summary>
-    private static void TryDeleteTempFileUntracked(string path)
+    private static bool NeedsRemuxToMp4(string filePath)
     {
-        if (string.IsNullOrEmpty(path)) return;
+        var ext = Path.GetExtension(filePath);
+        // Fast path: MP4 and M4V are containers MF recognizes. .m4v is
+        // treated as MP4-with-maybe-AC-3 — MF decodes it identically
+        // to .mp4 for any of the codecs FFmpeg can produce into the
+        // MP4 container.
+        if (ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase)) return false;
+        if (ext.Equals(".m4v", StringComparison.OrdinalIgnoreCase)) return false;
+        // Everything else (.mov, .mkv, .avi, .webm, .flv, ...) goes
+        // through the FFmpeg remux path.
+        return true;
+    }
+
+    /// <summary>
+    /// Remux (container-copy, no transcode) an arbitrary media file
+    /// into an MP4 file at <paramref name="destPath"/>. Used for files
+    /// whose original container Windows Media Foundation can't decode
+    /// — see <see cref="NeedsRemuxToMp4"/>.
+    ///
+    /// <para>
+    /// This is a true remux: packets are copied byte-for-byte, only
+    /// the container changes. A 1 GB H.264/AAC .mov becomes a ~1 GB
+    /// H.264/AAC .mp4 in roughly 1-2 seconds on a fast SSD (mostly
+    /// memory copies, no codec work). Codecs that MP4 can't carry
+    /// (e.g. ProRes) fail at <c>avformat_write_header</c> and surface
+    /// a meaningful error to the caller.
+    /// </para>
+    ///
+    /// <para>
+    /// Native work runs synchronously here — callers must wrap this
+    /// in <c>Task.Run</c> (the two call sites in this service do).
+    /// The cancellation token is checked between packet writes so
+    /// the remux aborts within a packet or two if the user navigates
+    /// away mid-remux.
+    /// </para>
+    /// </summary>
+    private static unsafe void RemuxToMp4(string sourcePath, string destPath, CancellationToken ct)
+    {
+        AVFormatContext* inFmt = null;
+        AVFormatContext* outFmt = null;
+        AVPacket* packet = null;
         try
         {
-            if (File.Exists(path)) File.Delete(path);
+            // Open input. avformat_open_input + find_stream_info is the
+            // same pair GetMetadataFromFile uses, so a file FFmpeg can
+            // parse for metadata is also one we can remux.
+            var ret = ffmpeg.avformat_open_input(&inFmt, sourcePath, null, null);
+            if (ret < 0)
+            {
+                throw new InvalidOperationException(
+                    $"RemuxToMp4: avformat_open_input failed for {sourcePath} (rc={ret})");
+            }
+            ret = ffmpeg.avformat_find_stream_info(inFmt, null);
+            if (ret < 0)
+            {
+                throw new InvalidOperationException(
+                    $"RemuxToMp4: avformat_find_stream_info failed for {sourcePath} (rc={ret})");
+            }
+            ct.ThrowIfCancellationRequested();
+
+            // Allocate the output (mp4) context. Passing a filename
+            // tells avformat_alloc_output_context2 to derive the format
+            // from the extension ("mp4") — we pass "mp4" explicitly
+            // anyway so the format choice never depends on the temp
+            // filename's extension.
+            ret = ffmpeg.avformat_alloc_output_context2(&outFmt, null, "mp4", destPath);
+            if (ret < 0 || outFmt == null)
+            {
+                throw new InvalidOperationException(
+                    $"RemuxToMp4: avformat_alloc_output_context2 failed for {destPath} (rc={ret})");
+            }
+
+            // Mirror the input's stream layout onto the output. AVCodecParameters
+            // is the modern (FFmpeg 3.1+) way to carry codec info between
+            // streams; we don't touch the deprecated `codec` field at all.
+            for (uint i = 0; i < inFmt->nb_streams; i++)
+            {
+                var inStream = inFmt->streams[i];
+                var outStream = ffmpeg.avformat_new_stream(outFmt, null);
+                if (outStream == null)
+                {
+                    throw new InvalidOperationException("RemuxToMp4: avformat_new_stream returned null");
+                }
+                ret = ffmpeg.avcodec_parameters_copy(outStream->codecpar, inStream->codecpar);
+                if (ret < 0)
+                {
+                    throw new InvalidOperationException(
+                        $"RemuxToMp4: avcodec_parameters_copy failed for stream {i} (rc={ret})");
+                }
+                // Reset codec_tag so the MP4 muxer picks its own. Some
+                // source files (especially .mov variants) carry a
+                // QuickTime-style tag that MP4 doesn't recognize;
+                // clearing it forces the muxer to rewrite a valid MP4
+                // tag (avc1 / mp4a / ...).
+                outStream->codecpar->codec_tag = 0;
+            }
+
+            // Open the output file. MP4 always needs avio_open — it's
+            // a regular file format, not AVFMT_NOFILE. We hardcode the
+            // unconditional open (no AVFMT_NOFILE guard) because we
+            // fixed the output format to "mp4" above, so the guard
+            // would always be false anyway.
+            ret = ffmpeg.avio_open(&outFmt->pb, destPath, ffmpeg.AVIO_FLAG_WRITE);
+            if (ret < 0)
+            {
+                throw new InvalidOperationException(
+                    $"RemuxToMp4: avio_open failed for {destPath} (rc={ret})");
+            }
+
+            // Write the MP4 header (ftyp/moov boxes). Failure here
+            // usually means MP4 can't carry one of the source codecs
+            // (e.g. ProRes, DNxHD) — the error message is the user-
+            // facing signal that this specific file is unsupported.
+            ret = ffmpeg.avformat_write_header(outFmt, null);
+            if (ret < 0)
+            {
+                throw new InvalidOperationException(
+                    $"RemuxToMp4: avformat_write_header failed (rc={ret}, source codec likely not MP4-compatible)");
+            }
+
+            // Copy packets. av_interleaved_write_frame does timestamp
+            // conversion (input timebase → output timebase) AND packet
+            // interleaving (B-frame reordering for MP4) in one call,
+            // so we just hand it each packet directly without manual
+            // rescaling.
+            packet = ffmpeg.av_packet_alloc();
+            if (packet == null)
+            {
+                throw new InvalidOperationException("RemuxToMp4: av_packet_alloc returned null");
+            }
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                ret = ffmpeg.av_read_frame(inFmt, packet);
+                if (ret < 0)
+                {
+                    // Negative return is end-of-stream on success or
+                    // a real error mid-stream. Either way we stop
+                    // reading; the trailer write below finalizes what
+                    // we have.
+                    break;
+                }
+
+                ret = ffmpeg.av_interleaved_write_frame(outFmt, packet);
+                ffmpeg.av_packet_unref(packet);
+                if (ret < 0)
+                {
+                    throw new InvalidOperationException(
+                        $"RemuxToMp4: av_interleaved_write_frame failed (rc={ret})");
+                }
+            }
+
+            // Finalize the MP4 (write moov trailing box, flush
+            // indexes). Errors here are usually due to corrupted
+            // last frames and the output is still partially valid,
+            // but we surface them anyway so the caller can decide
+            // whether to retry.
+            ret = ffmpeg.av_write_trailer(outFmt);
+            if (ret < 0)
+            {
+                throw new InvalidOperationException(
+                    $"RemuxToMp4: av_write_trailer failed (rc={ret})");
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            Trace.TraceWarning($"VideoMetadataService: failed to delete temp file {path}: {ex.GetType().Name}: {ex.Message}");
+            // Free order: derived resources first (packet), then the
+            // output context (which owns pb), then pb itself, then
+            // the input. Each pointer is null-checked because any
+            // earlier failure path may have aborted before the
+            // allocation.
+            //
+            // NB: avformat_free_context does NOT close pb — we must
+            // call avio_closep separately. Skipping it would leak the
+            // file descriptor (and on Windows the lock on the output
+            // file) until the process exits.
+            if (packet != null)
+            {
+                var local = packet;
+                ffmpeg.av_packet_free(&local);
+            }
+            if (outFmt != null)
+            {
+                if (outFmt->pb != null)
+                {
+                    ffmpeg.avio_closep(&outFmt->pb);
+                }
+                ffmpeg.avformat_free_context(outFmt);
+            }
+            if (inFmt != null)
+            {
+                var local = inFmt;
+                ffmpeg.avformat_close_input(&local);
+            }
         }
     }
 
     // -----------------------------------------------------------------
-    // Native helpers — all `unsafe`, all called only from Task.Run above.
-    // -----------------------------------------------------------------
-
     /// <summary>
     /// Opens the video, reads container-level metadata (codec params for
     /// width / height, stream table for hasAudio, fmtCtx->duration for
@@ -824,823 +963,6 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
                 var local = fmtCtx;
                 ffmpeg.avformat_close_input(&local);
             }
-        }
-    }
-
-    /// <summary>
-    /// True when the file's container is one Windows Media Foundation
-    /// (the engine behind WinUI MediaPlayer) does NOT recognize on a
-    /// clean Win10/11 install and therefore must be remuxed to MP4
-    /// before playback. False when the container is already MP4-family
-    /// (MF plays these natively, so we can hand the original path
-    /// straight to MediaPlayer and skip the remux round-trip).
-    ///
-    /// <para>
-    /// Background: since the 2018 QuickTime CVE cleanup Microsoft
-    /// removed the .mov container demuxer from Media Foundation; .mkv
-    /// and .avi are also not in the stock MF source-resolver list.
-    /// The check is intentionally coarse (extension-only) — a finer
-    /// "can MF decode this exact file" check would require sniffing
-    /// the codec set, which FFmpeg already does at remux time, so
-    /// we'd just be duplicating work.
-    /// </para>
-    /// </summary>
-    private static bool NeedsRemuxToMp4(string filePath)
-    {
-        var ext = Path.GetExtension(filePath);
-        // Fast path: MP4 and M4V are containers MF recognizes. .m4v is
-        // treated as MP4-with-maybe-AC-3 — MF decodes it identically
-        // to .mp4 for any of the codecs FFmpeg can produce into the
-        // MP4 container.
-        if (ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase)) return false;
-        if (ext.Equals(".m4v", StringComparison.OrdinalIgnoreCase)) return false;
-        // Everything else (.mov, .mkv, .avi, .webm, .flv, ...) goes
-        // through the FFmpeg remux path.
-        return true;
-    }
-
-    /// <summary>
-    /// Remux (container-copy, no transcode) an arbitrary media file
-    /// into an MP4 file at <paramref name="destPath"/>. Used for files
-    /// whose original container Windows Media Foundation can't decode
-    /// — see <see cref="NeedsRemuxToMp4"/>.
-    ///
-    /// <para>
-    /// This is a true remux: packets are copied byte-for-byte, only
-    /// the container changes. A 1 GB H.264/AAC .mov becomes a ~1 GB
-    /// H.264/AAC .mp4 in roughly 1-2 seconds on a fast SSD (mostly
-    /// memory copies, no codec work). Codecs that MP4 can't carry
-    /// (e.g. ProRes) fail at <c>avformat_write_header</c> and surface
-    /// a meaningful error to the caller.
-    /// </para>
-    ///
-    /// <para>
-    /// Native work runs synchronously here — callers must wrap this
-    /// in <c>Task.Run</c> (the two call sites in this service do).
-    /// The cancellation token is checked between packet writes so
-    /// the remux aborts within a packet or two if the user navigates
-    /// away mid-remux.
-    /// </para>
-    /// </summary>
-    private static unsafe void RemuxToMp4(string sourcePath, string destPath, CancellationToken ct)
-    {
-        AVFormatContext* inFmt = null;
-        AVFormatContext* outFmt = null;
-        AVPacket* packet = null;
-        try
-        {
-            // Open input. avformat_open_input + find_stream_info is the
-            // same pair GetMetadataFromFile uses, so a file FFmpeg can
-            // parse for metadata is also one we can remux.
-            var ret = ffmpeg.avformat_open_input(&inFmt, sourcePath, null, null);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException(
-                    $"RemuxToMp4: avformat_open_input failed for {sourcePath} (rc={ret})");
-            }
-            ret = ffmpeg.avformat_find_stream_info(inFmt, null);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException(
-                    $"RemuxToMp4: avformat_find_stream_info failed for {sourcePath} (rc={ret})");
-            }
-            ct.ThrowIfCancellationRequested();
-
-            // Allocate the output (mp4) context. Passing a filename
-            // tells avformat_alloc_output_context2 to derive the format
-            // from the extension ("mp4") — we pass "mp4" explicitly
-            // anyway so the format choice never depends on the temp
-            // filename's extension.
-            ret = ffmpeg.avformat_alloc_output_context2(&outFmt, null, "mp4", destPath);
-            if (ret < 0 || outFmt == null)
-            {
-                throw new InvalidOperationException(
-                    $"RemuxToMp4: avformat_alloc_output_context2 failed for {destPath} (rc={ret})");
-            }
-
-            // Mirror the input's stream layout onto the output. AVCodecParameters
-            // is the modern (FFmpeg 3.1+) way to carry codec info between
-            // streams; we don't touch the deprecated `codec` field at all.
-            for (uint i = 0; i < inFmt->nb_streams; i++)
-            {
-                var inStream = inFmt->streams[i];
-                var outStream = ffmpeg.avformat_new_stream(outFmt, null);
-                if (outStream == null)
-                {
-                    throw new InvalidOperationException("RemuxToMp4: avformat_new_stream returned null");
-                }
-                ret = ffmpeg.avcodec_parameters_copy(outStream->codecpar, inStream->codecpar);
-                if (ret < 0)
-                {
-                    throw new InvalidOperationException(
-                        $"RemuxToMp4: avcodec_parameters_copy failed for stream {i} (rc={ret})");
-                }
-                // Reset codec_tag so the MP4 muxer picks its own. Some
-                // source files (especially .mov variants) carry a
-                // QuickTime-style tag that MP4 doesn't recognize;
-                // clearing it forces the muxer to rewrite a valid MP4
-                // tag (avc1 / mp4a / ...).
-                outStream->codecpar->codec_tag = 0;
-            }
-
-            // Open the output file. MP4 always needs avio_open — it's
-            // a regular file format, not AVFMT_NOFILE. We hardcode the
-            // unconditional open (no AVFMT_NOFILE guard) because we
-            // fixed the output format to "mp4" above, so the guard
-            // would always be false anyway.
-            ret = ffmpeg.avio_open(&outFmt->pb, destPath, ffmpeg.AVIO_FLAG_WRITE);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException(
-                    $"RemuxToMp4: avio_open failed for {destPath} (rc={ret})");
-            }
-
-            // Write the MP4 header (ftyp/moov boxes). Failure here
-            // usually means MP4 can't carry one of the source codecs
-            // (e.g. ProRes, DNxHD) — the error message is the user-
-            // facing signal that this specific file is unsupported.
-            ret = ffmpeg.avformat_write_header(outFmt, null);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException(
-                    $"RemuxToMp4: avformat_write_header failed (rc={ret}, source codec likely not MP4-compatible)");
-            }
-
-            // Copy packets. av_interleaved_write_frame does timestamp
-            // conversion (input timebase → output timebase) AND packet
-            // interleaving (B-frame reordering for MP4) in one call,
-            // so we just hand it each packet directly without manual
-            // rescaling.
-            packet = ffmpeg.av_packet_alloc();
-            if (packet == null)
-            {
-                throw new InvalidOperationException("RemuxToMp4: av_packet_alloc returned null");
-            }
-            while (true)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                ret = ffmpeg.av_read_frame(inFmt, packet);
-                if (ret < 0)
-                {
-                    // Negative return is end-of-stream on success or
-                    // a real error mid-stream. Either way we stop
-                    // reading; the trailer write below finalizes what
-                    // we have.
-                    break;
-                }
-
-                ret = ffmpeg.av_interleaved_write_frame(outFmt, packet);
-                ffmpeg.av_packet_unref(packet);
-                if (ret < 0)
-                {
-                    throw new InvalidOperationException(
-                        $"RemuxToMp4: av_interleaved_write_frame failed (rc={ret})");
-                }
-            }
-
-            // Finalize the MP4 (write moov trailing box, flush
-            // indexes). Errors here are usually due to corrupted
-            // last frames and the output is still partially valid,
-            // but we surface them anyway so the caller can decide
-            // whether to retry.
-            ret = ffmpeg.av_write_trailer(outFmt);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException(
-                    $"RemuxToMp4: av_write_trailer failed (rc={ret})");
-            }
-        }
-        finally
-        {
-            // Free order: derived resources first (packet), then the
-            // output context (which owns pb), then pb itself, then
-            // the input. Each pointer is null-checked because any
-            // earlier failure path may have aborted before the
-            // allocation.
-            //
-            // NB: avformat_free_context does NOT close pb — we must
-            // call avio_closep separately. Skipping it would leak the
-            // file descriptor (and on Windows the lock on the output
-            // file) until the process exits.
-            if (packet != null)
-            {
-                var local = packet;
-                ffmpeg.av_packet_free(&local);
-            }
-            if (outFmt != null)
-            {
-                if (outFmt->pb != null)
-                {
-                    ffmpeg.avio_closep(&outFmt->pb);
-                }
-                ffmpeg.avformat_free_context(outFmt);
-            }
-            if (inFmt != null)
-            {
-                var local = inFmt;
-                ffmpeg.avformat_close_input(&local);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Transcodes an arbitrary video file into an H.264 video + AAC
-    /// audio MP4 at <paramref name="destPath"/>. Used as a fallback
-    /// for files whose codec Windows Media Foundation cannot decode
-    /// (Apple ProRes, DNxHD, VP9/AV1 outside MP4, etc.) — the
-    /// container-only remux in <see cref="RemuxToMp4"/> only fixes
-    /// the .mov / .mkv / .avi container issue, not the codec.
-    ///
-    /// <para>
-    /// Output spec (fixed, no user-configurable quality knob for now —
-    /// adding one would mean threading a Settings property through to
-    /// here and re-deciding on every call):
-    /// <list type="bullet">
-    ///   <item>Video: H.264 (libx264), yuv420p, CRF 20, preset medium,
-    ///         same width/height/framerate as input.</item>
-    ///   <item>Audio: AAC (libfdk-aac or built-in), stereo, 48 kHz,
-    ///         128 kbps. Skipped when the source has no audio.</item>
-    /// </list>
-    /// </para>
-    ///
-    /// <para>
-    /// For a 4K ProRes source this is roughly 30s-2min on a fast CPU
-    /// (a few hundred frames/sec encode rate). The user-visible
-    /// progress report uses input duration encoded / total input
-    /// duration, sampled every ~32 packets to keep callback overhead
-    /// negligible.
-    /// </para>
-    /// </summary>
-    private static unsafe void DoTranscode(string sourcePath, string destPath, IProgress<double>? progress, CancellationToken ct)
-    {
-        AVFormatContext* inFmt = null;
-        AVFormatContext* outFmt = null;
-        AVCodecContext* videoDecCtx = null;
-        AVCodecContext* videoEncCtx = null;
-        AVCodecContext* audioDecCtx = null;
-        AVCodecContext* audioEncCtx = null;
-        SwsContext* swsCtx = null;
-        SwrContext* swrCtx = null;
-        AVPacket* packet = null;
-        AVFrame* decVideoFrame = null;
-        AVFrame* encVideoFrame = null;
-        AVFrame* decAudioFrame = null;
-        AVFrame* encAudioFrame = null;
-        int outVideoStreamIdx = -1;
-        int outAudioStreamIdx = -1;
-        int videoStreamIdx = -1;
-        int audioStreamIdx = -1;
-        long totalDurationUs = 0;
-        long lastReportedUs = 0;
-        int packetCount = 0;
-        const int progressIntervalPackets = 32;
-        int ret;
-        // Channel layouts are passed by pointer to swr_alloc_set_opts2 +
-        // assigned to AVCodecContext.ch_layout. Declared at outer scope
-        // so the finally block can av_channel_layout_uninit them.
-        AVChannelLayout outChLayout = default;
-        AVChannelLayout inChLayout = default;
-        // Encoder-input frame buffers. We allocate via av_image_alloc /
-        // av_samples_alloc (proved pattern from ExtractAndScaleFrame —
-        // av_frame_get_buffer leaves data pointers null in some
-        // AutoGen 8.x / FFmpeg 8.1 combinations). The allocated byte*
-        // is owned by the matching av_freep call in finally.
-        byte_ptrArray4 encVideoData = default;
-        int_array4 encVideoLinesize = default;
-        byte* encVideoBuf = null;
-        byte* encAudioBuf = null;
-        int encAudioLinesize = 0;
-        // Persistent byte** array of per-channel pointers. Required
-        // because AVFrame.data is byte_ptrArray8 (a struct, not a
-        // byte**), and you can't take &frame.data[0] in C# (CS0211)
-        // to pass to swr_convert which wants byte**. We allocate the
-        // array once, fill it from encAudioBuf, and pass the array
-        // pointer to swr_convert on every call.
-        byte** encAudioChannelPtrs = null;
-
-        try
-        {
-            // ----------------------------------------------------------------
-            // Open input + find streams
-            // ----------------------------------------------------------------
-            ret = ffmpeg.avformat_open_input(&inFmt, sourcePath, null, null);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException(
-                    $"DoTranscode: avformat_open_input failed for {sourcePath} (rc={ret})");
-            }
-            ret = ffmpeg.avformat_find_stream_info(inFmt, null);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException(
-                    $"DoTranscode: avformat_find_stream_info failed for {sourcePath} (rc={ret})");
-            }
-            totalDurationUs = inFmt->duration > 0 ? inFmt->duration : 0;
-
-            for (var i = 0; i < (int)inFmt->nb_streams; i++)
-            {
-                var t = inFmt->streams[i]->codecpar->codec_type;
-                if (t == AVMediaType.AVMEDIA_TYPE_VIDEO && videoStreamIdx < 0) videoStreamIdx = i;
-                else if (t == AVMediaType.AVMEDIA_TYPE_AUDIO && audioStreamIdx < 0) audioStreamIdx = i;
-            }
-            if (videoStreamIdx < 0)
-            {
-                throw new InvalidOperationException($"DoTranscode: no video stream in {sourcePath}");
-            }
-            ct.ThrowIfCancellationRequested();
-
-            // ----------------------------------------------------------------
-            // Video decoder
-            // ----------------------------------------------------------------
-            var inVideoCodecPar = inFmt->streams[videoStreamIdx]->codecpar;
-            var videoDecoder = ffmpeg.avcodec_find_decoder(inVideoCodecPar->codec_id);
-            if (videoDecoder == null)
-            {
-                throw new InvalidOperationException(
-                    $"DoTranscode: no decoder for video codec id={inVideoCodecPar->codec_id} (codec={ffmpeg.avcodec_get_name(inVideoCodecPar->codec_id)})");
-            }
-            videoDecCtx = ffmpeg.avcodec_alloc_context3(videoDecoder);
-            ffmpeg.avcodec_parameters_to_context(videoDecCtx, inVideoCodecPar);
-            ret = ffmpeg.avcodec_open2(videoDecCtx, videoDecoder, null);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException($"DoTranscode: failed to open video decoder (rc={ret})");
-            }
-
-            // ----------------------------------------------------------------
-            // Audio decoder (only if input has audio)
-            // ----------------------------------------------------------------
-            if (audioStreamIdx >= 0)
-            {
-                var inAudioCodecPar = inFmt->streams[audioStreamIdx]->codecpar;
-                var audioDecoder = ffmpeg.avcodec_find_decoder(inAudioCodecPar->codec_id);
-                if (audioDecoder != null)
-                {
-                    audioDecCtx = ffmpeg.avcodec_alloc_context3(audioDecoder);
-                    ffmpeg.avcodec_parameters_to_context(audioDecCtx, inAudioCodecPar);
-                    ret = ffmpeg.avcodec_open2(audioDecCtx, audioDecoder, null);
-                    if (ret < 0)
-                    {
-                        Trace.TraceWarning($"DoTranscode: audio decoder open failed (rc={ret}); output will be silent");
-                        ffmpeg.avcodec_free_context(&audioDecCtx);
-                        audioDecCtx = null;
-                        audioStreamIdx = -1;
-                    }
-                }
-                else
-                {
-                    audioStreamIdx = -1;
-                }
-            }
-
-            // ----------------------------------------------------------------
-            // H.264 video encoder
-            // ----------------------------------------------------------------
-            var videoEncoder = ffmpeg.avcodec_find_encoder(AVCodecID.AV_CODEC_ID_H264);
-            if (videoEncoder == null)
-            {
-                throw new InvalidOperationException("DoTranscode: H.264 encoder not available in this FFmpeg build");
-            }
-            videoEncCtx = ffmpeg.avcodec_alloc_context3(videoEncoder);
-            videoEncCtx->width = videoDecCtx->width;
-            videoEncCtx->height = videoDecCtx->height;
-            videoEncCtx->pix_fmt = AVPixelFormat.AV_PIX_FMT_YUV420P;
-            videoEncCtx->framerate = ffmpeg.av_guess_frame_rate(inFmt, inFmt->streams[videoStreamIdx], null);
-            if (videoEncCtx->framerate.num <= 0 || videoEncCtx->framerate.den <= 0)
-            {
-                videoEncCtx->framerate = new AVRational { num = 25, den = 1 };
-            }
-            videoEncCtx->time_base = ffmpeg.av_inv_q(videoEncCtx->framerate);
-            videoEncCtx->bit_rate = 5_000_000;
-            videoEncCtx->rc_max_rate = 5_000_000;
-            videoEncCtx->rc_buffer_size = 10_000_000;
-            // Constrained Baseline profile — broadest device support
-            // and the safest choice for libopenh264 (the bundled H.264
-            // encoder on Windows in BtbN FFmpeg builds). libopenh264
-            // does NOT accept the libx264-style string options
-            // ("preset", "crf", "profile"), and will reject every
-            // send_frame with EINVAL if asked for anything else.
-            // gop_size / max_b_frames are deliberately unset — let the
-            // encoder pick sensible defaults rather than hand it
-            // values it might choke on.
-            videoEncCtx->profile = ffmpeg.AV_PROFILE_H264_CONSTRAINED_BASELINE;
-            ret = ffmpeg.avcodec_open2(videoEncCtx, videoEncoder, null);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException($"DoTranscode: failed to open H.264 encoder (rc={ret})");
-            }
-
-            // ----------------------------------------------------------------
-            // AAC audio encoder (if input has audio + decoder OK)
-            // FFmpeg 5.0+ replaced `channels` + `channel_layout` (uint64)
-            // with the AVChannelLayout struct field `ch_layout`. Set
-            // via av_channel_layout_default(&ctx->ch_layout, 2).
-            //
-            // AVCodec.sample_fmts is exposed in AutoGen as a null-
-            // terminated `AVSampleFormat*` pointer (not a Length-bearing
-            // array). The modern API to enumerate supported configs is
-            // avcodec_get_supported_config(); for AAC the canonical
-            // sample format is FLTP, so we just default to that and
-            // skip the enumeration entirely — keeping the code simpler
-            // and avoiding the CS0618 obsolete-API warning.
-            // ----------------------------------------------------------------
-            if (audioDecCtx != null)
-            {
-                var audioEncoder = ffmpeg.avcodec_find_encoder(AVCodecID.AV_CODEC_ID_AAC);
-                if (audioEncoder != null)
-                {
-                    audioEncCtx = ffmpeg.avcodec_alloc_context3(audioEncoder);
-                    audioEncCtx->sample_rate = 48_000;
-                    audioEncCtx->sample_fmt = AVSampleFormat.AV_SAMPLE_FMT_FLTP;
-                    audioEncCtx->bit_rate = 128_000;
-                    ffmpeg.av_channel_layout_default(&outChLayout, 2);
-                    audioEncCtx->ch_layout = outChLayout;
-                    audioEncCtx->time_base = new AVRational { num = 1, den = audioEncCtx->sample_rate };
-                    ret = ffmpeg.avcodec_open2(audioEncCtx, audioEncoder, null);
-                    if (ret < 0)
-                    {
-                        Trace.TraceWarning($"DoTranscode: AAC encoder open failed (rc={ret}); output will be silent");
-                        ffmpeg.avcodec_free_context(&audioEncCtx);
-                        audioEncCtx = null;
-                    }
-                }
-            }
-
-            // ----------------------------------------------------------------
-            // Output MP4 context + streams
-            // ----------------------------------------------------------------
-            ret = ffmpeg.avformat_alloc_output_context2(&outFmt, null, "mp4", destPath);
-            if (ret < 0 || outFmt == null)
-            {
-                throw new InvalidOperationException($"DoTranscode: avformat_alloc_output_context2 failed (rc={ret})");
-            }
-
-            // Video stream
-            var vOutStream = ffmpeg.avformat_new_stream(outFmt, null);
-            if (vOutStream == null) throw new InvalidOperationException("DoTranscode: avformat_new_stream null for video");
-            ret = ffmpeg.avcodec_parameters_from_context(vOutStream->codecpar, videoEncCtx);
-            if (ret < 0) throw new InvalidOperationException($"DoTranscode: avcodec_parameters_from_context video failed (rc={ret})");
-            vOutStream->codecpar->codec_tag = 0;
-            vOutStream->time_base = videoEncCtx->time_base;
-            outVideoStreamIdx = vOutStream->index;
-
-            // Audio stream
-            if (audioDecCtx != null && audioEncCtx != null)
-            {
-                var aOutStream = ffmpeg.avformat_new_stream(outFmt, null);
-                if (aOutStream == null) throw new InvalidOperationException("DoTranscode: avformat_new_stream null for audio");
-                ret = ffmpeg.avcodec_parameters_from_context(aOutStream->codecpar, audioEncCtx);
-                if (ret < 0) throw new InvalidOperationException($"DoTranscode: avcodec_parameters_from_context audio failed (rc={ret})");
-                aOutStream->codecpar->codec_tag = 0;
-                aOutStream->time_base = audioEncCtx->time_base;
-                outAudioStreamIdx = aOutStream->index;
-            }
-
-            ret = ffmpeg.avio_open(&outFmt->pb, destPath, ffmpeg.AVIO_FLAG_WRITE);
-            if (ret < 0) throw new InvalidOperationException($"DoTranscode: avio_open failed for {destPath} (rc={ret})");
-
-            ret = ffmpeg.avformat_write_header(outFmt, null);
-            if (ret < 0) throw new InvalidOperationException($"DoTranscode: avformat_write_header failed (rc={ret})");
-
-            // ----------------------------------------------------------------
-            // Video scaler + encoder input frame
-            // ----------------------------------------------------------------
-            swsCtx = ffmpeg.sws_getContext(
-                videoDecCtx->width, videoDecCtx->height, videoDecCtx->pix_fmt,
-                videoEncCtx->width, videoEncCtx->height, videoEncCtx->pix_fmt,
-                (int)SwsFlags.SWS_BILINEAR, null, null, null);
-            if (swsCtx == null) throw new InvalidOperationException("DoTranscode: sws_getContext failed");
-
-            encVideoFrame = ffmpeg.av_frame_alloc();
-            if (encVideoFrame == null) throw new InvalidOperationException("DoTranscode: av_frame_alloc encVideoFrame failed");
-            encVideoFrame->format = (int)videoEncCtx->pix_fmt;
-            encVideoFrame->width = videoEncCtx->width;
-            encVideoFrame->height = videoEncCtx->height;
-            // av_image_alloc returns the buffer size in bytes (or
-            // negative on error) and populates encVideoData /
-            // encVideoLinesize with plane pointers + strides. The
-            // returned size is informational — we just need a
-            // non-negative result to confirm allocation succeeded.
-            // We then mirror the data pointers into encVideoFrame so
-            // avcodec_send_frame sees the same memory; the AVFrame
-            // struct itself doesn't own the buffer, av_freep in the
-            // finally block does.
-            ret = ffmpeg.av_image_alloc(ref encVideoData, ref encVideoLinesize,
-                videoEncCtx->width, videoEncCtx->height, videoEncCtx->pix_fmt, 1);
-            if (ret < 0) throw new InvalidOperationException($"DoTranscode: av_image_alloc video failed (rc={ret})");
-            encVideoBuf = encVideoData[0]; // single allocation owns all planes
-            // Mirror into encVideoFrame for avcodec_send_frame.
-            encVideoFrame->data[0] = encVideoData[0];
-            encVideoFrame->data[1] = encVideoData[1];
-            encVideoFrame->data[2] = encVideoData[2];
-            encVideoFrame->data[3] = encVideoData[3];
-            encVideoFrame->linesize[0] = encVideoLinesize[0];
-            encVideoFrame->linesize[1] = encVideoLinesize[1];
-            encVideoFrame->linesize[2] = encVideoLinesize[2];
-            encVideoFrame->linesize[3] = encVideoLinesize[3];
-
-            // ----------------------------------------------------------------
-            // Audio resampler + encoder input frame (if audio present)
-            // swr_alloc_set_opts2 takes AVChannelLayout* and SwrContext**
-            // (replacing the old swr_alloc_set_opts that took uint64
-            // channel masks + SwrContext*).
-            // ----------------------------------------------------------------
-            if (audioDecCtx != null && audioEncCtx != null)
-            {
-                ffmpeg.av_channel_layout_default(&inChLayout, audioDecCtx->ch_layout.nb_channels > 0 ? audioDecCtx->ch_layout.nb_channels : 2);
-                ret = ffmpeg.swr_alloc_set_opts2(&swrCtx,
-                    &outChLayout, audioEncCtx->sample_fmt, audioEncCtx->sample_rate,
-                    &inChLayout, audioDecCtx->sample_fmt, audioDecCtx->sample_rate,
-                    0, null);
-                if (ret < 0) throw new InvalidOperationException($"DoTranscode: swr_alloc_set_opts2 failed (rc={ret})");
-                if (swrCtx == null) throw new InvalidOperationException("DoTranscode: swr_alloc_set_opts2 returned null context");
-                ret = ffmpeg.swr_init(swrCtx);
-                if (ret < 0) throw new InvalidOperationException($"DoTranscode: swr_init failed (rc={ret})");
-
-                encAudioFrame = ffmpeg.av_frame_alloc();
-                if (encAudioFrame == null) throw new InvalidOperationException("DoTranscode: av_frame_alloc encAudioFrame failed");
-                encAudioFrame->format = (int)audioEncCtx->sample_fmt;
-                encAudioFrame->ch_layout = outChLayout;
-                encAudioFrame->sample_rate = audioEncCtx->sample_rate;
-                // AAC frame = 1024 samples regardless of input frame size
-                encAudioFrame->nb_samples = 1024;
-                // av_samples_alloc returns the buffer size in bytes
-                // and writes the linesize (bytes per channel) to
-                // encAudioLinesize. For planar formats each channel
-                // gets a separate plane, but av_samples_alloc returns
-                // a single buffer the caller must free via av_freep.
-                ret = ffmpeg.av_samples_alloc(
-                    &encAudioBuf, &encAudioLinesize,
-                    2, 1024, audioEncCtx->sample_fmt, 1);
-                if (ret < 0 || encAudioBuf == null) throw new InvalidOperationException($"DoTranscode: av_samples_alloc audio failed (rc={ret})");
-                // Wire encAudioFrame's planes to our buffer. For FLTP
-                // (planar) channel 0 starts at the buffer head, channel
-                // 1 starts at linesize bytes in (per-channel linesize).
-                encAudioFrame->data[0] = encAudioBuf;
-                encAudioFrame->data[1] = encAudioBuf + encAudioLinesize;
-                encAudioFrame->linesize[0] = encAudioLinesize;
-                encAudioFrame->linesize[1] = encAudioLinesize;
-                // Allocate the persistent channel pointer array used
-                // by swr_convert. AV_MALLOC_ARRAY macro equivalent —
-                // av_malloc with explicit size (no av_mallocz_array in
-                // AutoGen wrapper, hence the manual zeroing).
-                encAudioChannelPtrs = (byte**)ffmpeg.av_malloc((ulong)(sizeof(byte*) * 8));
-                if (encAudioChannelPtrs == null) throw new InvalidOperationException("DoTranscode: av_malloc encAudioChannelPtrs failed");
-                for (var i = 0; i < 8; i++) encAudioChannelPtrs[i] = null;
-                encAudioChannelPtrs[0] = encAudioBuf;
-                encAudioChannelPtrs[1] = encAudioBuf + encAudioLinesize;
-            }
-
-            // ----------------------------------------------------------------
-            // Allocate packet + decoder frames
-            // ----------------------------------------------------------------
-            packet = ffmpeg.av_packet_alloc();
-            if (packet == null) throw new InvalidOperationException("DoTranscode: av_packet_alloc failed");
-            decVideoFrame = ffmpeg.av_frame_alloc();
-            if (decVideoFrame == null) throw new InvalidOperationException("DoTranscode: av_frame_alloc decVideoFrame failed");
-            if (audioDecCtx != null && audioEncCtx != null)
-            {
-                decAudioFrame = ffmpeg.av_frame_alloc();
-                if (decAudioFrame == null) throw new InvalidOperationException("DoTranscode: av_frame_alloc decAudioFrame failed");
-            }
-
-            // ----------------------------------------------------------------
-            // Main loop: read → decode → scale → encode → write
-            // Note: encode / drain are INLINED (not extracted to local
-            // functions) because C# unsafe local functions can't capture
-            // stack-local pointer variables (CS1686). Local-function
-            // extraction would force a refactor to static methods +
-            // parameters.
-            // ----------------------------------------------------------------
-            while (true)
-            {
-                if ((packetCount++ & (progressIntervalPackets - 1)) == 0)
-                {
-                    ct.ThrowIfCancellationRequested();
-                }
-
-                ret = ffmpeg.av_read_frame(inFmt, packet);
-                if (ret < 0)
-                {
-                    break; // EOF or fatal read error
-                }
-
-                if (packet->stream_index == videoStreamIdx)
-                {
-                    ret = ffmpeg.avcodec_send_packet(videoDecCtx, packet);
-                    ffmpeg.av_packet_unref(packet);
-                    if (ret < 0)
-                    {
-                        Trace.TraceWarning($"DoTranscode: avcodec_send_packet video failed (rc={ret}); skipping");
-                        continue;
-                    }
-                    while (ffmpeg.avcodec_receive_frame(videoDecCtx, decVideoFrame) == 0)
-                    {
-                        // Progress (input duration based)
-                        if (progress != null && totalDurationUs > 0)
-                        {
-                            var currentUs = decVideoFrame->best_effort_timestamp >= 0
-                                ? ffmpeg.av_rescale_q(decVideoFrame->best_effort_timestamp,
-                                    inFmt->streams[videoStreamIdx]->time_base,
-                                    new AVRational { num = 1, den = ffmpeg.AV_TIME_BASE })
-                                : 0;
-                            if (currentUs - lastReportedUs >= ffmpeg.AV_TIME_BASE)
-                            {
-                                lastReportedUs = currentUs;
-                                progress.Report(Math.Clamp(currentUs / (double)totalDurationUs, 0.0, 1.0));
-                            }
-                        }
-
-                        // Scale decoder pix_fmt → encoder yuv420p
-                        ret = ffmpeg.sws_scale(swsCtx,
-                            decVideoFrame->data, decVideoFrame->linesize, 0, videoDecCtx->height,
-                            encVideoFrame->data, encVideoFrame->linesize);
-                        encVideoFrame->pts = decVideoFrame->pts;
-                        ffmpeg.av_frame_unref(decVideoFrame);
-                        if (ret < 0)
-                        {
-                            Trace.TraceWarning($"DoTranscode: sws_scale failed (rc={ret}); skipping frame");
-                            continue;
-                        }
-
-                        // Encode
-                        ret = ffmpeg.avcodec_send_frame(videoEncCtx, encVideoFrame);
-                        ffmpeg.av_frame_unref(encVideoFrame);
-                        if (ret < 0)
-                        {
-                            Trace.TraceWarning($"DoTranscode: avcodec_send_frame video failed (rc={ret})");
-                            continue;
-                        }
-                        while (ffmpeg.avcodec_receive_packet(videoEncCtx, packet) == 0)
-                        {
-                            ffmpeg.av_packet_rescale_ts(packet, videoEncCtx->time_base, outFmt->streams[outVideoStreamIdx]->time_base);
-                            packet->stream_index = outVideoStreamIdx;
-                            ffmpeg.av_interleaved_write_frame(outFmt, packet);
-                            ffmpeg.av_packet_unref(packet);
-                        }
-                    }
-                }
-                else if (audioDecCtx != null && audioEncCtx != null && packet->stream_index == audioStreamIdx)
-                {
-                    ret = ffmpeg.avcodec_send_packet(audioDecCtx, packet);
-                    ffmpeg.av_packet_unref(packet);
-                    if (ret < 0) continue;
-                    while (ffmpeg.avcodec_receive_frame(audioDecCtx, decAudioFrame) == 0)
-                    {
-                        // Resample decoded audio → encoder input.
-                        // swr_convert wants byte** (pointer to channel
-                        // plane pointers). For destination we pass our
-                        // manually-allocated encAudioChannelPtrs; for
-                        // source the decoder-populated extended_data.
-                        // (decAudioFrame->data can't be used because
-                        // byte_ptrArray8 doesn't convert to byte** and
-                        // you can't take &data[0] in C# — CS0211.)
-                        ret = ffmpeg.swr_convert(swrCtx,
-                            encAudioChannelPtrs, encAudioFrame->nb_samples,
-                            decAudioFrame->extended_data, decAudioFrame->nb_samples);
-                        encAudioFrame->pts = decAudioFrame->pts;
-                        if (ret < 0)
-                        {
-                            Trace.TraceWarning($"DoTranscode: swr_convert failed (rc={ret})");
-                            ffmpeg.av_frame_unref(decAudioFrame);
-                            continue;
-                        }
-
-                        ret = ffmpeg.avcodec_send_frame(audioEncCtx, encAudioFrame);
-                        if (ret < 0)
-                        {
-                            Trace.TraceWarning($"DoTranscode: avcodec_send_frame audio failed (rc={ret})");
-                            ffmpeg.av_frame_unref(decAudioFrame);
-                            continue;
-                        }
-                        while (ffmpeg.avcodec_receive_packet(audioEncCtx, packet) == 0)
-                        {
-                            ffmpeg.av_packet_rescale_ts(packet, audioEncCtx->time_base, outFmt->streams[outAudioStreamIdx]->time_base);
-                            packet->stream_index = outAudioStreamIdx;
-                            ffmpeg.av_interleaved_write_frame(outFmt, packet);
-                            ffmpeg.av_packet_unref(packet);
-                        }
-                        ffmpeg.av_frame_unref(decAudioFrame);
-                    }
-                }
-                else
-                {
-                    // Subtitle / data stream we don't carry through.
-                    ffmpeg.av_packet_unref(packet);
-                }
-            }
-
-            // ----------------------------------------------------------------
-            // Flush decoders (drain remaining buffered frames), then
-            // flush encoders (drain delayed frames). Same inlined shape
-            // as the main loop.
-            // ----------------------------------------------------------------
-            ffmpeg.avcodec_send_packet(videoDecCtx, null);
-            while (ffmpeg.avcodec_receive_frame(videoDecCtx, decVideoFrame) == 0)
-            {
-                ffmpeg.sws_scale(swsCtx, decVideoFrame->data, decVideoFrame->linesize, 0, videoDecCtx->height,
-                    encVideoFrame->data, encVideoFrame->linesize);
-                encVideoFrame->pts = decVideoFrame->pts;
-                ffmpeg.av_frame_unref(decVideoFrame);
-                ret = ffmpeg.avcodec_send_frame(videoEncCtx, encVideoFrame);
-                ffmpeg.av_frame_unref(encVideoFrame);
-                if (ret < 0) continue;
-                while (ffmpeg.avcodec_receive_packet(videoEncCtx, packet) == 0)
-                {
-                    ffmpeg.av_packet_rescale_ts(packet, videoEncCtx->time_base, outFmt->streams[outVideoStreamIdx]->time_base);
-                    packet->stream_index = outVideoStreamIdx;
-                    ffmpeg.av_interleaved_write_frame(outFmt, packet);
-                    ffmpeg.av_packet_unref(packet);
-                }
-            }
-
-            if (audioDecCtx != null && audioEncCtx != null)
-            {
-                ffmpeg.avcodec_send_packet(audioDecCtx, null);
-                while (ffmpeg.avcodec_receive_frame(audioDecCtx, decAudioFrame) == 0)
-                {
-                    // Same pattern as main loop — encAudioChannelPtrs +
-                    // decAudioFrame->extended_data.
-                    ffmpeg.swr_convert(swrCtx,
-                        encAudioChannelPtrs, encAudioFrame->nb_samples,
-                        decAudioFrame->extended_data, decAudioFrame->nb_samples);
-                    encAudioFrame->pts = decAudioFrame->pts;
-                    ret = ffmpeg.avcodec_send_frame(audioEncCtx, encAudioFrame);
-                    if (ret < 0)
-                    {
-                        ffmpeg.av_frame_unref(decAudioFrame);
-                        continue;
-                    }
-                    while (ffmpeg.avcodec_receive_packet(audioEncCtx, packet) == 0)
-                    {
-                        ffmpeg.av_packet_rescale_ts(packet, audioEncCtx->time_base, outFmt->streams[outAudioStreamIdx]->time_base);
-                        packet->stream_index = outAudioStreamIdx;
-                        ffmpeg.av_interleaved_write_frame(outFmt, packet);
-                        ffmpeg.av_packet_unref(packet);
-                    }
-                    ffmpeg.av_frame_unref(decAudioFrame);
-                }
-            }
-
-            // Flush encoders
-            ffmpeg.avcodec_send_frame(videoEncCtx, null);
-            while (ffmpeg.avcodec_receive_packet(videoEncCtx, packet) == 0)
-            {
-                ffmpeg.av_packet_rescale_ts(packet, videoEncCtx->time_base, outFmt->streams[outVideoStreamIdx]->time_base);
-                packet->stream_index = outVideoStreamIdx;
-                ffmpeg.av_interleaved_write_frame(outFmt, packet);
-                ffmpeg.av_packet_unref(packet);
-            }
-
-            if (audioEncCtx != null)
-            {
-                ffmpeg.avcodec_send_frame(audioEncCtx, null);
-                while (ffmpeg.avcodec_receive_packet(audioEncCtx, packet) == 0)
-                {
-                    ffmpeg.av_packet_rescale_ts(packet, audioEncCtx->time_base, outFmt->streams[outAudioStreamIdx]->time_base);
-                    packet->stream_index = outAudioStreamIdx;
-                    ffmpeg.av_interleaved_write_frame(outFmt, packet);
-                    ffmpeg.av_packet_unref(packet);
-                }
-            }
-
-            ret = ffmpeg.av_write_trailer(outFmt);
-            if (ret < 0)
-            {
-                throw new InvalidOperationException($"DoTranscode: av_write_trailer failed (rc={ret})");
-            }
-
-            progress?.Report(1.0);
-        }
-        finally
-        {
-            // Free order: derived → contexts → io. Same rule as RemuxToMp4:
-            // avformat_free_context does NOT close pb — call avio_closep
-            // separately. Uninit ch_layout structs we created via
-            // av_channel_layout_default (the runtime doesn't auto-clean).
-            ffmpeg.av_channel_layout_uninit(&outChLayout);
-            ffmpeg.av_channel_layout_uninit(&inChLayout);
-            if (encAudioChannelPtrs != null) ffmpeg.av_free(encAudioChannelPtrs);
-            if (encAudioBuf != null) ffmpeg.av_freep(&encAudioBuf);
-            if (encVideoBuf != null) ffmpeg.av_freep(&encVideoBuf);
-            if (packet != null) { var local = packet; ffmpeg.av_packet_free(&local); }
-            if (decAudioFrame != null) { var local = decAudioFrame; ffmpeg.av_frame_free(&local); }
-            if (encAudioFrame != null) { var local = encAudioFrame; ffmpeg.av_frame_free(&local); }
-            if (decVideoFrame != null) { var local = decVideoFrame; ffmpeg.av_frame_free(&local); }
-            if (encVideoFrame != null) { var local = encVideoFrame; ffmpeg.av_frame_free(&local); }
-            if (swrCtx != null) ffmpeg.swr_free(&swrCtx);
-            if (swsCtx != null) ffmpeg.sws_freeContext(swsCtx);
-            if (audioEncCtx != null) { var local = audioEncCtx; ffmpeg.avcodec_free_context(&local); }
-            if (audioDecCtx != null) { var local = audioDecCtx; ffmpeg.avcodec_free_context(&local); }
-            if (videoEncCtx != null) { var local = videoEncCtx; ffmpeg.avcodec_free_context(&local); }
-            if (videoDecCtx != null) { var local = videoDecCtx; ffmpeg.avcodec_free_context(&local); }
-            if (outFmt != null)
-            {
-                if (outFmt->pb != null) ffmpeg.avio_closep(&outFmt->pb);
-                ffmpeg.avformat_free_context(outFmt);
-            }
-            if (inFmt != null) { var local = inFmt; ffmpeg.avformat_close_input(&local); }
         }
     }
 

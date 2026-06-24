@@ -345,115 +345,53 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-
-                <!--
-                    Idle / pre-play state. Visible whenever the strip
-                    is shown AND IsTranscoding is false. Shows the
-                    play button, filename + duration label, and the
-                    volume slider with percentage readout.
-                -->
-                <Grid Grid.Column="0"
-                      Grid.ColumnSpan="3"
-                      Visibility="{x:Bind ViewModel.PrePlayControlsVisibility, Mode=OneWay}">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0"
-                            Click="PlayOverlay_Click"
+                <Button Grid.Column="0"
+                        Click="PlayOverlay_Click"
+                        VerticalAlignment="Center"
+                        Padding="8,4"
+                        ToolTipService.ToolTip="播放 (Space)">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE768;" FontSize="14"/>
+                        <TextBlock Text="播放"/>
+                    </StackPanel>
+                </Button>
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
                             VerticalAlignment="Center"
-                            Padding="8,4"
-                            ToolTipService.ToolTip="播放 (Space)">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE768;" FontSize="14"/>
-                            <TextBlock Text="播放"/>
-                        </StackPanel>
-                    </Button>
-                    <StackPanel Grid.Column="1"
-                                Orientation="Horizontal"
-                                VerticalAlignment="Center"
-                                Spacing="8">
-                        <TextBlock Text="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"
-                                   TextTrimming="CharacterEllipsis"
-                                   MaxLines="1"
-                                   FontSize="13"/>
-                        <TextBlock Text="{x:Bind ViewModel.PrePlayDurationText, Mode=OneWay}"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   FontSize="13"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="2"
-                                Orientation="Horizontal"
-                                VerticalAlignment="Center"
-                                Spacing="6"
-                                MinWidth="180">
-                        <FontIcon Glyph="&#xE767;"
-                                  FontSize="14"
-                                  VerticalAlignment="Center"/>
-                        <Slider x:Name="PrePlayVolumeSlider"
-                                Value="{x:Bind ViewModel.Volume, Mode=TwoWay}"
-                                Minimum="0"
-                                Maximum="1"
-                                StepFrequency="0.01"
-                                SmallChange="0.01"
-                                LargeChange="0.1"
-                                VerticalAlignment="Center"
-                                MinWidth="120"
-                                ToolTipService.ToolTip="音量"/>
-                        <TextBlock Text="{x:Bind ViewModel.VolumePercent, Mode=OneWay}"
-                                   VerticalAlignment="Center"
-                                   FontSize="12"
-                                   MinWidth="36"
-                                   TextAlignment="Right"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-                </Grid>
-
-                <!--
-                    Transcoding state. Visible only while IsTranscoding
-                    is true. Shows a progress bar bound to
-                    TranscodeProgress plus a Cancel button. Replaces
-                    the play controls entirely — while we're FFmpeg-
-                    reencoding the source to H.264, the user has no
-                    other action available except Cancel.
-                -->
-                <Grid Grid.Column="0"
-                      Grid.ColumnSpan="3"
-                      Visibility="{x:Bind ViewModel.TranscodeProgressVisibility, Mode=OneWay}">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0"
-                                Orientation="Horizontal"
-                                VerticalAlignment="Center"
-                                Spacing="6">
-                        <ProgressRing IsActive="True"
-                                      Width="16" Height="16"
-                                      IsIndeterminate="False"
-                                      Value="{x:Bind ViewModel.TranscodeProgress, Mode=OneWay}"
-                                      Maximum="1"/>
-                        <TextBlock Text="转码中..."
-                                   VerticalAlignment="Center"
-                                   FontSize="13"/>
-                    </StackPanel>
-                    <ProgressBar Grid.Column="1"
-                                 Value="{x:Bind ViewModel.TranscodeProgress, Mode=OneWay}"
-                                 Maximum="1"
-                                 VerticalAlignment="Center"
-                                 Margin="12,0"
-                                 MinHeight="6"/>
-                    <Button Grid.Column="2"
-                            Command="{x:Bind ViewModel.CancelTranscodeCommand}"
+                            Spacing="8">
+                    <TextBlock Text="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"
+                               TextTrimming="CharacterEllipsis"
+                               MaxLines="1"
+                               FontSize="13"/>
+                    <TextBlock Text="{x:Bind ViewModel.PrePlayDurationText, Mode=OneWay}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               FontSize="13"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
                             VerticalAlignment="Center"
-                            Padding="8,4">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE711;" FontSize="14"/>
-                            <TextBlock Text="取消"/>
-                        </StackPanel>
-                    </Button>
-                </Grid>
+                            Spacing="6"
+                            MinWidth="180">
+                    <FontIcon Glyph="&#xE767;"
+                              FontSize="14"
+                              VerticalAlignment="Center"/>
+                    <Slider x:Name="PrePlayVolumeSlider"
+                            Value="{x:Bind ViewModel.Volume, Mode=TwoWay}"
+                            Minimum="0"
+                            Maximum="1"
+                            StepFrequency="0.01"
+                            SmallChange="0.01"
+                            LargeChange="0.1"
+                            VerticalAlignment="Center"
+                            MinWidth="120"
+                            ToolTipService.ToolTip="音量"/>
+                    <TextBlock Text="{x:Bind ViewModel.VolumePercent, Mode=OneWay}"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               MinWidth="36"
+                               TextAlignment="Right"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
             </Grid>
             <!--
                 Two containers for the MediaPlayerElement. The element
