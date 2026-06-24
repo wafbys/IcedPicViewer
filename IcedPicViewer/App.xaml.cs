@@ -25,6 +25,24 @@ public partial class App : Application
     /// </summary>
     public static MainWindow? MainWindow => (MainWindow?)((App)Current)._window;
 
+    /// <summary>
+    /// Self-registration entry point for <see cref="MainWindow"/>.
+    /// Called from MainWindow's constructor as the FIRST line of
+    /// its body, so pages navigated inside the ctor (via
+    /// RootFrame.Navigate) can see App.MainWindow as a non-null
+    /// reference. Without this, OnLaunched's
+    /// <c>_window = new MainWindow()</c> only assigns _window AFTER
+    /// the ctor body completes — but the ctor body itself calls
+    /// RootFrame.Navigate, which triggers page constructors, which
+    /// read App.MainWindow and find null, and silently fail to
+    /// subscribe to PropertyChanged. Symptom: every fullscreen
+    /// toggle (F11 / Esc / button click) raises the event but no
+    /// subscriber exists, so the chrome stays exactly as it was at
+    /// last render. SetMainWindow breaks the chicken-and-egg by
+    /// letting the window publish itself before any page asks.
+    /// </summary>
+    internal void SetMainWindow(MainWindow window) => _window = window;
+
     public App()
     {
         // Microsoft official guidance: rely on the auto-generated

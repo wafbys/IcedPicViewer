@@ -10,10 +10,11 @@ using Microsoft.UI.Xaml.Controls;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using Windows.Media.Playback;
 
 namespace IcedPicViewer;
 
-public sealed partial class MainWindow : Window
+public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPropertyChanged
 {
     private const string SettingsFile = "window_settings.txt";
     private const string AppDataFolder = "IcedPicViewer";
@@ -51,6 +52,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     public void ToggleFullscreen()
     {
+        var prevIsFullscreen = IsFullscreen;
         if (IsFullscreen)
         {
             AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
@@ -59,14 +61,38 @@ public sealed partial class MainWindow : Window
         {
             AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
         }
-        // Manually fire PropertyChanged so the viewer's x:Bind
-        // recomputes IsFullscreenGlyph / IsFullscreenLabel /
-        // IsFullscreenTooltip after each toggle. The AppWindow
-        // presenter itself doesn't notify, and we can't put a
-        // smarter binding on it without restructuring MainWindow
-        // to be a full INotifyPropertyChanged source.
+        LogKbd($"ToggleFullscreen: prev={prevIsFullscreen} after_SetPresenter={IsFullscreen} presenter={AppWindow.Presenter.Kind}");
         OnPropertyChanged(nameof(IsFullscreen));
+        OnPropertyChanged(nameof(IsAppTitleBarVisible));
+        // Defer a second notification by one dispatcher tick. Symptom
+        // we are hunting: in MSIX packaged mode on Win 11 25H2 we
+        // observed that AppWindow.SetPresenter returns synchronously
+        // but AppWindow.Presenter.Kind doesn't actually flip until
+        // the next dispatcher round-trip — so when subscribers
+        // (GalleryView / ImageViewerView) read MainWindow.IsFullscreen
+        // inside their OnMainWindowPropertyChanged handler, they see
+        // the OLD value, fall into the wrong branch of the if/else,
+        // and the chrome fails to collapse. Re-raising the same
+        // notification on the next tick catches the eventual value.
+        // Cheap (one extra OnPropertyChanged) and idempotent if the
+        // platform behaviour changes in the future.
+        DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
+        {
+            LogKbd($"ToggleFullscreen deferred tick: IsFullscreen={IsFullscreen} presenter={AppWindow.Presenter.Kind}");
+            OnPropertyChanged(nameof(IsFullscreen));
+            OnPropertyChanged(nameof(IsAppTitleBarVisible));
+        });
     }
+
+    /// <summary>
+    /// True when the in-app <see cref="Microsoft.UI.Xaml.Controls.TitleBar"/>
+    /// element should be visible. Visible in windowed mode (so the
+    /// user gets the custom title bar content with icon + commit
+    /// hash); collapsed in fullscreen (where the OS title bar is
+    /// already hidden by the FullScreen presenter and the in-app
+    /// TitleBar would only waste vertical space).
+    /// </summary>
+    public bool IsAppTitleBarVisible => !IsFullscreen;
 
     public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
@@ -75,6 +101,21 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        // Self-register with App so pages navigated inside this ctor
+        // (RootFrame.Navigate → GalleryView ctor at line ~145) can see
+        // App.MainWindow as a non-null reference. Without this the
+        // App.OnLaunched assignment `_window = new MainWindow()` lands
+        // AFTER this ctor body finishes — by then any pages that ran
+        // inside have already evaluated `App.MainWindow is null` and
+        // skipped their PropertyChanged subscription. Symptom: every
+        // fullscreen toggle (F11 / Esc / button click) raises the
+        // event but no subscriber exists, chrome stays as-is forever.
+        // See App.SetMainWindow doc comment for the full chronology.
+        if (Application.Current is App app)
+        {
+            app.SetMainWindow(this);
+        }
+
         InitializeComponent();
 
         ExtendsContentIntoTitleBar = true;
@@ -217,6 +258,8 @@ public sealed partial class MainWindow : Window
     private const string KbdLogPath = "kbd.log";
 
     private static readonly object _logLock = new();
+    internal static void LogApp(string msg) => LogKbd($"app: {msg}");
+
     private static void LogKbd(string msg)
     {
         lock (_logLock)
@@ -240,6 +283,24 @@ public sealed partial class MainWindow : Window
 
     private void HandleViewerKey(Windows.System.VirtualKey key)
     {
+        // F11 is the only key that fires regardless of which page is
+        // on screen — it toggles the window-level fullscreen state
+        // (AppWindow.Presenter), which is the same operation for the
+        // gallery and the viewer. Everything else is page-specific
+        // (gallery has no hotkeys) so we route through the page-type
+        // check below.
+        if (key == Windows.System.VirtualKey.F11)
+        {
+            // F11 is the conventional "fullscreen" toggle key in
+            // most image viewers. Toggling here routes through the
+            // same ToggleFullscreen method as the viewer's button,
+            // so the presenter kind + the button's IsFullscreen-
+            // derived glyph/label/tooltip stay in sync regardless
+            // of which input triggered the change.
+            ToggleFullscreen();
+            return;
+        }
+
         // ImageViewerView binds via x:Bind to a ViewModel field on the code-behind
         // (not through DataContext), so DataContext is null here — read VM from
         // the typed ViewModel property exposed on the page.
@@ -275,15 +336,66 @@ public sealed partial class MainWindow : Window
                 if (vm.PlayCommand.CanExecute(null))
                     vm.PlayCommand.Execute(null);
                 break;
-            case Windows.System.VirtualKey.F11:
-                // F11 is the conventional "fullscreen" toggle key in
-                // most image viewers. Toggling here routes through the
-                // same ToggleFullscreen method as the viewer's button,
-                // so the presenter kind + the button's IsFullscreen-
-                // derived glyph/label/tooltip stay in sync regardless
-                // of which input triggered the change.
-                ToggleFullscreen();
+            case Windows.System.VirtualKey.Number0:
+            case Windows.System.VirtualKey.Number1:
+            case Windows.System.VirtualKey.Number2:
+            case Windows.System.VirtualKey.Number3:
+            case Windows.System.VirtualKey.Number4:
+            case Windows.System.VirtualKey.Number5:
+            case Windows.System.VirtualKey.Number6:
+            case Windows.System.VirtualKey.Number7:
+            case Windows.System.VirtualKey.Number8:
+            case Windows.System.VirtualKey.Number9:
+                // VLC / mpv convention: 1-9 jump to 10%..90% of the
+                // current video; 0 jumps to 0% (start). Only fires
+                // for video items (IsVideo check inside the helper);
+                // pressing a digit while viewing an image is a no-op.
+                // Decoupled from Space (play/pause) so the two keys
+                // don't fight over the WH_KEYBOARD hook — Space goes
+                // through PlayCommand's CanExecute gate, digits are
+                // an explicit seek.
+                var digit = (int)key - (int)Windows.System.VirtualKey.Number0;
+                var percent = digit * 10;
+                HandleNumberKeySeek(vm, percent);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Jump the current video to the given percentage of its total
+    /// duration (0-100). Mirrors the VLC / mpv convention where
+    /// 1-9 are 10%..90% and 0 is the start. No-op for image items
+    /// (no position to seek to) and for videos whose duration hasn't
+    /// loaded yet (NaturalDuration == Zero, which happens for the
+    /// first ~100ms after the source opens). Pauses before seeking
+    /// and resumes if the video was playing — seeking on a playing
+    /// video can stutter on the native side, and the resume keeps
+    /// the user's "I'm watching this, not paused" intent intact.
+    /// </summary>
+    private static void HandleNumberKeySeek(ImageViewModel vm, int percent)
+    {
+        if (!vm.IsVideo) return;
+        var player = vm.MediaPlayer;
+        if (player == null) return;
+
+        var duration = player.PlaybackSession.NaturalDuration;
+        if (duration == TimeSpan.Zero) return;
+
+        var wasPlaying = player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+        if (wasPlaying)
+        {
+            // Pause before seeking — seeking on a playing video
+            // can stutter the native pipeline.
+            player.Pause();
+        }
+        player.PlaybackSession.Position = TimeSpan.FromSeconds(duration.TotalSeconds * percent / 100.0);
+        if (wasPlaying)
+        {
+            // Resume so the user lands at the new position while
+            // the video is rolling. The 200ms controls-timer tick
+            // in the viewer will refresh the slider / time-text
+            // glyphs in the next frame.
+            player.Play();
         }
     }
 

@@ -18,7 +18,18 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TitleBar x:Name="AppTitleBar" Title="IcedPicViewer">
+        <!--
+            In-app TitleBar element (custom content for the OS title bar
+            strip). Visibility is bound to IsAppTitleBarVisible, which
+            flips to Collapsed when the window enters fullscreen
+            presenter — even though the OS title bar is hidden by
+            FullScreen presenter, the in-app TitleBar element is still
+            part of the layout and would otherwise occupy the top ~32
+            px. Row height is Auto so Collapsed → row collapses to 0.
+        -->
+        <TitleBar x:Name="AppTitleBar"
+                  Title="IcedPicViewer"
+                  Visibility="{x:Bind IsAppTitleBarVisible, Mode=OneWay}">
             <TitleBar.IconSource>
                 <ImageIconSource ImageSource="Assets/AppIcon.ico" />
             </TitleBar.IconSource>
