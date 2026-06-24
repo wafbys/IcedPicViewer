@@ -23,6 +23,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     private readonly IImageLoader _imageLoader;
     private readonly IVideoMetadataService _videoMetadataService;
     private readonly INavigationService _navigationService;
+    private readonly IDialogService _dialogService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource? _loadCts;
     private MediaPlayer? _mediaPlayer;
@@ -490,6 +491,14 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
             var player = new MediaPlayer();
             player.Source = source;
+            // Subscribe before SetSource so we don't miss a fast-failing
+            // decode (e.g. unsupported codec → MediaFailed fires within
+            // tens of milliseconds on a clean Win10/11 install). The
+            // handlers are named so StopAndDisposePlayer can unsubscribe
+            // without keeping a lambda capture alive past the player's
+            // lifetime — see AGENTS.md "MemFree event handlers" rule.
+            player.MediaOpened += OnMediaPlayerOpened;
+            player.MediaFailed += OnMediaPlayerFailed;
             // Order: set MediaPlayer first so the MediaPlayerElement binds
             // to the live instance, then flip IsVideoPlaying so the player
             // surface becomes visible, then call Play(). Calling Play()
@@ -523,6 +532,118 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     private bool CanPlay() => IsVideo && !IsVideoPlaying && _mediaPlayer == null;
 
+    // ----------------------------------------------------------------
+    // MediaPlayer event handlers.
+    //
+    // MediaOpened is informational — fired after the source's first
+    // frame is decoded and ready to render. Useful for "loading" state
+    // in the future; right now we only log it so a misbehaving file
+    // leaves a breadcrumb in Trace output.
+    //
+    // MediaFailed is the critical one. Without it, MediaPlayer silently
+    // sits there doing nothing when MF rejects the source — this is the
+    // bug behind "the .mov remuxes but won't actually play": the remux
+    // produces a valid MP4 file, MediaPlayer.Source accepts it, but MF
+    // then can't decode the codec inside (typical: HEVC/H.265 on Win10,
+    // or any codec the OS doesn't ship a decoder for). The user
+    // previously saw "no error + no playback" — we'd swallow the only
+    // signal that something went wrong. We now marshal the error to
+    // the UI thread, log it (Trace + the same kbd.log-style diagnostics
+    // path the rest of the VM uses), and show a ContentDialog so the
+    // user actually knows what happened.
+    // ----------------------------------------------------------------
+
+    private void OnMediaPlayerOpened(MediaPlayer sender, object args)
+    {
+        Trace.TraceInformation($"ImageViewModel: MediaPlayer opened for {CurrentImage?.Id}");
+    }
+
+    private void OnMediaPlayerFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
+    {
+        // MediaFailed fires on a non-UI thread. The dispatcher's
+        // TryEnqueue queues a work item; if the VM is already disposed
+        // (player torn down mid-shutdown) the call returns false and we
+        // bail — no point showing a dialog to a window that's gone.
+        if (!_dispatcher.TryEnqueue(() => HandleMediaFailedOnUiThread(args)))
+        {
+            Trace.TraceWarning($"ImageViewModel: MediaFailed dropped (dispatcher unavailable): code=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
+        }
+    }
+
+    private void HandleMediaFailedOnUiThread(MediaPlayerFailedEventArgs args)
+    {
+        // Detach from the failed player — the player is unusable past
+        // this point. Calling StopAndDisposePlayer here would re-enter
+        // the same path (and double-dispose if the failure happened
+        // during Dispose itself), so we do a minimal reset: clear the
+        // VM's MediaPlayer reference, release the temp file, flip
+        // IsVideoPlaying back so the PlayOverlay button reappears for
+        // retry. PlayAsync's catch block handles the temp-file cleanup
+        // pattern; we mirror it here because the MediaFailed path
+        // doesn't go through that catch.
+        var failedPlayer = MediaPlayer;
+        var failedPath = _currentPlaybackPath;
+        MediaPlayer = null;
+        _currentPlaybackPath = null;
+        IsVideoPlaying = false;
+
+        if (failedPlayer is not null)
+        {
+            try { failedPlayer.Source = null; failedPlayer.Dispose(); }
+            catch (Exception ex) { Trace.TraceWarning($"ImageViewModel: failed player dispose threw: {ex.GetType().Name}: {ex.Message}"); }
+        }
+        if (failedPath is not null)
+        {
+            try { _videoMetadataService.ReleasePlaybackFilePath(failedPath); }
+            catch (Exception ex) { Trace.TraceWarning($"ImageViewModel: failed release threw: {ex.GetType().Name}: {ex.Message}"); }
+        }
+
+        // Log the full diagnostic first — Trace is always safe, the
+        // dialog below may fail to show (no XamlRoot, etc.) but the
+        // log entry still gives us a breadcrumb for postmortem.
+        Trace.TraceError($"ImageViewModel.MediaFailed for {CurrentImage?.Id}: error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
+
+        // Best-effort user-visible message. ShowInfoAsync swallows
+        // "no XamlRoot" silently so we don't need a try/catch here.
+        _ = _dialogService.ShowInfoAsync(
+            "视频播放失败",
+            BuildPlaybackErrorMessage(args),
+            "关闭");
+    }
+
+    /// <summary>
+    /// Turns a MediaPlayer error into a user-friendly explanation. The
+    /// raw HRESULT + ErrorMessage is technically accurate but unhelpful
+    /// for someone who just wants to know "why doesn't this play?". We
+    /// map the most common MF / WinRT error codes to a short explanation
+    /// and append the raw details so power users (or future debugging)
+    /// can still see the underlying cause.
+    /// </summary>
+    private static string BuildPlaybackErrorMessage(MediaPlayerFailedEventArgs args)
+    {
+        var hint = args.Error switch
+        {
+            MediaPlayerError.SourceNotSupported =>
+                "Media Foundation 不支持此视频格式 (SourceNotSupported)。\n\n" +
+                "常见原因:\n" +
+                "• 视频 codec 不被当前 Windows 版本识别 (例如 Win10 默认不带 HEVC/H.265 decoder)\n" +
+                "• 容器虽正确但 codec 头损坏或非标\n\n" +
+                "可尝试:用 FFmpeg / HandBrake 转封装成 H.264/AAC 的 mp4 后再播放。",
+            MediaPlayerError.DecodingError =>
+                "解码时发生错误 (DecodingError)。视频文件可能在传输中断、不完整,或 codec 参数异常。",
+            MediaPlayerError.NetworkError =>
+                "网络错误 (NetworkError)。此项目仅播放本地文件,不应触发此错误 — 可能是文件被外部 AV 扫描拦截。",
+            MediaPlayerError.Aborted =>
+                "播放被中止 (Aborted)。通常是用户切到下一张 / 关闭 viewer 时正在解码。",
+            _ => "未知播放错误。",
+        };
+
+        var details = $"HRESULT: 0x{args.ExtendedErrorCode:X8}\n" +
+                      $"类别: {args.Error}\n" +
+                      $"系统消息: {args.ErrorMessage}";
+        return hint + "\n\n— 详细信息 —\n" + details;
+    }
+
     /// <summary>
     /// Pauses + closes the active MediaPlayer and clears the field so the
     /// view's MediaPlayerElement detaches. Idempotent (no-op when the
@@ -543,6 +664,12 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         {
             try
             {
+                // Unsubscribe BEFORE dispose so a synchronous final
+                // MediaFailed from the teardown can't reach a half-
+                // disposed handler. Named handlers only — lambdas
+                // wouldn't unsubscribe cleanly.
+                oldPlayer.MediaOpened -= OnMediaPlayerOpened;
+                oldPlayer.MediaFailed -= OnMediaPlayerFailed;
                 oldPlayer.Pause();
                 // Drop the MediaSource before Dispose so the source's underlying
                 // file handle is released before the player tears down its
@@ -631,12 +758,13 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
     }
 
-    public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, IVideoMetadataService videoMetadataService, INavigationService navigationService)
+    public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, IVideoMetadataService videoMetadataService, INavigationService navigationService, IDialogService dialogService)
     {
         _galleryViewModel = galleryViewModel;
         _imageLoader = imageLoader;
         _videoMetadataService = videoMetadataService;
         _navigationService = navigationService;
+        _dialogService = dialogService;
 
         // Named handlers (not lambdas) so Dispose can unsubscribe — avoids lambda
         // captures keeping this singleton alive past the App's lifetime.
