@@ -383,8 +383,14 @@
                             SmallChange="0.01"
                             LargeChange="0.1"
                             VerticalAlignment="Center"
-                            MinWidth="140"
+                            MinWidth="120"
                             ToolTipService.ToolTip="音量"/>
+                    <TextBlock Text="{x:Bind ViewModel.VolumePercent, Mode=OneWay}"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               MinWidth="36"
+                               TextAlignment="Right"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
             </Grid>
             <!--

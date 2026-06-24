@@ -15,7 +15,13 @@ namespace IcedPicViewer.Services.Interfaces;
 /// <param name="Height">Encoded frame height in pixels.</param>
 /// <param name="Duration">Total playback length. <see cref="TimeSpan.Zero"/> when the container does not report a duration (e.g. a live HLS stream).</param>
 /// <param name="HasAudio">True when the file contains at least one audio stream.</param>
-public readonly record struct VideoMetadata(int Width, int Height, TimeSpan Duration, bool HasAudio);
+/// <param name="VideoCodec">FFmpeg short name of the primary video codec
+/// (e.g. <c>"h264"</c>, <c>"hevc"</c>, <c>"prores"</c>, <c>"vp9"</c>, <c>"av1"</c>).
+/// Empty when the file has no video stream or the codec couldn't be
+/// identified. Used by the playback error path to surface a
+/// codec-specific recovery hint (most common: ProRes in .mov → MF can't
+/// decode it regardless of container).</param>
+public readonly record struct VideoMetadata(int Width, int Height, TimeSpan Duration, bool HasAudio, string VideoCodec);
 
 /// <summary>
 /// Reads video metadata, extracts the first usable frame as a gallery-

@@ -7,6 +7,18 @@ public sealed partial class VideoItem : MediaItem
     public TimeSpan Duration { get; }
     public bool HasAudio { get; }
 
+    /// <summary>
+    /// FFmpeg short name of the video codec (e.g. <c>"h264"</c>,
+    /// <c>"hevc"</c>, <c>"prores"</c>, <c>"vp9"</c>, <c>"av1"</c>).
+    /// Empty when the codec couldn't be identified at scan time.
+    /// Used by the playback error path to surface a codec-specific
+    /// recovery hint — most commonly: ProRes in .mov files can't be
+    /// decoded by stock Windows Media Foundation regardless of
+    /// container, so the user needs either LAV Filters or to convert
+    /// the file to H.264/AAC with FFmpeg / HandBrake.
+    /// </summary>
+    public string Codec { get; }
+
     public VideoItem(
         ImageSource source,
         long fileSize,
@@ -14,11 +26,13 @@ public sealed partial class VideoItem : MediaItem
         int originalWidth,
         int originalHeight,
         TimeSpan duration,
-        bool hasAudio)
+        bool hasAudio,
+        string codec)
         : base(source, fileSize, modifiedTime, originalWidth, originalHeight)
     {
         Duration = duration;
         HasAudio = hasAudio;
+        Codec = codec;
     }
 
     /// <summary>

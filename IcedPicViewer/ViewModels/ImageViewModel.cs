@@ -479,7 +479,19 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// </para>
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VolumePercent))]
     public partial double Volume { get; set; } = 1.0;
+
+    /// <summary>
+    /// Volume rendered as an integer percentage (e.g. "0" / "50" /
+    /// "100") with a "%" suffix. The underlying Volume stays on the
+    /// [0.0, 1.0] scale because that's what <see cref="MediaPlayer.Volume"/>
+    /// wants; this view is purely for the human-readable label next to
+    /// the slider. Binding it with <c>Mode=OneWay</c> (vs. TwoWay on
+    /// the underlying Volume) means a stray binding-source edit can't
+    /// accidentally re-write through the percentage and lose precision.
+    /// </summary>
+    public string VolumePercent => $"{(int)Math.Round(Volume * 100.0)}%";
 
     partial void OnVolumeChanged(double value)
     {
@@ -726,9 +738,13 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
         // Best-effort user-visible message. ShowInfoAsync swallows
         // "no XamlRoot" silently so we don't need a try/catch here.
+        // Pull the codec off CurrentImage up front so the hint can be
+        // codec-specific (ProRes vs HEVC vs AV1 each need different
+        // recovery advice). The trace below still logs the full args.
+        var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
         _ = _dialogService.ShowInfoAsync(
             "视频播放失败",
-            BuildPlaybackErrorMessage(args),
+            BuildPlaybackErrorMessage(args, codec),
             "关闭");
     }
 
@@ -737,19 +753,21 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// raw HRESULT + ErrorMessage is technically accurate but unhelpful
     /// for someone who just wants to know "why doesn't this play?". We
     /// map the most common MF / WinRT error codes to a short explanation
-    /// and append the raw details so power users (or future debugging)
-    /// can still see the underlying cause.
+    /// AND, when the codec is known, prepend a codec-specific recovery
+    /// hint (e.g. "ProRes needs LAV Filters" or "HEVC needs the Windows
+    /// HEVC extension"). Without the codec-aware hint the user gets a
+    /// generic "codec not supported" message and has no idea which
+    /// specific codec they're dealing with or what to install.
     /// </summary>
-    private static string BuildPlaybackErrorMessage(MediaPlayerFailedEventArgs args)
+    private static string BuildPlaybackErrorMessage(MediaPlayerFailedEventArgs args, string codec)
     {
-        var hint = args.Error switch
+        var codecHint = GetCodecSpecificHint(codec);
+
+        var categoryHint = args.Error switch
         {
             MediaPlayerError.SourceNotSupported =>
-                "Media Foundation 不支持此视频格式 (SourceNotSupported)。\n\n" +
-                "常见原因:\n" +
-                "• 视频 codec 不被当前 Windows 版本识别 (例如 Win10 默认不带 HEVC/H.265 decoder)\n" +
-                "• 容器虽正确但 codec 头损坏或非标\n\n" +
-                "可尝试:用 FFmpeg / HandBrake 转封装成 H.264/AAC 的 mp4 后再播放。",
+                "Media Foundation 不支持此视频格式 (SourceNotSupported)。\n" +
+                "通常是 codec 不被当前 Windows 解码,或者 codec 头损坏 / 非标。",
             MediaPlayerError.DecodingError =>
                 "解码时发生错误 (DecodingError)。视频文件可能在传输中断、不完整,或 codec 参数异常。",
             MediaPlayerError.NetworkError =>
@@ -759,10 +777,75 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             _ => "未知播放错误。",
         };
 
+        var codecLine = string.IsNullOrEmpty(codec)
+            ? "(codec 未知 — 扫描时未识别)"
+            : codec;
+
         var details = $"HRESULT: 0x{args.ExtendedErrorCode:X8}\n" +
                       $"类别: {args.Error}\n" +
+                      $"视频 codec: {codecLine}\n" +
                       $"系统消息: {args.ErrorMessage}";
-        return hint + "\n\n— 详细信息 —\n" + details;
+
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(codecHint)) parts.Add(codecHint);
+        parts.Add(categoryHint);
+        parts.Add("— 详细信息 —\n" + details);
+        return string.Join("\n\n", parts);
+    }
+
+    /// <summary>
+    /// Codec-specific recovery advice. Only consulted when MediaPlayer
+    /// fails — we don't surface these hints preemptively because most
+    /// files (H.264 / HEVC in mp4) play fine on stock Windows and the
+    /// extra text would be noise. The set is small but covers the codecs
+    /// most likely to land a Windows user here: Apple ProRes (Final Cut
+    /// Pro / macOS exports), HEVC without the extension installed, and
+    /// the "open codec alliance" codecs (VP9, AV1) that MF also lacks.
+    /// </summary>
+    private static string GetCodecSpecificHint(string codec)
+    {
+        if (string.IsNullOrEmpty(codec)) return string.Empty;
+
+        // Normalise once — "prores" / "PRORES" / "ProRes" should all
+        // match the same hint. We only need a leading-prefix match
+        // because FFmpeg reports several ProRes variants ("prores",
+        // "prores_422", "prores_422_hq", "prores_4444", ...) and the
+        // distinction matters less than the "you need LAV" advice.
+        var c = codec.Trim().ToLowerInvariant();
+
+        if (c.StartsWith("prores", StringComparison.Ordinal))
+        {
+            return "此文件用 Apple ProRes (" + codec + ") 编码 — 这是 macOS / Final Cut Pro 生态的专业 codec,Windows Media Foundation 不带 decoder,本应用也无法播放。\n\n" +
+                   "三个解决方法 (按推荐度):\n" +
+                   "1. 用 VLC / mpv / PotPlayer 等第三方播放器打开 — 它们自带 ProRes decoder,无需额外安装。\n" +
+                   "2. 安装 LAV Filters (https://github.com/Nevcairiel/LAVFilters/releases),把 ProRes decoder 注入 Media Foundation — 装好后本应用和其他 WMP / Edge 视频也能播。\n" +
+                   "3. 用 FFmpeg / HandBrake 转封装成 H.264/AAC 的 mp4 (会显著损失质量且耗时较长):\n" +
+                   "   ffmpeg -i input.mov -c:v libx264 -crf 18 -c:v aac output.mp4";
+        }
+
+        if (c == "hevc" || c == "h265" || c.StartsWith("hevc", StringComparison.Ordinal))
+        {
+            return "此文件用 HEVC / H.265 编码。Win10 默认不带 HEVC decoder,Win11 大多数版本自带但偶尔缺失。\n\n" +
+                   "建议:Microsoft Store 搜索 'HEVC Video Extensions' (免费 / 收费版功能一致,免费版有约 0.5% 画质损失),装完即可在本应用播放。\n" +
+                   "或者用 FFmpeg 转 H.264 之后再用 — ffmpeg -i input.mov -c:v libx264 -crf 20 -c:a aac output.mp4";
+        }
+
+        if (c == "vp9" || c.StartsWith("vp9", StringComparison.Ordinal))
+        {
+            return "此文件用 VP9 编码。Windows Media Foundation 不带 VP9 decoder。\n\n" +
+                   "建议:用 FFmpeg 转 H.264 / H.265,或者用 Chrome / VLC 播放原始文件。\n" +
+                   "ffmpeg -i input.webm -c:v libx264 -crf 22 -c:a aac output.mp4";
+        }
+
+        if (c == "av1" || c.StartsWith("av1", StringComparison.Ordinal))
+        {
+            return "此文件用 AV1 编码。Win10 没有 AV1 decoder;Win11 24H2+ 默认带 AV1 解码,旧版需要装 'AV1 Video Extension' (Microsoft Store 免费)。\n\n" +
+                   "建议:升级到最新 Windows 11,或用 FFmpeg 转 H.264 / H.265 后再播放。";
+        }
+
+        // Generic fallback for other rare codecs (DNxHD, Cineform, etc.)
+        return $"此文件用非主流 codec ({codec}) 编码,Windows Media Foundation 很可能无法解码。\n" +
+               "建议:用 FFmpeg 转 H.264 + AAC 的 mp4 后再播放,或者用 VLC / mpv 直接打开本文件。";
     }
 
     /// <summary>

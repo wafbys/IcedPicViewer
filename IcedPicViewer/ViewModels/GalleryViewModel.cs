@@ -804,7 +804,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                     originalWidth: videoMeta?.Width ?? 0,
                     originalHeight: videoMeta?.Height ?? 0,
                     duration: videoMeta?.Duration ?? TimeSpan.Zero,
-                    hasAudio: videoMeta?.HasAudio ?? false);
+                    hasAudio: videoMeta?.HasAudio ?? false,
+                    codec: videoMeta?.VideoCodec ?? string.Empty);
             }
             else
             {
@@ -1051,7 +1052,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 originalWidth: videoMeta?.Width ?? 0,
                 originalHeight: videoMeta?.Height ?? 0,
                 duration: videoMeta?.Duration ?? TimeSpan.Zero,
-                hasAudio: videoMeta?.HasAudio ?? false);
+                hasAudio: videoMeta?.HasAudio ?? false,
+                codec: videoMeta?.VideoCodec ?? string.Empty);
         }
         else
         {
@@ -1128,7 +1130,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                             originalWidth: videoMeta?.Width ?? 0,
                             originalHeight: videoMeta?.Height ?? 0,
                             duration: videoMeta?.Duration ?? TimeSpan.Zero,
-                            hasAudio: videoMeta?.HasAudio ?? false));
+                            hasAudio: videoMeta?.HasAudio ?? false,
+                            codec: videoMeta?.VideoCodec ?? string.Empty));
                     }
                     else
                     {

@@ -533,6 +533,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             int width = 0;
             int height = 0;
             var hasAudio = false;
+            string videoCodec = string.Empty;
             for (var i = 0; i < (int)fmtCtx->nb_streams; i++)
             {
                 var codecParams = fmtCtx->streams[i]->codecpar;
@@ -545,6 +546,11 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
                         // a user choice and is out of scope.
                         width = codecParams->width;
                         height = codecParams->height;
+                        // FFmpeg.AutoGen 8.x: avcodec_get_name returns a
+                        // managed string ("h264", "hevc", "prores",
+                        // "vp9", "av1", ...). Empty when the codec id
+                        // is unknown to the linked FFmpeg build.
+                        videoCodec = ffmpeg.avcodec_get_name(codecParams->codec_id) ?? string.Empty;
                         break;
                     case AVMediaType.AVMEDIA_TYPE_AUDIO:
                         hasAudio = true;
@@ -560,7 +566,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
                 ? TimeSpan.FromSeconds(fmtCtx->duration / (double)ffmpeg.AV_TIME_BASE)
                 : TimeSpan.Zero;
 
-            return new VideoMetadata(width, height, duration, hasAudio);
+            return new VideoMetadata(width, height, duration, hasAudio, videoCodec);
         }
         catch (Exception ex)
         {
