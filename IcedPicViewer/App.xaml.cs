@@ -135,6 +135,17 @@ public partial class App : Application
         // instance is otherwise unused here.
         _ = GetService<IVideoMetadataService>();
 
+        // Probe the installed WIC codecs and warn if HEIC / AVIF are
+        // not registered. IcedPicViewer's SupportedExtensions list
+        // includes both formats, but BitmapDecoder.CreateAsync
+        // throws if no WIC codec handles the file. Listing the
+        // decoders up front and writing a Trace warning means the
+        // user has a single line in DebugView / Event Log to grep
+        // for when "why don't my .heic files show thumbnails?" comes
+        // up, instead of the more confusing "BitmapDecoder.CreateAsync
+        // threw" stack trace they get when the decode fails.
+        ProbeAndWarnMissingCodecs();
+
         // FFmpeg probe (development-only). Runs only when:
 //   - IPV_FFMPEG_PROBE=1 env var (does NOT propagate through MSIX
 //     `winapp.exe launch` — see FFmpegProbeService doc comment), OR
@@ -162,5 +173,58 @@ if (FFmpegProbeService.IsProbeRequested || File.Exists(
         if (_services is null) return;
         (_services.GetService<GalleryViewModel>() as IDisposable)?.Dispose();
         (_services.GetService<ImageViewModel>() as IDisposable)?.Dispose();
+    }
+
+    /// <summary>
+    /// Enumerate the WIC codecs installed on the host and warn if a
+    /// format in <see cref="IImageLoader.SupportedExtensions"/> is
+    /// not actually decodable. The most common case is .heic /
+    /// .avif on a stock Windows install — both ship in the MS Store
+    /// ("HEIF Image Extension" and "AV1 Video Extension") but
+    /// neither is installed by default. Without this check, the
+    /// user gets a generic "LoadThumbnailAsync error: ..." line in
+    /// the log per HEIC file in their folder; with the check, the
+    /// log has a single Trace.Warning at startup naming the missing
+    /// format and pointing at the MS Store link to install.
+    /// </summary>
+    private static void ProbeAndWarnMissingCodecs()
+    {
+        try
+        {
+            var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var codec in Windows.Graphics.Imaging.BitmapDecoder.GetDecoderInformationEnumerator())
+            {
+                // FileExtensions is already a parsed list (the WIC
+                // metadata is split into individual entries like
+                // [".heic", ".heif", ".hif"]), so we just collect
+                // the lowercased entries directly.
+                foreach (var ext in codec.FileExtensions)
+                {
+                    if (string.IsNullOrEmpty(ext)) continue;
+                    extensions.Add(ext.StartsWith('.') ? ext : "." + ext);
+                }
+            }
+            if (!extensions.Contains(".heic"))
+            {
+                System.Diagnostics.Trace.TraceWarning(
+                    "App: HEIC decoder not available — install 'HEIF Image Extension' from Microsoft Store "
+                    + "(https://apps.microsoft.com/) to view .heic files.");
+            }
+            if (!extensions.Contains(".avif"))
+            {
+                System.Diagnostics.Trace.TraceWarning(
+                    "App: AVIF decoder not available — install 'AV1 Video Extension' from Microsoft Store "
+                    + "(https://apps.microsoft.com/) to view .avif files.");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Codec probe is best-effort. If the enumerator itself
+            // fails (very old Windows, weird WIC install), the
+            // gallery's per-file error path still kicks in and
+            // surfaces a status bar message — we just don't get the
+            // convenient "here's the MS Store link" hint.
+            System.Diagnostics.Trace.TraceWarning($"App: codec probe failed: {ex.Message}");
+        }
     }
 }

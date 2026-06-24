@@ -47,6 +47,30 @@
                         <TextBlock Text="Refresh" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
+                <!--
+                    Slideshow trigger. Click opens the viewer at the
+                    last-viewed item (or the first if none yet) and
+                    starts auto-advance. The actual timer / state lives
+                    on the viewer's ImageViewModel — once the viewer
+                    is open, the viewer's own Slideshow button (or the
+                    same gallery button, since ImageViewModel is a
+                    singleton) is what stops it. Click handler rather
+                    than Command because we need to call into the
+                    viewer VM, which is a sibling in the DI graph —
+                    easier to do from the view than to take a circular
+                    VM dep.
+                -->
+                <Button Click="SlideshowBtn_Click"
+                        VerticalAlignment="Stretch"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="12,0"
+                        ToolTipService.ToolTip="Start slideshow (auto-advance every N seconds)">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE768;" FontSize="16"/>
+                        <TextBlock Text="Slideshow" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
             </StackPanel>
             <Button Grid.Column="1"
                     Click="AboutButton_Click"

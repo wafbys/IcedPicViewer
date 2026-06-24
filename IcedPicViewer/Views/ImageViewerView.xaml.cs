@@ -5,6 +5,7 @@ using IcedPicViewer.ViewModels;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -98,6 +99,19 @@ public sealed partial class ImageViewerView : Page
             // nothing to detach, and on the player→null transition the
             // detach is the whole point.
             Player.SetMediaPlayer(ViewModel.MediaPlayer);
+
+            // Start the custom-controls timer (1:1 mode) only when
+            // there's a live player. The timer is a no-op when the
+            // Player is null — the MediaPlayer reference is checked
+            // on every tick so disposing the player mid-tick is safe.
+            if (ViewModel.MediaPlayer != null)
+            {
+                StartControlsTimer();
+            }
+            else
+            {
+                StopControlsTimer();
+            }
         }
         else if (e.PropertyName == nameof(ImageViewModel.IsFitMode))
         {
@@ -148,9 +162,14 @@ public sealed partial class ImageViewerView : Page
         }
         else
         {
-            if (Player.Parent == PlayerScrollViewer) return;
+            // In 1:1 mode the Player lives inside PlayerScrollViewerInner
+            // (the inner ScrollViewer of the PlayerActualSizeContainer
+            // Grid). The outer Grid also has the pinned transport-
+            // controls strip in row 1, but the Player itself only
+            // occupies the ScrollViewer.
+            if (Player.Parent == PlayerScrollViewerInner) return;
             DetachPlayerFromCurrentParent();
-            PlayerScrollViewer.Content = Player;
+            PlayerScrollViewerInner.Content = Player;
         }
     }
 
@@ -177,6 +196,156 @@ public sealed partial class ImageViewerView : Page
             // null = never attached; null-parent means we're in the
             // XAML default state. Nothing to do.
         }
+    }
+
+    // ----------------------------------------------------------------
+    // Custom transport-controls strip (1:1 mode). The built-in
+    // MediaPlayerElement transport controls (AreTransportControlsEnabled
+    // = true) work fine in Fit mode but scroll with the video content
+    // in 1:1 mode, so we hide them in 1:1 and own the chrome here.
+    //
+    // State management:
+    // - A 200 ms dispatcher timer polls the MediaPlayer position +
+    //   duration. The MediaPlayer reference can be null (between
+    //   navigations) — every tick null-checks before reading.
+    // - _isDraggingSlider is set by the slider's pointer events to
+    //   distinguish "user is scrubbing" (programmatic slider updates
+    //   must not fire) from "timer is updating" (user drag must not
+    //   reposition MediaPlayer).
+    // - PlayPauseBtn's glyph + the timer both read MediaPlayer.
+    //   PlaybackSession.PlaybackState — the MediaPlayer doesn't expose
+    //   a public IsPlaying property in WinUI 3.
+    // ----------------------------------------------------------------
+
+    private DispatcherQueueTimer? _controlsTimer;
+    private bool _isDraggingSlider;
+
+    private void StartControlsTimer()
+    {
+        if (_controlsTimer != null) return;
+        var timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(200);
+        timer.IsRepeating = true;
+        timer.Tick += OnControlsTimerTick;
+        _controlsTimer = timer;
+        timer.Start();
+    }
+
+    private void StopControlsTimer()
+    {
+        _controlsTimer?.Stop();
+        _controlsTimer = null;
+        // Reset the UI to a known-empty state so a stale
+        // "0:42 / 1:23" doesn't linger after the player goes away.
+        if (PositionSlider != null)
+        {
+            PositionSlider.Value = 0;
+            PositionSlider.Maximum = 100;
+        }
+        if (TimeText != null) TimeText.Text = "0:00 / 0:00";
+        if (PlayPauseGlyph != null) PlayPauseGlyph.Glyph = "\uE768"; // Play
+    }
+
+    private void OnControlsTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        var player = ViewModel.MediaPlayer;
+        if (player == null) return;
+
+        var pos = player.PlaybackSession.Position;
+        var dur = player.PlaybackSession.NaturalDuration;
+        if (dur == TimeSpan.Zero) dur = TimeSpan.Zero;
+
+        // Only push a new slider Value when the user isn't actively
+        // scrubbing. Without this guard the slider would jump back
+        // to the live position mid-drag and the user's seek would
+        // feel broken.
+        if (!_isDraggingSlider)
+        {
+            // Maximum is updated each tick because NaturalDuration
+            // changes from TimeSpan.Zero to the real value once
+            // MediaOpened fires — pinning Maximum at the XAML default
+            // (100) would make the slider behave like a 0–100 %
+            // indicator rather than a 0–duration-seconds seek bar.
+            if (PositionSlider.Maximum != dur.TotalSeconds)
+            {
+                PositionSlider.Maximum = dur.TotalSeconds;
+            }
+            if (Math.Abs(PositionSlider.Value - pos.TotalSeconds) > 0.1)
+            {
+                PositionSlider.Value = pos.TotalSeconds;
+            }
+        }
+
+        TimeText.Text = $"{FormatTime(pos)} / {FormatTime(dur)}";
+
+        // Update the play/pause glyph to match the current playback
+        // state. Doing it from the timer (rather than a state-change
+        // event subscription) means the glyph is correct after
+        // any pause/play transition regardless of the trigger
+        // (Space, transport controls, our own button, MediaEnded).
+        var isPlaying = player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+        PlayPauseGlyph.Glyph = isPlaying ? "\uE769" /* Pause */ : "\uE768" /* Play */;
+    }
+
+    private static string FormatTime(TimeSpan t)
+    {
+        // m:ss for < 1 h, h:mm:ss otherwise. Matches the convention
+        // already used in VideoItem.DurationText so the user sees a
+        // consistent format across the gallery's overlay and the
+        // viewer's time readout.
+        if (t.TotalHours >= 1)
+        {
+            return $"{(int)t.TotalHours}:{t.Minutes:D2}:{t.Seconds:D2}";
+        }
+        return $"{(int)t.TotalMinutes}:{t.Seconds:D2}";
+    }
+
+    private void PlayPauseBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var player = ViewModel.MediaPlayer;
+        if (player == null) return;
+        if (player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
+        {
+            player.Pause();
+        }
+        else
+        {
+            player.Play();
+        }
+        // No need to manually update the glyph — the controls timer
+        // refreshes it on the next tick.
+    }
+
+    private void PositionSlider_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        // Slider thumb enter = the user is about to drag. Block
+        // the timer from overwriting the slider value while the
+        // pointer is down.
+        _isDraggingSlider = true;
+    }
+
+    private void PositionSlider_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _isDraggingSlider = false;
+    }
+
+    private void PositionSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        // Ignore the programmatic updates from the timer — only act
+        // when the user is dragging the slider.
+        if (!_isDraggingSlider) return;
+        var player = ViewModel.MediaPlayer;
+        if (player == null) return;
+        // Pause while seeking: a video that's playing during a
+        // seek often stutters on the native side, and pausing lets
+        // the user re-position accurately. Play() resumes when the
+        // user clicks the play button (or hits Space, which the WH_KEYBOARD
+        // hook handles).
+        if (player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
+        {
+            player.Pause();
+        }
+        player.PlaybackSession.Position = TimeSpan.FromSeconds(e.NewValue);
     }
 
     private void ApplyImageFitMode(bool isFitMode)

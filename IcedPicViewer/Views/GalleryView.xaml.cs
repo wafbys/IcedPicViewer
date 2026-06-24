@@ -26,6 +26,28 @@ public sealed partial class GalleryView : Page
     private const double LoadMoreThreshold = 200.0; // 距离底部多少像素触发自动加载
     private const int LoadMoreDebounceMs = 180;     // 滚动停止后延迟触发时间（毫秒）
 
+    // MasonryPanel ref cached after the first layout pass. The panel
+    // lives inside an ItemsPanelTemplate, so x:Name doesn't reach the
+    // page's name scope; the existing FindMasonryPanel helper does a
+    // visual tree walk. Caching the result avoids re-walking on every
+    // SizeChanged tick during a window drag (the handler fires
+    // continuously while the user resizes).
+    private Controls.MasonryPanel? _masonryPanel;
+
+    // Card width bounds. Below the floor the thumbnails become too
+    // small to be useful (text labels and the ▶ overlay lose
+    // legibility); above the ceiling the masonry layout degenerates
+    // into a single column with very tall cards.
+    private const double MinCardWidth = 110.0;
+    private const double MaxCardWidth = 420.0;
+    private const double ItemSpacing = 8.0;
+    // Target cards-per-row at the most common desktop width (1280 px
+    // content area) — gives ~250 px cards at that width, which is the
+    // historical hand-tuned value. The function below maps the actual
+    // content width to a card width that lands in roughly that range
+    // across the full spectrum from 600 px to 4K.
+    private const double TargetCardsPerRow = 4.0;
+
     public GalleryView()
     {
         this.InitializeComponent();
@@ -36,6 +58,14 @@ public sealed partial class GalleryView : Page
 
         // 滚动到底部自动触发 LoadMore（带 debounce）。保留原“Load More”按钮作为手动后备。
         MainScrollViewer.ViewChanged += OnMainScrollViewerViewChanged;
+
+        // Auto-size thumbnail cards to the viewport. The first
+        // SizeChanged after the page is measured and laid out sets
+        // the initial card width; subsequent ticks (during a window
+        // drag) update it as the user resizes. The cost is one
+        // property assignment per tick — the MasonryPanel invalidates
+        // its measure, which is what we want.
+        MainScrollViewer.SizeChanged += OnMainScrollViewerSizeChanged;
 
         var dq = DispatcherQueue.GetForCurrentThread();
         _loadMoreDebounceTimer = dq.CreateTimer();
@@ -65,8 +95,76 @@ public sealed partial class GalleryView : Page
                 MainScrollViewer.ChangeView(null, offset, null, true);
             });
         }
+
+        // SizeChanged might not fire on the first navigation if the
+        // window keeps its previous size (e.g., the user navigated
+        // back to the gallery after a viewer roundtrip and the
+        // window hasn't been resized). Force an initial sizing pass
+        // here so the cards always reflect the actual viewport width
+        // — otherwise the cached value from the previous sizing would
+        // be used and the cards could be too wide / narrow after a
+        // window resize that happened in another view.
+        ApplyThumbnailCardWidth(MainScrollViewer.ActualWidth);
     }
 
+    private void OnMainScrollViewerSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        ApplyThumbnailCardWidth(e.NewSize.Width);
+    }
+
+    private void ApplyThumbnailCardWidth(double availableWidth)
+    {
+        if (availableWidth <= 0) return;
+
+        // Lazy-resolve the MasonryPanel. The first call walks the
+        // visual tree (the panel is inside an ItemsPanelTemplate and
+        // isn't reachable via x:Name); later calls hit the cache.
+        _masonryPanel ??= FindMasonryPanel(MainScrollViewer);
+        if (_masonryPanel == null) return;
+
+        _masonryPanel.ItemWidth = ComputeCardWidth(availableWidth);
+    }
+
+    /// <summary>
+    /// Map the available ScrollViewer width to a card width that
+    /// keeps the visual density roughly constant across viewport
+    /// sizes — the user sees "about 4-5 cards per row" whether the
+    /// window is 800 px or 2560 px wide, instead of "1 card per row"
+    /// on a 4K display or "20 cards per row" on a phone-sized window.
+    /// The formula: pick an integer cards-per-row count, then back-
+    /// compute the per-card width as (available - one spacing) / N
+    /// minus the per-card right spacing, clamped to the min/max
+    /// bounds. The result is a smooth-ish piecewise linear function
+    /// (the rounding to int cards-per-row is the only discontinuity)
+    /// that lands inside the visually-sensible card-width range.
+    /// </summary>
+    private static double ComputeCardWidth(double availableWidth)
+    {
+        // 1 card minimum (very narrow viewports — the bounds below
+        // will still let it render at MinCardWidth), 10 cards maximum
+        // (wide 4K-ish windows). The (double) cast on round() is a
+        // no-op but makes the conversion to double explicit.
+        var cardsPerRow = (double)Math.Round(availableWidth / (MinCardWidth + ItemSpacing * 2));
+        cardsPerRow = Math.Clamp(cardsPerRow, 1, 10);
+
+        // Per-card width = (total width - one inter-card gap at the
+        // row's right edge) / cards per row, minus the gap on the
+        // card's own right edge. The MasonryPanel itself adds the
+        // inter-card gaps via ItemSpacing, so we only need to leave
+        // room for them here.
+        var rawWidth = (availableWidth - ItemSpacing) / cardsPerRow - ItemSpacing;
+        return Math.Clamp(rawWidth, MinCardWidth, MaxCardWidth);
+    }
+
+    /// <summary>
+    /// Walk the visual tree to find the MasonryPanel inside the
+    /// ItemsControl's ItemsPanelTemplate. The panel doesn't get a
+    /// page-level x:Name because it lives inside a templated subtree;
+    /// callers either use this helper or rely on the cached
+    /// <see cref="_masonryPanel"/> field. Caching the result on the
+    /// hot path (SizeChanged) avoids re-walking the tree on every
+    /// window-resize tick.
+    /// </summary>
     private static Controls.MasonryPanel? FindMasonryPanel(DependencyObject parent)
     {
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
@@ -235,5 +333,26 @@ public sealed partial class GalleryView : Page
     private void AboutButton_Click(object sender, RoutedEventArgs e)
     {
         _navigationService.NavigateTo<AboutPage>();
+    }
+
+    /// <summary>
+    /// Top-bar Slideshow button. Opens the viewer at the last-viewed
+    /// item (or the first if none yet) and asks the singleton
+    /// <see cref="ImageViewModel"/> to start the auto-advance timer.
+    /// The viewer's own Slideshow button (in the CommandBar) is the
+    /// toggle that stops it — same state, two surfaces.
+    /// </summary>
+    private async void SlideshowBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.Images.Count == 0) return;
+
+        var imageViewModel = App.GetService<ImageViewModel>();
+        var startIndex = ViewModel.LastViewedIndex >= 0 && ViewModel.LastViewedIndex < ViewModel.Images.Count
+            ? ViewModel.LastViewedIndex
+            : 0;
+        var startItem = ViewModel.Images[startIndex];
+        await imageViewModel.ShowImageAsync(startItem);
+        imageViewModel.StartSlideshow(ViewModel.SlideshowInterval);
+        _navigationService.NavigateTo<ImageViewerView>();
     }
 }

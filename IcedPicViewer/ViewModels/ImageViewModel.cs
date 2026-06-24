@@ -74,6 +74,109 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     public bool IsVideo => CurrentImage?.IsVideo ?? false;
 
     // ----------------------------------------------------------------
+    // Slideshow: auto-advance to the next image every interval. The
+    // timer fires on the dispatcher, ticks call NavigateNextAsync.
+    // Stops on end-of-images (no more items) or when the user closes
+    // the viewer / starts a non-slideshow navigation.
+    //
+    // Two surfaces trigger this: the gallery's "Slideshow" button
+    // (opens the viewer at the current item and calls StartSlideshow
+    // — see GalleryView.SlideshowBtn_Click) and the viewer's own
+    // Slideshow button (toggle). Both go through the same Start /
+    // Stop methods so the state is consistent.
+    // ----------------------------------------------------------------
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SlideshowGlyph))]
+    [NotifyPropertyChangedFor(nameof(SlideshowLabel))]
+    [NotifyPropertyChangedFor(nameof(SlideshowTooltip))]
+    public partial bool IsSlideshowActive { get; set; }
+
+    public string SlideshowGlyph => IsSlideshowActive ? "\uE71A" /* Stop */ : "\uE768" /* Play */;
+    public string SlideshowLabel => IsSlideshowActive ? "Stop Slideshow" : "Start Slideshow";
+    public string SlideshowTooltip => IsSlideshowActive
+        ? "Stop slideshow"
+        : $"Start slideshow (auto-advance every {_slideshowInterval.TotalSeconds:0.#}s)";
+
+    private TimeSpan _slideshowInterval = TimeSpan.FromSeconds(5);
+
+    public TimeSpan SlideshowInterval
+    {
+        get => _slideshowInterval;
+        set
+        {
+            _slideshowInterval = value;
+            // If the timer is already running, re-arm at the new
+            // cadence so the next tick uses the new interval
+            // (otherwise the user has to stop+start to see the
+            // change take effect, which is surprising).
+            if (IsSlideshowActive) _slideshowTimer!.Interval = value;
+        }
+    }
+
+    private DispatcherQueueTimer? _slideshowTimer;
+
+    public void StartSlideshow(TimeSpan interval)
+    {
+        _slideshowInterval = interval;
+        IsSlideshowActive = true;
+        _slideshowTimer ??= CreateSlideshowTimer();
+        _slideshowTimer.Interval = _slideshowInterval;
+        _slideshowTimer.Start();
+    }
+
+    public void StopSlideshow()
+    {
+        if (!IsSlideshowActive) return;
+        _slideshowTimer?.Stop();
+        IsSlideshowActive = false;
+    }
+
+    /// <summary>
+    /// RelayCommand entry point for the viewer's Slideshow button.
+    /// Toggles start / stop with the same default interval as the
+    /// last start. The gallery's Slideshow button goes through
+    /// <see cref="StartSlideshow"/> directly with the gallery's
+    /// <see cref="GalleryViewModel.SlideshowInterval"/> — the two
+    /// surfaces converge on the same timer.
+    /// </summary>
+    [RelayCommand]
+    private void Slideshow()
+    {
+        if (IsSlideshowActive)
+        {
+            StopSlideshow();
+        }
+        else
+        {
+            StartSlideshow(_slideshowInterval);
+        }
+    }
+
+    private DispatcherQueueTimer CreateSlideshowTimer()
+    {
+        var timer = _dispatcher.CreateTimer();
+        timer.IsRepeating = true;
+        timer.Tick += OnSlideshowTick;
+        return timer;
+    }
+
+    private void OnSlideshowTick(DispatcherQueueTimer sender, object args)
+    {
+        // End of the loaded set: stop. The user can manually scroll
+        // for more, or hit Load More, then re-start the slideshow
+        // (or it will auto-resume from the next item if we choose to
+        // — for now we stop and require the user to restart, which
+        // is the most predictable behaviour).
+        if (CurrentIndex >= Images.Count - 1)
+        {
+            StopSlideshow();
+            return;
+        }
+        _ = NavigateNextCommand.ExecuteAsync(null);
+    }
+
+    // ----------------------------------------------------------------
     // Video playback state.
     //
     // The viewer has two distinct surface modes: image (existing static
@@ -115,6 +218,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(PlayerFitContainerVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerActualSizeContainerVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerStretch))]
+    [NotifyPropertyChangedFor(nameof(PlayerUseBuiltInControls))]
     public partial bool IsFitMode { get; set; } = true;
 
     /// <summary>
@@ -178,6 +282,17 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// </summary>
     public Microsoft.UI.Xaml.Media.Stretch PlayerStretch =>
         IsFitMode ? Microsoft.UI.Xaml.Media.Stretch.Uniform : Microsoft.UI.Xaml.Media.Stretch.None;
+
+    /// <summary>
+    /// True when the MediaPlayerElement should use its built-in WinUI
+    /// transport controls (Fit mode); false when the view's custom
+    /// controls strip should take over (1:1 mode, where the built-in
+    /// controls would scroll with the content). The custom strip is
+    /// pinned at the bottom of the 1:1 container so the user always
+    /// has a way to pause without having to scroll down to the
+    /// element's bottom edge.
+    /// </summary>
+    public bool PlayerUseBuiltInControls => IsFitMode;
 
     [RelayCommand(CanExecute = nameof(CanPlay))]
     private async Task PlayAsync()
@@ -445,6 +560,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         // we get a chance to release the native handle.
         StopAndDisposePlayer();
 
+        // Stop the slideshow timer so the dispatcher doesn't try to
+        // call NavigateNextCommand after the page is gone.
+        StopSlideshow();
+
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _loadCts = null;
@@ -533,17 +652,26 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         IsLoading = true;
         try
         {
-            using var stream = await _imageLoader.LoadImageStreamAsync(item.Source, ct);
+            // LoadFullImageAsync returns a BitmapImage with EXIF
+            // orientation already applied at the pixel level, so a
+            // 4000x3000 EXIF-6 portrait photo is decoded as a
+            // 3000x4000 bitmap (PixelWidth/Height match the visible
+            // orientation). The W×H text in the viewer's CommandBar
+            // reads DisplayActualWidth/Height which derive from the
+            // bitmap's PixelWidth/Height, so it shows the same
+            // numbers the user sees on screen. The bitmap is cached
+            // in item.FullImage so re-navigating to the same item
+            // (e.g., after viewing a video, back to the image)
+            // skips the decode + PNG-encode round-trip.
+            var bitmapImage = await _imageLoader.LoadFullImageAsync(item.Source, ct);
 
             if (ct.IsCancellationRequested)
             {
                 return;
             }
 
-            if (stream != null)
+            if (bitmapImage != null)
             {
-                var bitmapImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-                await bitmapImage.SetSourceAsync(stream.AsRandomAccessStream());
                 item.FullImage = bitmapImage;
                 DisplayImage = bitmapImage;
             }
@@ -606,6 +734,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // while a video is playing, this is what stops audio output
             // and releases the surface.
             StopAndDisposePlayer();
+            StopSlideshow();
 
             _loadCts?.Cancel();
             _loadCts?.Dispose();

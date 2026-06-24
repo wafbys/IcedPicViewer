@@ -165,6 +165,14 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         LoadMoreCommand.NotifyCanExecuteChanged();
     }
 
+    /// <summary>
+    /// Interval the viewer's slideshow waits between auto-advances.
+    /// Read by the gallery's Slideshow button (which calls
+    /// <c>ImageViewModel.StartSlideshow</c>) and by the viewer's own
+    /// button so both surfaces stay in sync.
+    /// </summary>
+    public TimeSpan SlideshowInterval { get; set; } = TimeSpan.FromSeconds(5);
+
     public ObservableCollection<MediaItem> Images { get; } = new();
 
     public GalleryViewModel(

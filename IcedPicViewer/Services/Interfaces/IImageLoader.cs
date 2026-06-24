@@ -40,10 +40,34 @@ public interface IImageLoader
     /// the returned stream and is responsible for disposing it.
     /// Returns null if the source does not exist or cannot be opened.
     /// </summary>
+    /// <remarks>
+    /// Prefer <see cref="LoadFullImageAsync"/> over this method for
+    /// actual rendering — this raw stream does not apply EXIF
+    /// orientation, so a portrait photo shot with EXIF Rotation=6
+    /// would be returned sideways. Kept for callers that need the
+    /// un-rotated pixel data (e.g., for hashing or file copy).
+    /// </remarks>
     Task<Stream?> LoadImageStreamAsync(ImageSource source, CancellationToken ct = default);
+
+    /// <summary>
+    /// Loads a full-resolution <see cref="BitmapImage"/> for the source,
+    /// with EXIF orientation applied at the pixel level. The returned
+    /// bitmap's <c>PixelWidth</c> / <c>PixelHeight</c> reflect the
+    /// oriented (post-rotation) dimensions, so a 4000x3000 EXIF-6
+    /// portrait photo comes back as a 3000x4000 bitmap — the viewer
+    /// layout, the W×H text, and the masonry card aspect ratio all
+    /// work from these values without any extra logic. Returns null
+    /// if the source can't be opened or decoded.
+    /// </summary>
+    Task<BitmapImage?> LoadFullImageAsync(ImageSource source, CancellationToken ct = default);
 
     Task<BitmapImage?> LoadThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default);
 
+    /// <summary>
+    /// Returns the (oriented) pixel dimensions of the source. EXIF
+    /// rotation is applied: a 4000x3000 EXIF-6 photo reports 3000x4000
+    /// here. Returns null if the source can't be opened or decoded.
+    /// </summary>
     Task<(int Width, int Height)?> GetImageSizeAsync(ImageSource source, CancellationToken ct = default);
 
     bool IsSupportedFormat(string path);

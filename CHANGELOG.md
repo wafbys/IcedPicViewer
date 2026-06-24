@@ -1,5 +1,184 @@
 # 更新日志
 
+## v0.14.4 (2026-06-25)
+
+**主题: EXIF 自动旋转 + Slideshow + ThumbnailCache 容量自适应 + 1:1 视频 transport controls 钉在底部 + HEIC/AVIF decoder 探测**
+
+### 背景
+
+5 个跨 session 累积的改进一起做。EXIF 是这批最影响日常使用的 — 之前所有
+带 Orientation 标签的照片(基本上所有手机拍的)都显示成横的;现在用
+GetPixelDataAsync + RespectExifOrientation 走像素旋转,viewer 一次解码就
+拿到正确方向的像素。
+
+### 改动
+
+**EXIF 自动旋转 (IImageLoader + ImageLoader + ImageViewModel)**
+
+- 新 `IImageLoader.LoadFullImageAsync(ImageSource, ct) → BitmapImage?`,
+  替代原来 viewer 自己 `LoadImageStreamAsync` + `BitmapImage.SetSourceAsync`
+  的两段式。理由:`SetSourceAsync` 不应用 EXIF Orientation,4000x3000 EXIF-6
+  照片会以横图显示,viewer 的 W×H text 跟视觉对不上。`LoadFullImageAsync`
+  走 `GetPixelDataAsync` 配 `ExifOrientationMode.RespectExifOrientation`,
+  WIC 帮我们转好像素。
+- 共用 helper `DecodeToBitmapImageAsync(IRandomAccessStream, int? targetMaxSize, ct)`:
+  解码 → 算 oriented 尺寸 → 按 oriented 长宽比 scale → PNG 编码 →
+  `BitmapImage.SetSourceAsync` 读 PNG 流。targetMaxSize=null 走 viewer
+  全分辨率路径,=400 走 thumbnail 路径(原来 DecodePixelWidth
+  的语义,现在按 oriented 长边等比缩放)。
+- 缩略图 cache key 不变 (path|size|kind),EXIF 应用后的 oriented bitmap
+  同样可以 cache(同 path 同 size 同 kind → 同 oriented bitmap)。
+- `GetSizeFromFileAsync` / `GetSizeFromArchiveAsync` 改返回
+  `OrientedPixelWidth/Height`,瀑布流 overlay 的 "1920×1080"
+  跟视觉对得上,masonry card 按 oriented 比例算高。
+- 完整图路径性能:4000x3000 RGB → PNG 约几 MB 内存 + 一次 encode (~50ms
+  typical)。VideoItem 不走这个路径(thumbnail 路径里 BuildVideoThumbnailAsync
+  已经在内存里有 BGRA 字节,直接 PNG encode 即可,viewer 是 video 时
+  用的是 thumb = first frame,已经 oriented;VideoItem 不需要 EXIF)。
+- 顺手清掉 viewer 那个手写的 `new BitmapImage().SetSourceAsync(stream)` —
+  viewer 现在用 `_imageLoader.LoadFullImageAsync`,代码缩到 4 行。
+
+**Slideshow (GalleryViewModel + ImageViewModel + GalleryView + ImageViewerView)**
+
+- Slideshow 逻辑在 `ImageViewModel` (viewer 模式),不是 GalleryViewModel —
+  Slideshow 是演示模式(viewer 里自动切),不是 gallery 自动滚。Gallery
+  的 Slideshow 按钮是 entry point:打开 viewer + 调 `ImageViewModel.StartSlideshow`。
+- `ImageViewModel.StartSlideshow(interval)`:起 `DispatcherQueueTimer`,
+  IsRepeating=true,Interval=interval(默认 5s)。Tick 调
+  `NavigateNextCommand.ExecuteAsync`。到 Images 末尾自动 Stop。
+- `ImageViewModel.StopSlideshow()`:timer 停 + IsSlideshowActive=false。
+  Close / Dispose 都调一次,保证 viewer 走了 timer 也清掉。
+- `IsSlideshowActive` 是 ObservableProperty,
+  `[NotifyPropertyChangedFor(SlideshowGlyph/Label/Tooltip)]` 让按钮内容
+  实时变(Play→Stop 图标 + label + tooltip 都换)。
+- GalleryView 顶 bar 加 Slideshow 按钮(Play 图标),`SlideshowBtn_Click`:
+  ShowImageAsync(当前 LastViewedIndex item) → StartSlideshow(SlideshowInterval)
+  → NavigateTo<ImageViewerView>。
+- ImageViewerView CommandBar 加 Slideshow 按钮(动态 Glyph/Label/Tooltip),
+  跟 gallery 是同一个 VM state(都是 ImageViewModel.IsSlideshowActive),
+  任意一边点都 toggle。
+- `SlideshowInterval` setter:如果 timer 在跑,改了 interval 立即 re-arm
+  新 interval(不会让用户感觉 "改完要 stop+start 才生效")。
+
+**ThumbnailCache 容量自适应 (Services/Implementations/ThumbnailCache.cs)**
+
+- 旧:capacity=200 hardcoded。新:ctor 通过 P/Invoke `GlobalMemoryStatusEx`
+  查 available 物理内存,按 1% 内存预算 / 平均每 entry 300KB 算 capacity,
+  clamp [50, 500]。
+- 加 `EditorBrowsable(EditorBrowsableState.Never)` 显式 capacity ctor,
+  单测可注入固定值不依赖宿主机内存。
+- 为什么 1%:4GB free → ~40MB / ~130-260 entries(原来 200);8GB+ free
+  → 80MB / cap 500 entries(原来 200)。保守比例,避免跟视频解码抢内存。
+- P/Invoke 失败/异常 → fall back to MaxCapacity,Trace warning。
+- 现有 `Dictionary + LinkedList + lock` LRU 实现不变,只是
+  `_capacity` 字段从 const 变 readonly。
+
+**1:1 视频 transport controls 钉在底部 (ImageViewerView.xaml + .xaml.cs)**
+
+- 1:1 模式 (`IsFitMode=false`) 时 `AreTransportControlsEnabled=false`,
+  自定义 controls strip 在 `PlayerActualSizeContainer` Grid row 1,
+  钉在底部,不会被 ScrollViewer 内容带走。
+- 1:1 host 拆 Grid 两行:row 0 = `PlayerScrollViewerInner` (内层 ScrollViewer,
+  Player 放这里),row 1 = controls strip (Play/Pause 按钮 + Slider + 时间 label)。
+- `PlayerUseBuiltInControls => IsFitMode`:Fit 模式 = true(用 WinUI 内建),
+  1:1 = false(用我们自定义)。
+- 自定义 strip:
+  - Play/Pause 按钮(Glyph 跟 `MediaPlayer.PlaybackSession.PlaybackState`
+    联动,play 时显示 ⏸,pause 时显示 ▶,200ms DispatcherQueueTimer
+    持续刷新)。
+  - Slider(Minimum=0, Maximum=从 MediaPlayer 拿的 NaturalDuration 秒,
+    Value=当前 Position 秒)。用户拖动时 (`PointerEntered/Exited`)
+    设 `_isDraggingSlider=true`,timer 的 Value 更新被阻止,timer tick
+    不重置用户在拖的位置。`ValueChanged` 检查 `_isDraggingSlider`,
+  只在用户拖时调 `player.Pause()` + `player.PlaybackSession.Position = ...`。
+  - 时间 label "M:SS / M:SS" 或 "H:MM:SS / H:MM:SS" (跟 VideoItem
+    DurationText 格式一致)。
+- 200ms timer 跑在 `_dispatcher` 上,ViewModel 释放或 MediaPlayer 变 null
+  时 timer 停 + UI 重置到 "0:00 / 0:00" + Glyph 回到 Play。
+- 暂停时拖 slider 自动 Pause(避免 native seek 抖动),用户点 Play 时
+  resume。
+- Player reparenting 目标改成 `PlayerScrollViewerInner`(原来指向
+  外层 ScrollViewer,XAML 结构调整后需要更新)。
+
+**HEIC / AVIF decoder 探测 (App.xaml.cs)**
+
+- App.OnLaunched 新增 `ProbeAndWarnMissingCodecs()`:遍历
+  `BitmapDecoder.GetDecoderInformationEnumerator()`,查 `.heic` /
+  `.avif` extension 是否在已注册 WIC codec 的 list 里。任一缺失就
+  `Trace.TraceWarning` + 给 MS Store 链接。
+- **不**自动安装 / 不弹 dialog / 不移除 SupportedExtensions —
+  支持列里还有这些格式,只是解码依赖 OS 扩展。Trace warning 让用户
+  在 DebugView / Event Log 一搜 "HEIC decoder not available" 就能
+  找到根因 + 解决方案,比让每次打开 .heic 文件报
+  BitmapDecoder.CreateAsync 异常堆栈友好。
+- HEIC / AVIF 的真实 native 解码不在本 session 范围 — 需要加
+  ImageSharp + libheif 等 native deps,build size 涨 30MB+,
+  且 ImageSharp 的 HEIC 支持也依赖 native libheif 二进制(净 size
+  收益小)。`SupportedExtensions` 保留这两个 entry,装了 MS Store
+  extension 的用户立即能看,没装的有明确 log。
+
+### 已决定的取舍(不重新讨论)
+
+- **不**用 BitmapImage.Rotation 旋转显示 (Image 没这 property) /
+  RenderTransform 包 RotateTransform。理由:Rotated 视觉会让 card
+  高度算错 (基于 raw 像素的 card 装着 oriented 像素,溢出或留黑边),
+  viewer 1:1 模式的 ScrollViewer 布局也错。像素级旋转是唯一正确解。
+- **不**在 Slideshow 区分 image / video(给 video 用 NaturalDuration,
+  image 用固定 interval)。理由:实现复杂,用户想看完整视频可以手动
+  Stop;统一按 5s interval 简单且行为可预测。下一版本可加。
+- **不**为 HEIC/AVIF 加 NuGet native lib。理由:见上 (size 收益小,
+  libheif 也是 native 依赖)。用户有 Apple iCloud 照片的话去 MS Store
+  装个 "HEIF Image Extension" 一键解决。
+- **不**让 ThumbnailCache 在内存压力下主动 trim。理由:WinUI 3 没有
+  memory pressure notification API (UWP 有 MemoryManager.AppMemoryUsage
+  / AppMemoryUsageLimit 但精度有限)。当前 capacity 已经按 1% 预算
+  clamp 了,绝大多数场景不会 OOM;真要更激进得加 application-level
+  memory monitor 周期 GC.Collect + clear cache,复杂度高收益低。
+- **不**在 PlayPauseBtn 按下时立刻手动改 Glyph。理由:timer 200ms 内
+  自然会 refresh,而且 timer 是"single source of truth"(任何地方触发的
+  pause/play 都同步,不会跟 UI 状态打架)。
+
+### 手动验证清单(本 session 不跑,环境 headless)
+
+1. **EXIF**:开一个手机拍的竖图 (EXIF Rotation=6) → 瀑布流 card 显示
+   portrait 比例,overlay W×H 显示 oriented (3000×4000 不是
+   4000×3000),viewer 显示 portrait 正确方向,左右切换不重复 decode。
+2. **EXIF 横向**:EXIF Rotation=1 的常规横图 → 跟之前一样工作。
+3. **Slideshow**:Gallery 顶 bar Slideshow 按钮 → viewer 自动打开 +
+   每 5s 自动 Next;viewer 上 Slideshow 按钮显示 Stop 图标;
+   点 Stop → 停止;再点 → 重启;Close viewer → 自动停;到图片末尾
+   → 自动停。
+4. **Slideshow 间隔**:timer 跑的时候改 SlideshowInterval(下一
+   session 加 UI)→ 立即 re-arm,无需 stop+start。
+5. **ThumbnailCache 容量**:8GB+ free 机器 → capacity ≈ 400+
+   (看可用内存);4GB → 200;2GB → 100;1GB → 50。Lock contention OK
+   (6-wide semaphore 已经限流)。
+6. **1:1 video controls**:开 1920×1080 视频,Fit 模式显内建控件
+   (底部)+ 视频缩放;点 Fit/1:1 → 自定义 strip 出现(钉底部),
+   内建控件消失,Slider 跟当前位置,Play/Pause 切换 Glyph,
+   时间 "0:00 / 1:23";拖 Slider → 视频 seek 准确;点击 Play →
+   视频从暂停位置继续播。
+7. **HEIC/AVIF**:有 MS Store extension 的机器 → 无 warning,文件
+   能正常看;没装的 → DebugView 看到 "HEIC decoder not available
+   — install 'HEIF Image Extension' from Microsoft Store",StatusText
+   显示 "Load thumbnail error: ..." (per-file),不卡死瀑布流。
+8. **混合场景**:从 1:1 image (有 minimap) 直接 Next 到 video →
+   1:1 模式保持 (IsFitMode 不变),Player 从 Grid 移到 ScrollViewer
+   自动 reparent,自定义 strip 出现。
+
+### build 状态
+
+0 errors / 0 warnings(`dotnet build -c Debug -p:Platform=x64` 干净通过)。
+
+### 下一 session 待办(不在本 session 范围)
+
+- Slideshow 区分 image / video(给 video 用 NaturalDuration,image
+  固定 interval)
+- HEIC/AVIF 真实 native 解码 (ImageSharp + libheif)
+- 1:1 视频模式时 Slider 也要响应 transport controls 的中键 / 数字键
+  快捷键 (1-9 跳 10%-90% 是 vlc 习惯)
+- Slideshow 完成后自动重置 IsSlideshowActive (目前需要手动再点)
+
 ## v0.14.3 (2026-06-24)
 
 **主题: 修 v0.14.2 视频播放 XAML 布局 bug(PlayOverlay 仍被拦截 + transport controls 渲染异常)**

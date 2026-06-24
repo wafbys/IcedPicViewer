@@ -92,6 +92,23 @@
                           Command="{x:Bind ViewModel.LoadMoreImagesCommand}"
                           Visibility="{x:Bind ViewModel.LoadMoreImagesVisibility, Mode=OneWay}"
                           ToolTipService.ToolTip="Load More (扫描更多图片)"/>
+            <!--
+                Slideshow toggle. Click to start / stop the auto-advance
+                timer. Glyph + label + tooltip all switch on
+                IsSlideshowActive so the user can tell at a glance
+                whether the slideshow is running. While running, the
+                timer fires every SlideshowInterval and calls
+                NavigateNextCommand — Next is also bound to the
+                arrow key, so the manual and auto paths share the
+                same CanExecute / state.
+            -->
+            <AppBarButton Label="{x:Bind ViewModel.SlideshowLabel, Mode=OneWay}"
+                          Command="{x:Bind ViewModel.SlideshowCommand}"
+                          ToolTipService.ToolTip="{x:Bind ViewModel.SlideshowTooltip, Mode=OneWay}">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="{x:Bind ViewModel.SlideshowGlyph, Mode=OneWay}"/>
+                </AppBarButton.Icon>
+            </AppBarButton>
             <CommandBar.SecondaryCommands>
                 <AppBarButton Icon="OpenFile"
                               Label="打开文件位置"
@@ -231,16 +248,71 @@
             <Grid x:Name="PlayerFitContainer"
                   Visibility="{x:Bind ViewModel.PlayerFitContainerVisibility, Mode=OneWay}">
                 <MediaPlayerElement x:Name="Player"
-                                    AreTransportControlsEnabled="True"
+                                    AreTransportControlsEnabled="{x:Bind ViewModel.PlayerUseBuiltInControls, Mode=OneWay}"
                                     Stretch="{x:Bind ViewModel.PlayerStretch, Mode=OneWay}"/>
             </Grid>
-            <ScrollViewer x:Name="PlayerScrollViewer"
-                          Visibility="{x:Bind ViewModel.PlayerActualSizeContainerVisibility, Mode=OneWay}"
-                          HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollMode="Auto"
-                          VerticalScrollMode="Auto">
-            </ScrollViewer>
+            <!--
+                1:1 host: outer Grid with two rows. Row 0 is a
+                ScrollViewer (which the Player is reparented into); row 1
+                is a custom transport-controls strip pinned to the
+                bottom of the container. The strip owns the
+                play/pause / seek / time-display UI in 1:1 mode so
+                the controls are always reachable, even when the
+                ScrollViewer is showing only the top edge of the
+                1920x1080 frame. AreTransportControlsEnabled is
+                False in this mode (the MediaPlayerElement is the
+                video source only, the chrome lives outside the
+                element).
+            -->
+            <Grid x:Name="PlayerActualSizeContainer"
+                  Visibility="{x:Bind ViewModel.PlayerActualSizeContainerVisibility, Mode=OneWay}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <ScrollViewer x:Name="PlayerScrollViewerInner"
+                              Grid.Row="0"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollMode="Auto"
+                              VerticalScrollMode="Auto"/>
+                <Grid x:Name="PlayerControlsStrip"
+                      Grid.Row="1"
+                      Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                      Padding="8,4"
+                      ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="PlayPauseBtn"
+                            Grid.Column="0"
+                            Click="PlayPauseBtn_Click"
+                            ToolTipService.ToolTip="Play / Pause (Space)">
+                        <FontIcon x:Name="PlayPauseGlyph" Glyph="&#xE768;"/>
+                    </Button>
+                    <Slider x:Name="PositionSlider"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Minimum="0"
+                            Maximum="100"
+                            Value="0"
+                            StepFrequency="1"
+                            SmallChange="1"
+                            LargeChange="10"
+                            PointerEntered="PositionSlider_PointerEntered"
+                            PointerExited="PositionSlider_PointerExited"
+                            ValueChanged="PositionSlider_ValueChanged"/>
+                    <TextBlock x:Name="TimeText"
+                               Grid.Column="2"
+                               Text="0:00 / 0:00"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               MinWidth="90"
+                               TextAlignment="Right"/>
+                </Grid>
+            </Grid>
         </Grid>
 
         <ProgressRing Grid.Row="1"
