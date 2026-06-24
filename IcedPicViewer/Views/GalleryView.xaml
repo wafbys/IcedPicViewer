@@ -12,82 +12,30 @@
     x:DataType="vm:GalleryViewModel"
     Background="Transparent">
 
-    <Grid>
+    <!--
+        Chrome-as-overlay layout. Header (row 0) and status bar (row 2)
+        have fixed Height="0" so they contribute zero vertical space to
+        the grid. The ScrollViewer takes RowSpan="3" so it fills the
+        whole page, and the chrome Grids also take RowSpan="3" but use
+        VerticalAlignment="Top" / "Bottom" + explicit Height to float
+        above the content without pushing it around. This is what makes
+        hover-reveal in fullscreen feel like a floating overlay rather
+        than a panel that grows and shrinks the image area.
+
+        Mouse motion is captured on RootGrid (which spans the entire
+        page) so the hit-test for the reveal zones works even when the
+        pointer is over the ScrollViewer's empty area.
+    -->
+    <Grid x:Name="RootGrid"
+          PointerMoved="RootGrid_PointerMoved">
         <Grid.RowDefinitions>
-            <RowDefinition Height="48"/>
+            <RowDefinition Height="0"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="32"/>
+            <RowDefinition Height="0"/>
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Orientation="Horizontal">
-                <Button Command="{x:Bind ViewModel.OpenFolderCommand}"
-                        VerticalAlignment="Stretch"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Padding="12,0"
-                        ToolTipService.ToolTip="Open Folder">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE8DA;" FontSize="16"/>
-                        <TextBlock Text="Open Folder" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-                <Button Command="{x:Bind ViewModel.RefreshCommand}"
-                        VerticalAlignment="Stretch"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Padding="12,0"
-                        ToolTipService.ToolTip="Refresh">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE72C;" FontSize="16"/>
-                        <TextBlock Text="Refresh" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-                <!--
-                    Slideshow trigger. Click opens the viewer at the
-                    last-viewed item (or the first if none yet) and
-                    starts auto-advance. The actual timer / state lives
-                    on the viewer's ImageViewModel — once the viewer
-                    is open, the viewer's own Slideshow button (or the
-                    same gallery button, since ImageViewModel is a
-                    singleton) is what stops it. Click handler rather
-                    than Command because we need to call into the
-                    viewer VM, which is a sibling in the DI graph —
-                    easier to do from the view than to take a circular
-                    VM dep.
-                -->
-                <Button Click="SlideshowBtn_Click"
-                        VerticalAlignment="Stretch"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Padding="12,0"
-                        ToolTipService.ToolTip="Start slideshow (auto-advance every N seconds)">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE768;" FontSize="16"/>
-                        <TextBlock Text="Slideshow" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-            </StackPanel>
-            <Button Grid.Column="1"
-                    Click="AboutButton_Click"
-                    VerticalAlignment="Stretch"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    Padding="12,0"
-                    ToolTipService.ToolTip="About IcedPicViewer">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE946;" FontSize="16"/>
-                    <TextBlock Text="About" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-        </Grid>
-
         <ScrollViewer x:Name="MainScrollViewer"
-                      Grid.Row="1"
+                      Grid.Row="0" Grid.RowSpan="3"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <!-- Using the original working MasonryPanel to restore the exact waterfall visual the user requested.
@@ -192,7 +140,99 @@
             </ItemsControl>
         </ScrollViewer>
 
-        <Grid Grid.Row="2" Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <!--
+            Header chrome overlay. RowSpan="3" + VerticalAlignment="Top" +
+            explicit Height pins it to the top of the page regardless of
+            what ScrollViewer (also RowSpan 3) does underneath. Visibility
+            flips on fullscreen-entry and on mouse-near-top in fullscreen.
+            Background is opaque (LayerFillColorDefaultBrush) so the chrome
+            doesn't bleed the masonry content through it when it's shown
+            on top of the cards.
+        -->
+        <Grid x:Name="HeaderChrome"
+              Grid.Row="0" Grid.RowSpan="3"
+              VerticalAlignment="Top"
+              Height="48"
+              Background="{ThemeResource LayerFillColorDefaultBrush}"
+              Visibility="{x:Bind HeaderVisibility, Mode=OneWay}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <Button Command="{x:Bind ViewModel.OpenFolderCommand}"
+                        VerticalAlignment="Stretch"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="12,0"
+                        ToolTipService.ToolTip="Open Folder">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8DA;" FontSize="16"/>
+                        <TextBlock Text="Open Folder" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{x:Bind ViewModel.RefreshCommand}"
+                        VerticalAlignment="Stretch"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="12,0"
+                        ToolTipService.ToolTip="Refresh">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE72C;" FontSize="16"/>
+                        <TextBlock Text="Refresh" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <!--
+                    Slideshow trigger. Click opens the viewer at the
+                    last-viewed item (or the first if none yet) and
+                    starts auto-advance. The actual timer / state lives
+                    on the viewer's ImageViewModel — once the viewer
+                    is open, the viewer's own Slideshow button (or the
+                    same gallery button, since ImageViewModel is a
+                    singleton) is what stops it. Click handler rather
+                    than Command because we need to call into the
+                    viewer VM, which is a sibling in the DI graph —
+                    easier to do from the view than to take a circular
+                    VM dep.
+                -->
+                <Button Click="SlideshowBtn_Click"
+                        VerticalAlignment="Stretch"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="12,0"
+                        ToolTipService.ToolTip="Start slideshow (auto-advance every N seconds)">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE768;" FontSize="16"/>
+                        <TextBlock Text="Slideshow" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Click="AboutButton_Click"
+                    VerticalAlignment="Stretch"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Padding="12,0"
+                    ToolTipService.ToolTip="About IcedPicViewer">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE946;" FontSize="16"/>
+                    <TextBlock Text="About" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!--
+            Status chrome overlay. Same pattern as header: RowSpan 3 +
+            VerticalAlignment="Bottom". Mouse-near-bottom reveals it in
+            fullscreen; everywhere else it stays hidden. Outside
+            fullscreen it's pinned visible.
+        -->
+        <Grid x:Name="StatusChrome"
+              Grid.Row="0" Grid.RowSpan="3"
+              VerticalAlignment="Bottom"
+              Height="32"
+              Background="{ThemeResource LayerFillColorDefaultBrush}"
+              Visibility="{x:Bind StatusVisibility, Mode=OneWay}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
                 <!-- Scan progress ring. Active while the directory scanner is
                      enumerating the filesystem (typically a few seconds for a

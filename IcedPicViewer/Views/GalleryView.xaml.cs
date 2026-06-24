@@ -9,7 +9,7 @@ using IcedPicViewer.ViewModels;
 
 namespace IcedPicViewer.Views;
 
-public sealed partial class GalleryView : Page
+public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPropertyChanged
 {
     public GalleryViewModel ViewModel { get; }
 
@@ -19,12 +19,21 @@ public sealed partial class GalleryView : Page
     private int _isNavigatingToViewer;
     private ImageViewModel? _currentImageViewModel;
 
-    // 用于实现“滚动到底部自动加载更多”
+    // 用于实现"滚动到底部自动加载更多"
     // 采用 debounce 机制避免快速滚动时频繁触发（符合性能要求）
     private DispatcherQueueTimer? _loadMoreDebounceTimer;
     private bool _isAutoLoadingMore;
-    private const double LoadMoreThreshold = 200.0; // 距离底部多少像素触发自动加载
-    private const int LoadMoreDebounceMs = 180;     // 滚动停止后延迟触发时间（毫秒）
+    // Preload zone. 1000 px is wide enough that a 200-item page (~ one
+    // viewport's worth on a 1080p window with default card width) finishes
+    // loading BEFORE the user actually reaches the bottom — they see
+    // continuous content instead of "scroll, wait, scroll, wait". 200 px
+    // (the prior value) was the opposite trade-off: never preload, but
+    // also never feel snappy. The viewport is 200-ish cards tall × ~16 px
+    // average row spacing ≈ a few thousand px, so 1000 px covers ~25 %
+    // of the viewport — a comfortable "early warning" without going so
+    // far that the user hasn't started scrolling toward the bottom yet.
+    private const double LoadMoreThreshold = 1000.0;
+    private const int LoadMoreDebounceMs = 100;     // 滚动停止后延迟触发时间（毫秒）
 
     // MasonryPanel ref cached after the first layout pass. The panel
     // lives inside an ItemsPanelTemplate, so x:Name doesn't reach the
@@ -73,8 +82,140 @@ public sealed partial class GalleryView : Page
         _loadMoreDebounceTimer.IsRepeating = false;
         _loadMoreDebounceTimer.Tick += OnLoadMoreDebounceTimerTick;
 
+        // Floating chrome: subscribe to MainWindow.IsFullscreen so the
+        // header + status bar flip to hidden when the window enters
+        // fullscreen, and pin back to visible when it leaves. The
+        // hover-to-reveal logic in RootGrid_PointerMoved owns the
+        // moment-to-moment visibility inside fullscreen — this is
+        // only the entry/exit transition.
+        if (App.MainWindow is not null)
+        {
+            App.MainWindow.PropertyChanged += OnMainWindowPropertyChanged;
+            // Sync initial state. The PropertyChanged subscription
+            // above only fires when IsFullscreen CHANGES, not when the
+            // window is already fullscreen at subscribe time. The
+            // common case this covers: user enters fullscreen in
+            // ImageViewerView, presses Esc / Close → navigates back to
+            // gallery, the window is still in FullScreen presenter,
+            // but the freshly-loaded GalleryView would otherwise see
+            // IsHeaderVisible=true (its ctor default) and render the
+            // chrome visible — defeating the whole "chrome is hidden
+            // in fullscreen" contract. Forcing the sync handler to run
+            // once with a synthetic IsFullscreen arg puts the page in
+            // the correct state on first paint, no race window.
+            OnMainWindowPropertyChanged(
+                App.MainWindow,
+                new System.ComponentModel.PropertyChangedEventArgs(nameof(MainWindow.IsFullscreen)));
+        }
+
         Unloaded += OnGalleryViewUnloaded;
     }
+
+    // ----------------------------------------------------------------
+    // Floating chrome (header + status bar).
+    //
+    // The chrome Grids live as overlays in the root grid
+    // (RowSpan="3" + VerticalAlignment="Top" / "Bottom") so they
+    // never participate in layout — the masonry ScrollViewer fills
+    // the entire page, and the chrome floats above it. Showing or
+    // hiding the chrome therefore does NOT resize the content area;
+    // the user's thumbnail layout stays exactly where it was.
+    //
+    // Outside fullscreen the chrome is always Visible (the user
+    // expects to see the toolbar in a normal window — fullscreen
+    // is the "I'm presenting this" state). Inside fullscreen the
+    // chrome defaults to Collapsed; mouse motion in the top 60 px
+    // (or the bottom 40 px) reveals the corresponding bar, and 3 s
+    // of stillness in the middle region collapses both.
+    //
+    // HeaderVisibility / StatusVisibility derive from both
+    // IsFullscreenStatic() (windowed = always Visible) and the
+    // per-bar IsHeaderVisible / IsStatusVisible flag. The XAML
+    // OneWay bind to the chrome Grid's Visibility is what actually
+    // shows / hides the overlay.
+    // ----------------------------------------------------------------
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; the body reads only static-friendly inputs but the binding surface is the instance form.")]
+    public Visibility HeaderVisibility => IsFullscreenStatic()
+        ? (IsHeaderVisible ? Visibility.Visible : Visibility.Collapsed)
+        : Visibility.Visible;
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; the body reads only static-friendly inputs but the binding surface is the instance form.")]
+    public Visibility StatusVisibility => IsFullscreenStatic()
+        ? (IsStatusVisible ? Visibility.Visible : Visibility.Collapsed)
+        : Visibility.Visible;
+
+    private bool _isHeaderVisible = true;
+    public bool IsHeaderVisible
+    {
+        get => _isHeaderVisible;
+        set
+        {
+            if (_isHeaderVisible == value) return;
+            _isHeaderVisible = value;
+            OnPropertyChanged(nameof(IsHeaderVisible));
+            // HeaderVisibility derives from this + IsFullscreenStatic();
+            // x:Bind on Visibility needs the explicit notification to
+            // re-evaluate. Setters never raise PropertyChanged for
+            // computed properties on their own.
+            OnPropertyChanged(nameof(HeaderVisibility));
+        }
+    }
+
+    private bool _isStatusVisible = true;
+    public bool IsStatusVisible
+    {
+        get => _isStatusVisible;
+        set
+        {
+            if (_isStatusVisible == value) return;
+            _isStatusVisible = value;
+            OnPropertyChanged(nameof(IsStatusVisible));
+            OnPropertyChanged(nameof(StatusVisibility));
+        }
+    }
+
+    // Hit-zone heights. 60 px top / 40 px bottom are forgiving
+    // landing zones for HiDPI pointers — bigger than the chrome
+    // itself so the user doesn't need pixel-precise aim to make
+    // the bar appear. Both are smaller than the bars' own heights
+    // (48 / 32) plus a few pixels of slack so the zone starts just
+    // outside the visible chrome edge.
+    private const double AutoHideTopHitHeight = 60.0;
+    private const double AutoHideBottomHitHeight = 40.0;
+
+    private static bool IsFullscreenStatic() => App.MainWindow?.IsFullscreen ?? false;
+
+    private void OnMainWindowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindow.IsFullscreen))
+        {
+            var fs = IsFullscreenStatic();
+            MainWindow.LogApp($"GalleryView.OnMainWindowPropertyChanged IsFullscreenStatic={fs} _isHeaderVisible={_isHeaderVisible} _isStatusVisible={_isStatusVisible}");
+            // Entering fullscreen: chrome defaults to hidden so the
+            // masonry fills the screen. The reveal-on-hover logic in
+            // RootGrid_PointerMoved takes over once the mouse moves.
+            // Leaving fullscreen: chrome pins to visible and any
+            // pending hide timer is cancelled (a late tick would
+            // otherwise flip the bar back to hidden right after
+            // exit, which is the "blink" we want to avoid).
+            if (fs)
+            {
+                IsHeaderVisible = false;
+                IsStatusVisible = false;
+            }
+            else
+            {
+                IsHeaderVisible = true;
+                IsStatusVisible = true;
+            }
+        }
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged(string propertyName)
+        => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
 
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
@@ -110,6 +251,50 @@ public sealed partial class GalleryView : Page
     private void OnMainScrollViewerSizeChanged(object sender, SizeChangedEventArgs e)
     {
         ApplyThumbnailCardWidth(e.NewSize.Width);
+    }
+
+    /// <summary>
+    /// Mouse motion on the root grid. In fullscreen, pointer in the
+    /// top 60 px reveals the header; pointer in the bottom 40 px
+    /// reveals the status bar; pointer in the middle starts (or
+    /// restarts) a 3 s hide timer for both. Outside fullscreen this
+    /// is a no-op — the chrome is always Visible there and the
+    /// timer shouldn't burn dispatcher ticks.
+    ///
+    /// PointerMoved on the root Grid (not the ScrollViewer) catches
+    /// motion even when the cursor is over an empty area between
+    /// cards; the ScrollViewer only fires when the pointer is over
+    /// a rendered child or its own chrome, which would leave the
+    /// hit-test blind to most of the page background.
+    /// </summary>
+    private void RootGrid_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!IsFullscreenStatic())
+        {
+            return;
+        }
+
+        var pos = e.GetCurrentPoint(RootGrid).Position;
+        var height = RootGrid.ActualHeight;
+
+        // Two independent hit-zones: top reveals the header, bottom
+        // reveals the status bar. Outside either zone both bars
+        // collapse — Visibility is keyed directly off hit-zone
+        // membership with no timer in the loop. Earlier revisions
+        // tried a 3 s "hide after stillness" timer (matching Photos /
+        // PowerPoint), but PointerMoved only fires on MOTION and on
+        // this app a continuous mouse drag (scrolling the gallery,
+        // scrubbing the image, etc.) fires PointerMoved every 30-50
+        // ms, which reset the timer and prevented it from ever
+        // ticking. User feedback was "mouse leaves bar → bar should
+        // hide" — that's the simpler A-mode contract, so the timer
+        // is gone.
+        var inTopZone = pos.Y < AutoHideTopHitHeight;
+        var inBottomZone = height > 0 && pos.Y > height - AutoHideBottomHitHeight;
+        MainWindow.LogApp($"PointerMoved pos.Y={pos.Y:0.0} inTop={inTopZone} inBottom={inBottomZone}");
+
+        IsHeaderVisible = inTopZone;
+        IsStatusVisible = inBottomZone;
     }
 
     private void ApplyThumbnailCardWidth(double availableWidth)
@@ -321,6 +506,11 @@ public sealed partial class GalleryView : Page
             _loadMoreDebounceTimer = null;
         }
 
+        if (App.MainWindow is not null)
+        {
+            App.MainWindow.PropertyChanged -= OnMainWindowPropertyChanged;
+        }
+
         Unloaded -= OnGalleryViewUnloaded;
     }
 
@@ -352,7 +542,12 @@ public sealed partial class GalleryView : Page
             : 0;
         var startItem = ViewModel.Images[startIndex];
         await imageViewModel.ShowImageAsync(startItem);
-        imageViewModel.StartSlideshow(ViewModel.SlideshowInterval);
+        // StartSlideshow is parameterless now — the viewer's own
+        // slider writes to ImageViewModel.SlideshowInterval directly,
+        // and the gallery's value is the initial seed (before the
+        // user has a chance to touch the viewer's slider).
+        imageViewModel.SlideshowInterval = ViewModel.SlideshowInterval;
+        imageViewModel.StartSlideshow();
         _navigationService.NavigateTo<ImageViewerView>();
     }
 }

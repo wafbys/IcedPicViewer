@@ -9,20 +9,33 @@
     RequestedTheme="Dark"
     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
 
-    <Grid x:Name="MainContentGrid" IsTabStop="True">
+    <Grid x:Name="MainContentGrid" IsTabStop="True"
+          PointerMoved="MainContentGrid_PointerMoved">
         <Grid.ContextFlyout>
             <MenuFlyout>
                 <MenuFlyoutItem Text="打开文件位置" Click="OpenFileLocation_Click"/>
                 <MenuFlyoutItem Text="删除" Command="{x:Bind ViewModel.DeleteCommand}"/>
             </MenuFlyout>
         </Grid.ContextFlyout>
+        <!--
+            Floating CommandBar layout. Row 0 is fixed Height="0" so
+            the chrome never reserves vertical space — instead the
+            CommandBar takes RowSpan="2" + VerticalAlignment="Top" and
+            floats above the image / video content. Showing or hiding
+            the bar therefore does NOT resize the content area; the
+            user's image stays exactly where it was instead of being
+            pushed down by 48 px when the bar appears.
+        -->
         <Grid.RowDefinitions>
-            <RowDefinition Height="48"/>
+            <RowDefinition Height="0"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <CommandBar Grid.Row="0"
+        <CommandBar Grid.Row="0" Grid.RowSpan="2"
+                    VerticalAlignment="Top"
+                    Canvas.ZIndex="100"
                     DefaultLabelPosition="Collapsed"
+                    Visibility="{x:Bind CommandBarVisibility, Mode=OneWay}"
                     Background="{ThemeResource SubtleFillColorSecondaryBrush}">
             <CommandBar.Content>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
@@ -110,31 +123,81 @@
                 </AppBarButton.Icon>
             </AppBarButton>
             <!--
-                Loop and Shuffle toggles. They modify the slideshow's
-                behaviour rather than the slideshow's start/stop state,
-                so they sit next to the Slideshow button (not nested
-                inside a flyout) and can be flipped while the slideshow
-                is running — the next tick picks up the new mode. The
-                glyphs are constant; the tooltip + label flip to
-                communicate the active state. WinUI 3's AppBarButton
-                doesn't have a built-in "toggled" visual style for
-                icons (the secondary Glyph stays the same), so a
-                tooltip-driven approach is the most reliable indicator.
+                Loop and Shuffle toggles. AppBarToggleButton (not
+                AppBarButton) is the right primitive here — the user
+                expects the button to *stay* in the toggled state with
+                visible feedback, and ToggleButton's IsChecked flips
+                automatically on click. We bind IsChecked TwoWay to
+                IsSlideshowLooping / IsSlideshowShuffling so the
+                click-to-flip is the entire state-change path; no
+                Click handler is needed (and removing it means
+                there's no chance of a double-toggle from button +
+                handler both firing). WinUI's ToggleButton default
+                style includes a visible "checked" highlight
+                (background tint), which is the visual state change
+                the user asked for. Tooltip + label continue to flip
+                so the meaning is clear even when the highlight
+                isn't obvious (custom themes, low contrast, etc.).
             -->
-            <AppBarButton Label="{x:Bind ViewModel.SlideshowLoopLabel, Mode=OneWay}"
-                          Click="SlideshowLoopBtn_Click"
-                          ToolTipService.ToolTip="{x:Bind ViewModel.SlideshowLoopTooltip, Mode=OneWay}">
-                <AppBarButton.Icon>
+            <AppBarToggleButton Label="{x:Bind ViewModel.SlideshowLoopLabel, Mode=OneWay}"
+                                IsChecked="{x:Bind ViewModel.IsSlideshowLooping, Mode=TwoWay}"
+                                ToolTipService.ToolTip="{x:Bind ViewModel.SlideshowLoopTooltip, Mode=OneWay}">
+                <AppBarToggleButton.Icon>
                     <FontIcon Glyph="{x:Bind ViewModel.SlideshowLoopGlyph, Mode=OneWay}"/>
-                </AppBarButton.Icon>
-            </AppBarButton>
-            <AppBarButton Label="{x:Bind ViewModel.SlideshowShuffleLabel, Mode=OneWay}"
-                          Click="SlideshowShuffleBtn_Click"
-                          ToolTipService.ToolTip="{x:Bind ViewModel.SlideshowShuffleTooltip, Mode=OneWay}">
-                <AppBarButton.Icon>
+                </AppBarToggleButton.Icon>
+            </AppBarToggleButton>
+            <AppBarToggleButton Label="{x:Bind ViewModel.SlideshowShuffleLabel, Mode=OneWay}"
+                                IsChecked="{x:Bind ViewModel.IsSlideshowShuffling, Mode=TwoWay}"
+                                ToolTipService.ToolTip="{x:Bind ViewModel.SlideshowShuffleTooltip, Mode=OneWay}">
+                <AppBarToggleButton.Icon>
                     <FontIcon Glyph="{x:Bind ViewModel.SlideshowShuffleGlyph, Mode=OneWay}"/>
-                </AppBarButton.Icon>
-            </AppBarButton>
+                </AppBarToggleButton.Icon>
+            </AppBarToggleButton>
+            <!--
+                Auto-advance interval. TwoWay bind to the VM's
+                SlideshowInterval (double, seconds) so dragging the
+                slider writes through to the timer — the partial
+                method OnSlideshowIntervalChanged re-arms a running
+                slideshow on the new cadence immediately. The "s"
+                suffix + the value label are separate TextBlocks
+                (instead of one) so the "s" stays right-aligned to
+                the slider thumb and the value text uses its own
+                invariant-culture "0.#" format regardless of the
+                user's locale. Width 120 px is wide enough to read
+                "10" / "30" but doesn't dominate the CommandBar.
+                AppBarElementContainer wraps the inner StackPanel
+                because CommandBar.PrimaryCommands is typed as
+                ICommandBarElement — raw FrameworkElements aren't
+                accepted.
+            -->
+            <AppBarElementContainer>
+                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
+                            Margin="8,0,0,0">
+                    <TextBlock Text="Interval:"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Opacity="0.7"/>
+                    <Slider x:Name="SlideshowIntervalSlider"
+                            Minimum="1"
+                            Maximum="30"
+                            Value="{x:Bind ViewModel.SlideshowInterval, Mode=TwoWay}"
+                            Width="120"
+                            VerticalAlignment="Center"
+                            StepFrequency="0.5"
+                            SmallChange="0.5"
+                            LargeChange="5"
+                            ToolTipService.ToolTip="Slideshow auto-advance interval (seconds)"/>
+                    <TextBlock Text="{x:Bind ViewModel.SlideshowIntervalText, Mode=OneWay}"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               MinWidth="28"
+                               TextAlignment="Right"/>
+                    <TextBlock Text="s"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Opacity="0.7"/>
+                </StackPanel>
+            </AppBarElementContainer>
             <AppBarSeparator/>
             <!--
                 Fullscreen toggle. Glyph swaps between FullScreen (⛶)

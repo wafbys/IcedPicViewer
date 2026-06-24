@@ -79,23 +79,95 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         App.MainWindow?.ToggleFullscreen();
     }
 
-    private void SlideshowLoopBtn_Click(object sender, RoutedEventArgs e)
-    {
-        // Toggle the loop flag directly. The next OnSlideshowTick
-        // reads IsSlideshowLooping so the change is live — no need
-        // to restart the slideshow.
-        ViewModel.IsSlideshowLooping = !ViewModel.IsSlideshowLooping;
-    }
-
-    private void SlideshowShuffleBtn_Click(object sender, RoutedEventArgs e)
-    {
-        ViewModel.IsSlideshowShuffling = !ViewModel.IsSlideshowShuffling;
-    }
+    // Slideshow loop / shuffle clicks are handled by the
+    // AppBarToggleButton's IsChecked TwoWay binding in XAML — the
+    // click flips IsChecked, the binding writes through to
+    // IsSlideshowLooping / IsSlideshowShuffling, and the
+    // OnIsSlideshowShufflingChanged partial method on the VM
+    // (which clears the shuffle queue) fires as a side effect of
+    // the property change. No Click handler is needed (and adding
+    // one would risk a double-toggle from button + handler both
+    // mutating the same flag).
 
     public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
     private void OnPropertyChanged(string propertyName)
         => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
+
+    // ----------------------------------------------------------------
+    // Auto-hide chrome (fullscreen only)
+    //
+    // While the window is in fullscreen the top CommandBar collapses
+    // to give the image / video the full screen. Mouse motion in the
+    // top 60 px of the window reveals it; 3 s of no activity below
+    // that line hides it again. Outside fullscreen the bar is always
+    // Visible — IsCommandBarVisible is irrelevant there and the timer
+    // never runs.
+    //
+    // Why a stateful timer + property instead of two Storyboards:
+    // - Reveal needs to be instant (no fade-in feels sluggish for a
+    //   user-driven action). Hide has a 3s grace period that
+    //   animation can't express on its own.
+    // - DispatcherQueueTimer.Start() on a non-repeating timer
+    //   restarts the countdown each time the mouse moves, so the
+    //   bar stays visible as long as the mouse is moving below the
+    //   reveal line and hides only after 3s of stillness. That's
+    //   the behaviour users expect from photo apps.
+    // ----------------------------------------------------------------
+    private bool _isCommandBarVisible = true;
+    public bool IsCommandBarVisible
+    {
+        get => _isCommandBarVisible;
+        set
+        {
+            if (_isCommandBarVisible == value) return;
+            _isCommandBarVisible = value;
+            OnPropertyChanged(nameof(IsCommandBarVisible));
+            // CommandBarVisibility depends on IsFullscreen + this,
+            // so re-raise it here too — the XAML OneWay bind to
+            // CommandBar's Visibility needs a fresh notification
+            // whenever either input changes.
+            OnPropertyChanged(nameof(CommandBarVisibility));
+        }
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; the body reads only static / state-free inputs but the binding surface is the instance form.")]
+    public Visibility CommandBarVisibility => IsFullscreenStatic()
+        ? (IsCommandBarVisible ? Visibility.Visible : Visibility.Collapsed)
+        : Visibility.Visible;
+
+    // Reveal strip height in DIPs. 60 px is large enough to be a
+    // forgiving landing zone on a HiDPI screen (the bar itself is
+    // 48 px tall — adding a few px of slack above and below means
+    // the user doesn't have to land precisely on the bar's bottom
+    // edge to make it appear).
+    private const double AutoHideTopHitHeight = 60.0;
+
+    /// <summary>
+    /// Mouse motion on the page-level Grid. In fullscreen, mouse in
+    /// the top 60 px reveals the CommandBar; mouse below collapses
+    /// it immediately. Outside fullscreen this is a no-op — the
+    /// bar is always Visible there. Same A-mode contract as
+    /// GalleryView.RootGrid_PointerMoved: the earlier 3 s "hide
+    /// after stillness" timer was dropped because PointerMoved
+    /// firing on every motion kept resetting the countdown and
+    /// prevented it from ever ticking.
+    /// </summary>
+    private void MainContentGrid_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!IsFullscreenStatic())
+        {
+            return;
+        }
+
+        // GetCurrentPoint(MainContentGrid) returns the pointer's
+        // position in the Grid's own coordinate space, so Y < 60
+        // means "in the top strip" without needing to subtract
+        // margins / chrome offsets manually.
+        var y = e.GetCurrentPoint(MainContentGrid).Position.Y;
+        var inTopZone = y < AutoHideTopHitHeight;
+        IsCommandBarVisible = inTopZone;
+    }
 
     private void OnMainWindowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -111,6 +183,21 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
             OnPropertyChanged(nameof(IsFullscreenGlyph));
             OnPropertyChanged(nameof(IsFullscreenLabel));
             OnPropertyChanged(nameof(IsFullscreenTooltip));
+
+            // Auto-hide chrome: when entering fullscreen the bar
+            // disappears (immersive view) and the reveal-on-mouse-
+            // near-top logic in MainContentGrid_PointerMoved takes
+            // over. When leaving, force-show and stop the pending
+            // hide timer so the bar doesn't blink back to hidden
+            // right after exit.
+            if (IsFullscreen)
+            {
+                IsCommandBarVisible = false;
+            }
+            else
+            {
+                IsCommandBarVisible = true;
+            }
         }
     }
 
@@ -163,6 +250,19 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         if (App.MainWindow is not null)
         {
             App.MainWindow.PropertyChanged += OnMainWindowPropertyChanged;
+            // Sync initial state. Same reasoning as GalleryView: when
+            // the window is already in FullScreen presenter at the
+            // time we subscribe (e.g. user F11'd in gallery, then
+            // opened a viewer), the IsCommandBarVisible field would
+            // stay at its ctor-default `true` value and CommandBar
+            // would render visible on first paint — defeating the
+            // "command bar is hidden in fullscreen until the user
+            // hovers near the top" contract. Forcing the handler to
+            // run once with a synthetic event flushes the page into
+            // the correct state immediately.
+            OnMainWindowPropertyChanged(
+                App.MainWindow,
+                new System.ComponentModel.PropertyChangedEventArgs(nameof(MainWindow.IsFullscreen)));
         }
 
         // Named handlers (not lambdas) so Unloaded can unsubscribe — otherwise
