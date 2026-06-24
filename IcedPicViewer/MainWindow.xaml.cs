@@ -218,6 +218,18 @@ public sealed partial class MainWindow : Window
             case Windows.System.VirtualKey.Escape:
                 vm.CloseCommand.Execute(null);
                 break;
+            case Windows.System.VirtualKey.Space:
+                // Space is the keyboard shortcut to start video playback
+                // from the static first-frame state (matches the gallery
+                // card's click-to-play affordance). The PlayCommand's
+                // CanExecute returns false once IsVideoPlaying is true, so
+                // we don't fight the MediaPlayerElement's built-in
+                // transport controls for Space-to-pause once the player
+                // surface is up. See ImageViewModel.PlayAsync + the
+                // CanPlay guard for the gate that makes this safe.
+                if (vm.PlayCommand.CanExecute(null))
+                    vm.PlayCommand.Execute(null);
+                break;
         }
     }
 

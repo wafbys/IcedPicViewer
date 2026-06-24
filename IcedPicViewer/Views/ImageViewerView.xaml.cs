@@ -1,5 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using System.ComponentModel;
 using IcedPicViewer.ViewModels;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -9,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.Foundation;
+using Windows.Media.Playback;
 
 namespace IcedPicViewer.Views;
 
@@ -24,6 +26,20 @@ public sealed partial class ImageViewerView : Page
     private double _minimapWidth = 150;
     private double _minimapHeight = 120;
     private Rectangle? _viewportRect;
+
+    /// <summary>
+    /// Centered play button on the static first frame. The handler
+    /// delegates to the VM's <c>PlayCommand</c> so the create-and-start
+    /// logic lives in one place (also reachable from the WH_KEYBOARD
+    /// Space hook in MainWindow.xaml.cs).
+    /// </summary>
+    private void PlayOverlay_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.PlayCommand.CanExecute(null))
+        {
+            ViewModel.PlayCommand.Execute(null);
+        }
+    }
 
     private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
     {
@@ -55,11 +71,35 @@ public sealed partial class ImageViewerView : Page
         this.InitializeComponent();
         ViewModel = App.GetService<ImageViewModel>();
 
+        // Mirror the VM's MediaPlayer into the MediaPlayerElement. The
+        // XAML can't bind the element's MediaPlayer property directly
+        // because it's read-only in WinUI 3 — the documented way to
+        // attach / detach a player is the SetMediaPlayer method. We
+        // watch the VM's MediaPlayer property change and call it here.
+        // The same subscription also handles the "set to null on
+        // navigate away" path (PlayerHost stops rendering and
+        // StopAndDisposePlayer in the VM closes the native handle).
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+
         // Named handlers (not lambdas) so Unloaded can unsubscribe — otherwise
         // the view would be kept alive by the lambda capture past navigation,
         // and subsequent DisplayImageChanged firings would hit a defunct visual tree.
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ImageViewModel.MediaPlayer))
+        {
+            // Detach any previous player (SetMediaPlayer(null) is the
+            // safe detach path) and attach the new one. Order matters
+            // only when the VM swaps from one non-null player to
+            // another; on the first null→player transition there is
+            // nothing to detach, and on the player→null transition the
+            // detach is the whole point.
+            Player.SetMediaPlayer(ViewModel.MediaPlayer);
+        }
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -74,6 +114,15 @@ public sealed partial class ImageViewerView : Page
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         ViewModel.DisplayImageChanged -= OnDisplayImageChanged;
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+
+        // Make sure the native player is detached from the visual tree
+        // before the page is torn down. The VM also tears it down on
+        // Close, but if the user navigates back via a different path
+        // (e.g. back gesture before Close runs) we still want the
+        // element to release its reference. The actual Close() is the
+        // VM's job; this is just the XAML-side detach.
+        Player.SetMediaPlayer(null);
     }
 
     private void OnDisplayImageChanged(object? sender, EventArgs e)

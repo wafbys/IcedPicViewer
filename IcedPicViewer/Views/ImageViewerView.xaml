@@ -73,11 +73,21 @@
                           Command="{x:Bind ViewModel.NavigateNextCommand}"
                           ToolTipService.ToolTip="下一张"/>
             <AppBarSeparator/>
+            <!--
+                Fit/1:1 toggle only makes sense for still images. For videos the
+                MediaPlayerElement uses its own Stretch=Uniform behaviour, and a
+                1:1 mode would mean scrolling a 1920x1080 surface on a 1080p
+                monitor — useful rarely, distracting usually. Hide the button
+                when the current item is a video; the visibility binding re-evaluates
+                on every Next/Prev (CurrentImage change fires the
+                [NotifyPropertyChangedFor] in the VM).
+            -->
             <AppBarButton x:Name="FitModeBtn"
                           Icon="Zoom"
                           Label="Fit"
                           Click="FitModeBtn_Click"
-                          ToolTipService.ToolTip="Fit / 1:1 切换"/>
+                          ToolTipService.ToolTip="Fit / 1:1 切换"
+                          Visibility="{x:Bind ViewModel.FitModeBtnVisibility, Mode=OneWay}"/>
             <AppBarButton Icon="Refresh"
                           Label="Load More"
                           Command="{x:Bind ViewModel.LoadMoreImagesCommand}"
@@ -91,50 +101,116 @@
             </CommandBar.SecondaryCommands>
         </CommandBar>
 
-        <Viewbox x:Name="FitContainer" Grid.Row="1" Stretch="Uniform">
+        <!--
+            Two content surfaces share the same Grid.Row="1" so they occupy
+            the same area; visibility on their parent Grids (ImageHost /
+            PlayerHost) decides which one is on screen. The split mirrors
+            the user spec "默认静态首帧 + ▶,点才创建 MediaPlayerElement":
+            the image surface (Viewbox + ScrollViewer + minimap) handles
+            the static case, the player surface handles the playing case,
+            and they're never both visible at once.
+        -->
+        <Grid x:Name="ImageHost"
+              Grid.Row="1"
+              Visibility="{x:Bind ViewModel.ImageHostVisibility, Mode=OneWay}">
+            <Viewbox x:Name="FitContainer" Stretch="Uniform">
+                <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
+                       Stretch="Uniform"
+                       AutomationProperties.Name="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"/>
+            </Viewbox>
+
+            <ScrollViewer x:Name="ActualSizeContainer"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Auto"
+                          ViewChanged="ActualSizeContainer_ViewChanged"
+                          SizeChanged="ActualSizeContainer_SizeChanged"
+                          Visibility="Collapsed">
+                <Image x:Name="ActualSizeImage" Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
+                       Stretch="None"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Loaded="ActualSizeImage_Loaded"
+                       ImageOpened="ActualSizeImage_ImageOpened"/>
+            </ScrollViewer>
+
+            <Grid x:Name="MinimapOverlay"
+                  HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                  Margin="0,0,16,16" Visibility="Collapsed">
+                <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4" Padding="4">
+                    <Grid>
+                        <Image x:Name="MinimapImage" Stretch="Uniform" />
+                        <!--
+                            MinimapViewport is the pointer target (not MinimapImage).
+                            Reasoning: Image.Stretch=Uniform leaves transparent padding
+                            around the picture, and a moving mouse over that padding
+                            never reached Image.PointerMoved. With Background="Transparent"
+                            the Canvas hit-tests its full 150x120 area, and routed
+                            events bubble up here from the viewport Rectangle too.
+                        -->
+                        <Canvas x:Name="MinimapViewport"
+                                Background="Transparent"
+                                Width="150" Height="120"
+                                PointerPressed="MinimapImage_PointerPressed"
+                                PointerMoved="MinimapImage_PointerMoved"
+                                PointerReleased="MinimapImage_PointerReleased"/>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <Grid x:Name="PlayerHost"
+              Grid.Row="1"
+              Visibility="{x:Bind ViewModel.PlayerHostVisibility, Mode=OneWay}">
+            <!--
+                Static first frame behind the play overlay. Same source as
+                the gallery's Thumbnail, so the user sees the same picture
+                they tapped on — no surprise reload. Visibility stays
+                Visible even while the player is rendering on top; the
+                MediaPlayerElement's surface is opaque so the underlying
+                Image is hidden in practice.
+            -->
             <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
-                   Stretch="Uniform"
-                   AutomationProperties.Name="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"/>
-        </Viewbox>
-
-        <ScrollViewer x:Name="ActualSizeContainer" Grid.Row="1"
-                      HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollBarVisibility="Auto"
-                      ViewChanged="ActualSizeContainer_ViewChanged"
-                      SizeChanged="ActualSizeContainer_SizeChanged"
-                      Visibility="Collapsed">
-            <Image x:Name="ActualSizeImage" Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
-                   Stretch="None"
-                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                   Loaded="ActualSizeImage_Loaded"
-                   ImageOpened="ActualSizeImage_ImageOpened"/>
-        </ScrollViewer>
-
-        <Grid x:Name="MinimapOverlay" Grid.Row="1"
-              HorizontalAlignment="Right" VerticalAlignment="Bottom"
-              Margin="0,0,16,16" Visibility="Collapsed">
-            <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="4" Padding="4">
-                <Grid>
-                    <Image x:Name="MinimapImage" Stretch="Uniform" />
-                    <!--
-                        MinimapViewport is the pointer target (not MinimapImage).
-                        Reasoning: Image.Stretch=Uniform leaves transparent padding
-                        around the picture, and a moving mouse over that padding
-                        never reached Image.PointerMoved. With Background="Transparent"
-                        the Canvas hit-tests its full 150x120 area, and routed
-                        events bubble up here from the viewport Rectangle too.
-                    -->
-                    <Canvas x:Name="MinimapViewport"
-                            Background="Transparent"
-                            Width="150" Height="120"
-                            PointerPressed="MinimapImage_PointerPressed"
-                            PointerMoved="MinimapImage_PointerMoved"
-                            PointerReleased="MinimapImage_PointerReleased"/>
-                </Grid>
-            </Border>
+                   Stretch="Uniform"/>
+            <!--
+                Centered play button. Visible only when IsVideo is true AND
+                IsVideoPlaying is false — once playback starts, the
+                MediaPlayerElement takes over and the built-in transport
+                controls (play/pause/scrubber) own the chrome. Background
+                is a fixed semi-opaque black for the same reason as the
+                gallery card ▶: it has to read clearly on any first
+                frame, regardless of the video's dominant colour.
+            -->
+            <Button x:Name="PlayOverlay"
+                    Visibility="{x:Bind ViewModel.IsPlayOverlayVisibility, Mode=OneWay}"
+                    Click="PlayOverlay_Click"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Background="#CC000000"
+                    BorderThickness="0"
+                    Width="80" Height="80"
+                    CornerRadius="40"
+                    Padding="0"
+                    ToolTipService.ToolTip="播放 (Space)">
+                <FontIcon Glyph="&#xE768;" FontSize="36" Foreground="White"/>
+            </Button>
+            <!--
+                MediaPlayerElement. The MediaPlayer can't be x:Bind directly
+                (read-only in WinUI 3) — instead the page's code-behind
+                subscribes to ViewModel.PropertyChanged and calls
+                Player.SetMediaPlayer(...) whenever the VM's MediaPlayer
+                property changes. The element is always present in the
+                tree; visibility on PlayerHost (driven by
+                IsVideo && IsVideoPlaying) decides whether the surface
+                is on screen. AreTransportControlsEnabled gives us the
+                standard play/pause/scrubber/volume chrome; the WH_KEYBOARD
+                hook in MainWindow skips the play command when
+                IsVideoPlaying is true so Space doesn't fight the
+                transport controls for pause.
+            -->
+            <MediaPlayerElement x:Name="Player"
+                                AreTransportControlsEnabled="True"
+                                Stretch="Uniform"/>
         </Grid>
 
         <ProgressRing Grid.Row="1"

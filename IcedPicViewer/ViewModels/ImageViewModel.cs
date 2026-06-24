@@ -11,6 +11,9 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using Windows.Media.Core;
+using Windows.Media.Playback;
+using Windows.Storage;
 
 namespace IcedPicViewer.ViewModels;
 
@@ -21,12 +24,18 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     private readonly INavigationService _navigationService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource? _loadCts;
+    private MediaPlayer? _mediaPlayer;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
     [NotifyPropertyChangedFor(nameof(ActualHeight))]
     [NotifyPropertyChangedFor(nameof(ImagePath))]
     [NotifyPropertyChangedFor(nameof(IsVideo))]
+    [NotifyPropertyChangedFor(nameof(ImageHostVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerHostVisibility))]
+    [NotifyPropertyChangedFor(nameof(IsPlayOverlayVisibility))]
+    [NotifyPropertyChangedFor(nameof(FitModeBtnVisibility))]
+    [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
     public partial MediaItem? CurrentImage { get; set; }
 
     [ObservableProperty]
@@ -54,13 +63,141 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// <summary>
     /// True when the currently-displayed item is a video. Forwarded from
     /// <see cref="MediaItem.IsVideo"/>; bound by the viewer's overlay
-    /// chrome (the future &gt; button + play / pause affordance).
-    /// The current viewer still shows the static first frame
-    /// (<see cref="DisplayImage"/> = item.FullImage = item.Thumbnail
-    /// for videos), so a true here only affects what the chrome draws
-    /// on top, not what the Image element shows.
+    /// chrome (FitMode button visibility, the play overlay, and the
+    /// ImageHost/PlayerHost swap).
     /// </summary>
     public bool IsVideo => CurrentImage?.IsVideo ?? false;
+
+    // ----------------------------------------------------------------
+    // Video playback state.
+    //
+    // The viewer has two distinct surface modes: image (existing static
+    // Image + Fit/1:1 toggle + minimap) and video (static first frame
+    // overlaid with a centered play button that, on click, swaps the
+    // surface to a MediaPlayerElement driven by a lazily-created
+    // MediaPlayer). Both surfaces share the same Grid.Row so they
+    // occupy the same screen real estate; visibility on their parent
+    // Grids (ImageHost / PlayerHost) determines which one is on screen.
+    //
+    // The MediaPlayer is created on the first Play() call and torn
+    // down by StopAndDisposePlayer() whenever the viewer navigates
+    // away (next / prev / close / dispose). This matches the user
+    // spec "点/Space 才创建 MediaPlayerElement 并 dispose" — we don't
+    // pay the native player cost until the user actually wants
+    // playback, and we never leak a player across navigations.
+    // ----------------------------------------------------------------
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PlayerHostVisibility))]
+    [NotifyPropertyChangedFor(nameof(IsPlayOverlayVisibility))]
+    [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
+    public partial bool IsVideoPlaying { get; set; }
+
+    /// <summary>
+    /// The active <see cref="MediaPlayer"/> for video playback, or null
+    /// when the viewer is showing the static first frame (or an image).
+    /// The view's <c>MediaPlayerElement.MediaPlayer</c> binds OneWay to
+    /// this property — setting it to null detaches the player from the
+    /// surface so the view can safely fall back to the static frame.
+    /// </summary>
+    public MediaPlayer? MediaPlayer
+    {
+        get => _mediaPlayer;
+        private set => SetProperty(ref _mediaPlayer, value);
+    }
+
+    // Visibility helpers — bound by the view to swap the image / player
+    // surfaces and to hide image-only chrome (Fit/1:1 button) when
+    // the current item is a video. All three (plus the helpers below)
+    // are computed from IsVideo + IsVideoPlaying; the [Notify...]
+    // attributes on CurrentImage and IsVideoPlaying above take care of
+    // re-firing PropertyChanged when either input changes.
+
+    public Visibility ImageHostVisibility => !IsVideo ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility PlayerHostVisibility => IsVideo ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility IsPlayOverlayVisibility => IsVideo && !IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility FitModeBtnVisibility => !IsVideo ? Visibility.Visible : Visibility.Collapsed;
+
+    [RelayCommand(CanExecute = nameof(CanPlay))]
+    private async Task PlayAsync()
+    {
+        if (CurrentImage is not VideoItem video) return;
+        if (_mediaPlayer != null) return;
+
+        try
+        {
+            // StorageFile is the supported handle for CreateFromStorageFile
+            // in MSIX packaged apps. GetFileFromPathAsync works for any path
+            // the process can read (it has already read the same file via
+            // FileStream in the gallery's thumbnail pipeline, so access is
+            // guaranteed). A bare `new Uri(path)` / MediaSource.CreateFromUri
+            // would be simpler but hits the file:// sandbox restrictions in
+            // some packaged-app configurations.
+            var file = await StorageFile.GetFileFromPathAsync(video.Source.Path);
+            var source = MediaSource.CreateFromStorageFile(file);
+
+            var player = new MediaPlayer();
+            player.Source = source;
+            // Order: set MediaPlayer first so the MediaPlayerElement binds
+            // to the live instance, then flip IsVideoPlaying so the player
+            // surface becomes visible, then call Play(). Calling Play()
+            // before the element is visible still works (the player keeps
+            // rendering into the surface even when collapsed) but feels
+            // less responsive on slow first frames.
+            MediaPlayer = player;
+            IsVideoPlaying = true;
+            player.Play();
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"ImageViewModel.PlayAsync error for {CurrentImage?.Id}: {ex.GetType().Name}: {ex.Message}");
+            // Surface as a non-playing state so the user can retry. Don't
+            // throw — the play overlay stays visible and CanPlay stays true.
+            IsVideoPlaying = false;
+            MediaPlayer = null;
+        }
+    }
+
+    private bool CanPlay() => IsVideo && !IsVideoPlaying && _mediaPlayer == null;
+
+    /// <summary>
+    /// Pauses + closes the active MediaPlayer and clears the field so the
+    /// view's MediaPlayerElement detaches. Idempotent (no-op when the
+    /// player is already null). Called on every navigation boundary
+    /// (Next, Previous, Close, Dispose) so we never leak a native
+    /// player across item switches.
+    /// </summary>
+    private void StopAndDisposePlayer()
+    {
+        var oldPlayer = MediaPlayer;
+        MediaPlayer = null;
+        IsVideoPlaying = false;
+        if (oldPlayer is null) return;
+
+        try
+        {
+            oldPlayer.Pause();
+            // Drop the MediaSource before Dispose so the source's underlying
+            // file handle is released before the player tears down its
+            // render pipeline. Order matters: Source = null on a still-
+            // playing player can race with Dispose; pausing first makes the
+            // release sequence deterministic.
+            oldPlayer.Source = null;
+            // The WinRT MediaPlayer implements IDisposable (not Close) in
+            // the Windows.Media.Playback contract exposed to .NET — Dispose
+            // walks the same teardown path as the UWP Close() sequence.
+            oldPlayer.Dispose();
+        }
+        catch (Exception ex)
+        {
+            // Best-effort cleanup. A leaked native handle here is much
+            // less bad than a crash in the disposal path.
+            Trace.TraceError($"ImageViewModel.StopAndDisposePlayer error: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
 
     partial void OnDisplayImageChanged(BitmapImage? value)
     {
@@ -164,6 +301,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     {
         if (CanNavigatePrevious())
         {
+            // Stop any active video playback before switching items — the
+            // new image's FullImage is the only thing we want decoded next.
+            StopAndDisposePlayer();
             CurrentIndex--;
             await ShowCurrentImageAsync();
         }
@@ -172,6 +312,8 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanNavigateNext))]
     private async Task NavigateNextAsync()
     {
+        // Same navigation-boundary cleanup as NavigatePreviousAsync.
+        StopAndDisposePlayer();
         if (CurrentIndex < Images.Count - 1)
         {
             // 正常前进
@@ -195,6 +337,11 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void Close()
     {
+        // Tear down the video player before the navigation pops the page,
+        // otherwise the MediaPlayerElement is unloaded by the frame before
+        // we get a chance to release the native handle.
+        StopAndDisposePlayer();
+
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _loadCts = null;
@@ -236,12 +383,20 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
         TotalCount = Images.Count;
         DisplayImage = null;
+        // After a delete the navigation target is fresh, so the previous
+        // item's player (if any) was already torn down by the gallery
+        // deleting the source MediaItem. Re-call for safety in case the
+        // VM somehow outlived the index change.
+        StopAndDisposePlayer();
         ResetLoadCts();
         await LoadFullImageAsync(CurrentImage, _loadCts!.Token);
     }
 
     public async Task ShowImageAsync(MediaItem item)
     {
+        // Navigation boundary: tear down any active player from the
+        // previous (gallery) item before binding the new one.
+        StopAndDisposePlayer();
         ResetLoadCts();
 
         // Clear the previous image immediately so the user doesn't see a stale
@@ -265,9 +420,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         {
             // For VideoItem the gallery's thumbnail loader already
             // wired item.FullImage to the extracted first frame, so
-            // the viewer shows that static first frame as the "full"
-            // image. The future MediaPlayerElement session will
-            // replace this path with a real player surface.
+            // the viewer shows that static first frame as the default
+            // "full" view before the user clicks play. The play
+            // overlay button is drawn on top by IsPlayOverlayVisibility.
             DisplayImage = item.FullImage;
             return;
         }
@@ -343,6 +498,12 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         if (disposing)
         {
+            // Last-chance native handle release. The MediaPlayer holds
+            // an OS-level render pipeline; if the user closes the app
+            // while a video is playing, this is what stops audio output
+            // and releases the surface.
+            StopAndDisposePlayer();
+
             _loadCts?.Cancel();
             _loadCts?.Dispose();
             _loadCts = null;

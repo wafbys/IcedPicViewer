@@ -1,5 +1,97 @@
 # 更新日志
 
+## v0.14.1 (2026-06-24)
+
+**主题:视频播放集成 — MediaPlayerElement + Space 键盘 + 完整 lifecycle**
+
+### 背景
+
+v0.14.0 接好了视频数据通路(Gallery 永远静态首帧 + ▶ overlay,Viewer 也默认静态首帧),但点击 ▶ 什么都做不了。本 session 把"点/Space 才创建 MediaPlayerElement 并 dispose"补完:在 viewer 里点 ▶ 或按 Space 才真正创建 MediaPlayer 开始播放,离开(Next/Prev/Close/Dispose)立即释放 native 句柄。
+
+### 改动
+
+**`ImageViewModel` 视频播放状态机**:
+
+- 新 `MediaPlayer? MediaPlayer` 属性(private setter, `SetProperty` 走 INotifyPropertyChanged)。`null` ↔ 真实 player 二态。View 通过 `PropertyChanged` 监听变化后调 `Player.SetMediaPlayer(...)`(WinUI 3 的 `MediaPlayerElement.MediaPlayer` 是 read-only,不能 x:Bind)。
+- 新 `IsVideoPlaying: bool` (`[ObservableProperty]`),`PlayerCommand.CanExecute = IsVideo && !IsVideoPlaying && _mediaPlayer == null`。Player 在场 / 正在播 / 已经被设过 —— 三种状态都拒再启,避免重复创建。
+- 新 `PlayCommand` (`[RelayCommand]`) = `PlayAsync()`:
+  1. `StorageFile.GetFileFromPathAsync(video.Source.Path)` → `MediaSource.CreateFromStorageFile`
+  2. `new MediaPlayer()` 设 Source + Play
+  3. 设 `MediaPlayer` 属性(`PropertyChanged` 触发 view 调 `SetMediaPlayer`)
+  4. 设 `IsVideoPlaying = true` → PlayerHost 切到 Visible
+  5. `player.Play()`
+  - 为什么用 `StorageFile.GetFileFromPathAsync` 而不是 `new Uri(path)` / `MediaSource.CreateFromUri`:`file://` URI 在 MSIX packaged 沙箱下行为不一致,StorageFile 是 WinAppSDK MSIX 下经过验证的路径,跟 Gallery 早已有的 `FileStream` 访问权限一致。
+- 新 `StopAndDisposePlayer()` 私有 helper,**幂等**:
+  1. `MediaPlayer = null` (触发 view `SetMediaPlayer(null)` detach)
+  2. `IsVideoPlaying = false` (PlayerHost 切回 Collapsed,PlayOverlay 切回 Visible)
+  3. `oldPlayer.Pause()` → `oldPlayer.Source = null` → `oldPlayer.Dispose()`
+  - Pause 先于 Source = null 是为了避免"playing 中途 source 突然变 null"导致的 native 竞态。Dispose 而不是 Close —— WinAppSDK 2.2.x 暴露的 `Windows.Media.Playback.MediaPlayer` 是 `IDisposable`,UWP 的 `Close()` 在 CsWinRT projection 里就是 `Dispose`。
+- 6 个 visibility helper 全是 computed property:
+  - `ImageHostVisibility` = `!IsVideo ? Visible : Collapsed`
+  - `PlayerHostVisibility` = `IsVideo ? Visible : Collapsed`
+  - `IsPlayOverlayVisibility` = `IsVideo && !IsVideoPlaying ? Visible : Collapsed`
+  - `FitModeBtnVisibility` = `!IsVideo ? Visible : Collapsed` (视频没有 1:1 概念)
+  - 都通过 `[NotifyPropertyChangedFor]` 挂在 `CurrentImage` 和 `IsVideoPlaying` 上,切换 item 自动刷新。
+- **`StopAndDisposePlayer()` 调用点 5 处**(导航边界全覆盖):
+  - `NavigatePreviousAsync` / `NavigateNextAsync` 开头
+  - `Close` 开头(在 `_loadCts?.Cancel()` 之前,确保 native handle 在 Frame pop 前释放)
+  - `DeleteAsync` 切换到新 item 之后
+  - `ShowImageAsync` 入口(双击 gallery card 打开 viewer)
+  - `Dispose`(singleton teardown,关 app 时最后一道防线)
+
+**`ImageViewerView.xaml` 表面拆分**:
+
+- 原来 Grid.Row="1" 直接平铺三个元素(`FitContainer` / `ActualSizeContainer` / `MinimapOverlay`)。现在包到外层 `ImageHost` Grid 里。视频时整个 ImageHost 隐藏(`Visibility="{x:Bind ViewModel.ImageHostVisibility, Mode=OneWay}"`)。
+- 新加 `PlayerHost` Grid(同样 Grid.Row="1",跟 ImageHost 同层但 visibility 互斥):
+  - `<Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}">` 底层显示静态首帧(同 Gallery 的 Thumbnail,跟用户在瀑布流点开看到的一致 —— 不会有"点了发现不是同一张"的惊吓)。Player 上面的 surface 是不透明的,实际看不见,但保留这个底层让"未播放状态"和"播放状态"切换时不需要重新 load bitmap。
+  - `<Button x:Name="PlayOverlay">` Segoe Fluent `&#xE768;` Play 字体图标 36pt,`#CC000000` 半透黑底 80×80 圆角,`Visibility` 绑 `IsPlayOverlayVisibility`。理由同 v0.14.0 gallery card:必须跨任何首帧颜色都清晰可读,Fluent 2 没有"高对比度实心圆形"专用 brush。
+  - `<MediaPlayerElement x:Name="Player" AreTransportControlsEnabled="True" Stretch="Uniform">` 标准 WinUI 传输控件(play/pause/scrubber/volume)。`MediaPlayer` 不 x:Bind(read-only),由 code-behind `OnViewModelPropertyChanged` 监听 VM 的 `PropertyChanged` 调 `Player.SetMediaPlayer(...)`。
+- `FitModeBtn` 加 `Visibility="{x:Bind ViewModel.FitModeBtnVisibility, Mode=OneWay}"`,视频时隐藏(Fit/1:1 概念对视频没意义,1:1 滚 1920×1080 在 1080p 屏上大多数时候是反效果)。
+
+**`ImageViewerView.xaml.cs` lifecycle 同步**:
+
+- 构造里订阅 `ViewModel.PropertyChanged` → `OnViewModelPropertyChanged`,匹配 `nameof(MediaPlayer)` 时调 `Player.SetMediaPlayer(ViewModel.MediaPlayer)`(既处理 player→null detach,也处理 null→player attach)。
+- 加 `PlayOverlay_Click` → 委派给 `ViewModel.PlayCommand`(CanExecute 检查同 Space 路径)。
+- `OnUnloaded` 加 2 行清理:退订 `PropertyChanged` + `Player.SetMediaPlayer(null)`。VM 也会在 Dispose / Close / Next 边界 dispose player,但 view 这边先 detach 是 XAML 树清理的一部分,避免"page 销毁了但 element 还 hold 着一个 native player 引用"。
+
+**`MainWindow.HandleViewerKey` Space 键**:
+
+- 加 `case Windows.System.VirtualKey.Space`:
+  - `if (vm.PlayCommand.CanExecute(null)) vm.PlayCommand.Execute(null)`
+- 跟 Left/Right/Delete/Escape 同一套 CanExecute 模式,跟 WH_KEYBOARD thread-scope hook 的"快速 return + TryEnqueue 派发"不变量兼容。
+- **为什么不会跟 MediaPlayerElement 自己的 Space 处理打架**:PlayCommand 的 `CanExecute` 在 `IsVideoPlaying` 已是 true 时返回 false。`WH_KEYBOARD` hook callback 在 key dispatch **之前** 跑(VM PlayCommand 的 CanExecute 检查还是 false),通过 `CallNextHookEx` 之后 Space 才到达 focused element(player)由它自己处理。两侧都拿到 Space 但分别做正确的事:hook 拒绝重复启动,player 正常 pause。注释里写了这个时序保证。
+- **不**在 hook 路径手动 dispose player(那是 VM 的职责,Close / Next 已经覆盖),hook 只管启动。
+
+### 已决定的取舍(不重新讨论)
+
+- **不**做 1:1 视频模式:1920×1080 视频在 1080p 屏上 1:1 是反效果(Fit 已经 Stretch=Uniform 居中)。FitModeBtn 视频时直接隐藏。1:1 视频如果将来要做,得加 scrollable 视频 surface(类似 ActualSizeContainer 但用 MediaPlayerElement),留作未来。
+- **不**复用 IImageLoader LRU 给 video:`IImageLoader.LoadThumbnailAsync` 签了 `ImageSource`、返回 `BitmapImage?`,video 解码返回的是 `MediaPlayer`,类型空间不同。统一 LRU 要加 `IThumbnailCache` 抽象(下一 session 待办),本 session 不做。
+- **不**改 `NavigateNextAsync` 走"先 dispose,再 await new image"的两段式:在 sync 路径头部 `StopAndDisposePlayer()` 一次就够了,async 部分 VM 自己会处理新 image 的 load。额外拆分反而把 dispose 和 image-load 的顺序耦合到 await 上,出 bug 时更难 trace。
+- **不**在 `MediaEnded` 自动 stop + dispose:让 player 留在 ended 状态,transport controls 显示 ▶ 让用户点重播。Auto-stop 会让用户不得不再次点 play 才能 re-watch,UX 更差。
+- **不**在 `OnViewModelPropertyChanged` 里做 null-coalesce 处理"old player 没 detach 就 set new player"的情况:VM 内部 `StopAndDisposePlayer` 已经把 `MediaPlayer = null` 写在最前,view 这边拿到的总是"先 detach,再 attach 新"的序列。
+
+### 手动验证清单(本 session 不跑,环境 headless)
+
+1. 双击 video card → viewer 显示静态首帧 + 居中 ▶ 圆形按钮 + Fit/1:1 按钮已隐藏。
+2. 点 ▶ → 按钮消失,MediaPlayerElement 出现,自动开始播放,内置传输控件可见。
+3. 视频播放中按 Space → 走 player 自带传输控件的 pause(不是 hook 的 PlayCommand,因为 `IsVideoPlaying` 已是 true,`CanExecute` 拒)。
+4. 视频播放中按 Space 再按 → 继续播放(transport controls)。
+5. 视频播放中按 →(Next)→ 当前 video dispose,新 video 显示静态首帧 + ▶ 按钮。
+6. 视频播放中点 X 关闭 → video dispose,回到 gallery。
+7. 视频播放中关 app → `ImageViewModel.Dispose` 兜底 dispose,无声卡死 / 进程残留。
+8. 切到 image 卡片 → `IsVideo` 变 false,PlayerHost 隐,ImageHost 显,FitModeBtn 显,行为同 v0.13.x 完全一致。
+9. AppDomain 重载 / 重复开关 viewer 不应泄漏 player(测试 10 次开关,Memory profiler 看 `Windows.Media.Playback.MediaPlayer` 实例数 = 0)。
+
+### build 状态
+
+0 errors / 0 warnings(`dotnet build -c Debug -p:Platform=x64` 干净通过)。
+
+### 下一 session 待办(不在本 session 范围)
+
+- 统一 `IThumbnailCache` service(image 已有 IImageLoader LRU,video 现在没 cache,首次解码后 `item.Thumbnail` 充当隐式 cache)。
+- 视频 archive 支持(AVIO 自定义 read callback 或 temp file extract,见 `VideoMetadataService` 注释里的 deferred note)。
+- 1:1 视频模式(可选 UX,见上方取舍段)。
+
 ## v0.14.0 (2026-06-24)
 
 **主题:视频支持数据通路(MediaItem/VideoItem + FFmpeg + ▶ overlay + About page + LGPL) — 下一 session 接入 MediaPlayerElement**
