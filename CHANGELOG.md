@@ -121,10 +121,208 @@
 
 ### 下一 session 待办(不在本 session 范围)
 
-- SlideshowInterval UI 改间隔 (slider 或 picker)
-- Fullscreen 时 auto-hide app chrome (mouse move 触发)
-- Slideshow 完成 "smart shuffle" (不重复直到看完所有图)
-- 数字键 1-9 跳到 10%-90% 位置 (vlc 习惯)
+- (本 session 已全部做掉,见 v0.14.6)
+
+## v0.14.6 (2026-06-25)
+
+**主题: Slideshow 增强 + 真正的全屏 + Loop/Shuffle 视觉态**
+
+### 背景
+
+把 v0.14.5 末尾列的 4 个待办全做掉(3 个核心 + 1 个数字键 seek)。
+Slideshow 增强让自动播放可控(用户能调间隔)且不无聊(smart shuffle
+不连续重复)。Fullscreen auto-hide chrome 是沉浸感收尾。数字键
+seek 走 VLC 习惯,跟用户脑子里"按 5 跳到一半"的肌肉记忆对齐。
+
+### 改动
+
+**SlideshowInterval 改 UI (ImageViewModel + GalleryViewModel + ImageViewerView.xaml)**
+
+- `SlideshowInterval` 从 `int` 秒改 `double` 秒,Slider 直接 TwoWay
+  bind 不用 `TimeSpan` ↔ `int` converter,小数步进 (`StepFrequency=0.5`)
+  支持 2.5 / 3.5 这种非整数 interval。
+- `OnSlideshowIntervalChanged(bool value)` partial method 跟
+  `IsSlideshowActive` 联动:如果 slideshow 正在跑,interval 改了之后
+  重新 arm timer 用新 cadence;没跑则不动 timer (下次 Start 用新值)。
+- `SlideshowIntervalText` computed property 用 `InvariantCulture` +
+  `"0.#"` format 输出 "2.5" / "3" / "30",跟用户区域设置无关。
+- Viewer CommandBar 加 `AppBarElementContainer` 包 `StackPanel`:
+  "Interval:" label + `Slider` (Width=120, Min=1, Max=30) + value
+  TextBlock + "s" suffix。`AppBarElementContainer` 是必要的 —
+  `CommandBar.PrimaryCommands` 强类型 `ICommandBarElement`,raw
+  `FrameworkElement` 不能直接放。
+
+**Fullscreen auto-hide chrome (ImageViewerView + ImageViewerView.xaml)**
+
+- 加 `IsCommandBarVisible` (page-level property) + `CommandBarVisibility`
+  computed property:非全屏时永远 `Visible`,全屏时跟随
+  `IsCommandBarVisible`。
+- `MainContentGrid` XAML 加 `PointerMoved="MainContentGrid_PointerMoved"`。
+  全屏时 mouse 进入顶部 60 px → 设 `IsCommandBarVisible = true` +
+  stop pending timer;mouse 离开 → 启动/重启 3 s `DispatcherQueueTimer`,
+  静止 3 s 后 tick 触发 `IsCommandBarVisible = false`。
+- 非重复 timer 的 `Start()` 重置倒计时:鼠标持续在屏幕中下部
+  移动时 bar 不会隐藏,只有 3 s 静止才藏。
+- `OnMainWindowPropertyChanged` 处理 fullscreen toggle:进全屏
+  立即隐(immersive),出全屏强制显 + stop timer (避免 exit 之后
+  bar 闪一下又藏)。
+- 不加 BeginAnimation 淡入淡出 — user-driven reveal 应该瞬时,
+  淡入会有"我点完了它还没出来"的滞感;hide 是被动事件,3s
+  倒计时已经给够视觉过渡。
+
+**Smart shuffle (ImageViewModel)**
+
+- `OnSlideshowTick` 的 shuffle 分支从 "do/while pick random !=
+  Current" 改成 "dequeue from shuffled queue" (后者不连续重复
+  保证更强 — 整 cycle 内 [0, N) 全部展示完之前不会重复任何
+  一张,do/while 只防 *立即* 重复)。
+- 新 `Queue<int> _shuffleQueue` + `int _lastShuffleIndex` field。
+  `RefillShuffleQueue()` Fisher-Yates 洗 [0, Count) 入队,边界
+  情况:如果新 queue 的 [0] 等于 `_lastShuffleIndex` (上一个
+  cycle 末尾的图),把它跟 [1..N) 随机位置 swap,防止 cycle
+  边界 back-to-back 重复同一张。
+- `OnIsSlideshowShufflingChanged(true)` partial method 清空
+  queue + reset `_lastShuffleIndex = -1`,确保 toggle on 之后
+  下一次 tick 拿到 fresh cycle。Toggle off 不清 (sequential
+  模式不用 queue,下次 toggle on 时 refil 也会覆盖)。
+- 端-of-set 早退条件加 `!IsSlideshowShuffling` guard:旧逻辑
+  在 shuffle 模式下,CurrentIndex 到末尾 + loop off 会错误
+  StopSlideshow。Shuffle 模式本意是"随机到任何图",没有
+  "末尾"概念,应该一直跑。
+
+**数字键 1-9 seek (MainWindow.HandleViewerKey + HandleNumberKeySeek)**
+
+- `HandleViewerKey` switch 加 `Number0` 到 `Number9` case:key -
+  `Number0` 得 0-9 digit,×10 得 0% / 10% / ... / 90%,调
+  `HandleNumberKeySeek(vm, percent)`。
+- `HandleNumberKeySeek` static method 守护:非视频 / 无 player
+  / `NaturalDuration == TimeSpan.Zero` (MediaOpened 还没触发) → no-op。
+  逻辑:记 `wasPlaying` → 暂停 → 设 `Position = duration × percent / 100`
+  → 如果 wasPlaying 则 resume。Pause-then-resume 是因为 playing 中
+  直接 seek 在 native pipeline 上偶尔会抖;resume 让用户保留
+  "我在看,没暂停" 的语义。
+- 跟 Space (Play/Pause) 走不同路径,避免两个键在 WH_KEYBOARD
+  hook 里争 PlayCommand.CanExecute gate:Space 走 Command (受
+  CanExecute 控),数字键走 explicit seek helper。
+
+### 验证
+
+- `dotnet build -c Debug -p:Platform=x64` 干净通过
+  (0 errors / 0 warnings)。
+- SlideshowInterval:1-30s 滑块拖动实时反映到 Tooltip 文字;
+  运行中改 interval 立即重置 timer 节奏。
+- Fullscreen auto-hide:F11 进全屏 → bar 立即隐;鼠标在屏幕
+  中下部持续移动 → bar 不出现;鼠标移到顶部 → bar 显,3s 不
+  动 → bar 自动隐;F11 退出 → bar 立即显,无闪。
+- Smart shuffle:开 shuffle 跑 30 张,确认 30 个不同 index 都
+  出现过且没有连续重复;跑到第 31 张 (cycle 边界) 也不重复
+  上一张。
+- Number 1-9 seek:在视频 50% 位置按 1 → 跳 10% 处;按 9 → 跳
+  90% 处;按 0 → 跳 0% 处。图像 viewer 按数字键 → no-op。
+
+---
+
+## v0.14.7 (2026-06-25)
+
+**主题: 真正的全屏 + Loop/Shuffle 视觉态**
+
+### 背景
+
+v0.14.6 收尾时发现两件遗留的体验短板:
+
+1. 之前 v0.14.5 的 fullscreen 调的是
+   `AppWindow.SetPresenter(FullScreen)`,这个 API 只藏 OS title bar
+   (Win32 non-client area),**app 自己的 in-app TitleBar 元素 +
+   gallery 的 header (Open/Refresh/Slideshow/About) + gallery 的
+   status bar (Scan progress / Load More) 仍然显示**。结果是
+   "按了 F11 但还是有 3 道 chrome"的伪全屏感。
+2. Loop 和 Shuffle 用 `AppBarButton` 配 `Click` handler 自己翻
+   `IsSlideshowLooping` / `IsSlideshowShuffling`,但 `AppBarButton`
+   没有内置 checked 视觉态 — 只有 Tooltip + Label 文字翻,Icon
+   不动、背景不变。用户看不出 "现在 Loop/Shuffle 是开着还是关着"。
+
+### 改动
+
+**真正的全屏 (MainWindow + GalleryView + MainWindow.HandleViewerKey)**
+
+- `MainWindow` 显式 `implement INotifyPropertyChanged`(原来 event
+  已经有了,缺 interface 声明),x:Bind OneWay 不再报 WMC1506。
+- 新 `IsAppTitleBarVisible` property (`!IsFullscreen`),绑到 in-app
+  `TitleBar` 的 `Visibility`。RowDefinition 是 `Auto` 所以
+  Collapsed 后整行高度变 0,不留空白带。
+- `MainWindow.HandleViewerKey` 把 F11 case **移到 page-type
+  guard 之前** — 之前只在 `ImageViewerView` 页面响应 F11,在
+  gallery 页面 F11 是 no-op。现在 gallery 也能 F11。
+- `GalleryView` 加 `IsChromeVisible` (bool) + `HeaderRowHeight` /
+  `StatusRowHeight` (GridLength) 三个 property。Row 0 (header, 48px)
+  + Row 2 (status, 32px) 的 Height 直接绑到这两个 GridLength —
+  不用 `Visibility.Collapsed` 因为固定高度 RowDefinition 即便 child
+  Collapsed 也会保留高度,会留 80px 空白。绑 GridLength 是唯一
+  能真把 row 高度收为 0 的方法。
+- `GalleryView` 加 `OnMainWindowPropertyChanged` 订阅 `IsFullscreen`
+  变化 → 抛 `IsChromeVisible` / `HeaderRowHeight` /
+  `StatusRowHeight` 三个 PropertyChanged,`Unloaded` 解订避免泄漏。
+- `GalleryView` class 加 `: INotifyPropertyChanged` 声明(原来
+  GalleryView 不实现,只有 ViewerView 实现,加 chrome binding 后
+  x:Bind OneWay 需要源实现 INotifyPropertyChanged)。
+- Viewer 的 CommandBar 隐藏行为 v0.14.6 的 auto-hide 不变 —
+  它是 "mouse-near-top 显 / 离开 3s 隐",gallery 是 "全屏时
+  完全隐",两套机制独立,viewer 那边已经正确,无需改。
+
+**Loop/Shuffle 视觉态 (ImageViewerView.xaml + .xaml.cs)**
+
+- 两个按钮 `AppBarButton` → `AppBarToggleButton`,`IsChecked` 走
+  `TwoWay` 绑到 `IsSlideshowLooping` / `IsSlideshowShuffling`。
+  WinUI `ToggleButton` 的 default style 自带 checked 视觉态
+  (背景高亮),用户点完一眼能看出 "开了"。
+- 删 `SlideshowLoopBtn_Click` + `SlideshowShuffleBtn_Click`
+  两个 Click handler — TwoWay bind 已经覆盖翻状态,且
+  `OnIsSlideshowShufflingChanged(true)` partial method
+  (清空 shuffle queue) 会在 IsChecked 翻为 true 时照样触发
+  (ObservableProperty setter 抛 PropertyChanged 同时调 partial
+  method),所以原 Click handler 的行为完全保留。
+- 删 Click handler 也消除了"按钮自己翻 + handler 翻"两次的
+  风险(虽然 IsChecked TwoWay 路径下 Click handler 不会被调,
+  但留着是个 dead code 看着也烦)。
+
+### 验证
+
+- `dotnet build -c Debug -p:Platform=x64` 0 errors / 0 warnings。
+- Gallery F11 进全屏 → header (48px) + status bar (32px) 立即
+  消失,MasonryPanel 占满全屏(连 in-app TitleBar 32px 也藏了);
+  F11 退出 → 3 道 chrome 都回来。
+- Viewer F11 进全屏 → 立即隐 CommandBar,鼠标上移显 (v0.14.6
+  行为不变)。
+- Loop/Shuffle 按钮各点一次,看 button 背景高亮(checked 态);
+  再点取消高亮。运行 Slideshow 时翻 Loop/Shuffle,看 timer
+  行为对 (Loop on 跳到末尾回 0;Shuffle on 走 queue)。
+
+### 修 viewer 全屏时顶部 48px 空白 (Task D)
+
+**问题**:v0.14.7 改完 viewer 全屏时,`CommandBar.Visibility=Collapsed`
+但 `RowDefinition Height="48"` 仍是 fixed,固定高度 row 即便
+child Collapsed 也会保留 48px。图片看上去"没充满上部"。
+
+**修法**:跟 GalleryView 的 header / status row 同款套路 — 把
+`RowDefinition.Height` 绑到 GridLength,可见时 48,隐时 0。
+`Visibility` 绑在 CommandBar 上保留(不影响,但对看代码的人
+"显式"比较清楚)。
+
+- `ImageViewerView` 加 `CommandBarRowHeight` (GridLength) property,
+  从 `CommandBarVisibility` 派生 (Visible → 48, Collapsed → 0)。
+- `IsCommandBarVisible` setter 在抛 `CommandBarVisibility` 的同时
+  也抛 `CommandBarRowHeight`(派生属性,源一变它必变)。
+- `OnMainWindowPropertyChanged` (fullscreen toggle) 同样抛
+  `CommandBarRowHeight` 防御性 re-notify。
+- `ImageViewerView.xaml` 把 `RowDefinition Height="48"` 改成
+  `Height="{x:Bind CommandBarRowHeight, Mode=OneWay}"`。
+
+**验证**:
+- `dotnet build -c Debug -p:Platform=x64` 0 errors / 0 warnings。
+- Viewer F11 进全屏 → 顶部 48px 空白消失,图片充满全屏。
+- 鼠标移到顶部 60px → CommandBar 滑出 (row 从 0 变 48,
+  bar 可见);鼠标离开 3s → 滑回 0,row 又消失。
+- F11 退出全屏 → row 永远保持 48,bar 一直显,无闪。
 
 ## v0.14.4 (2026-06-25)
 

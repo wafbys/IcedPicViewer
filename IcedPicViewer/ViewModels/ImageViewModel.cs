@@ -105,11 +105,25 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(SlideshowShuffleTooltip))]
     public partial bool IsSlideshowShuffling { get; set; }
 
+    // Flipping shuffle on clears the queue + the last-shown tracker
+    // so the very next tick (which might fire 1s away) starts a
+    // fresh cycle. Toggling shuffle off doesn't clear — the queue
+    // is unused in sequential mode and the next on-toggle will
+    // overwrite it anyway.
+    partial void OnIsSlideshowShufflingChanged(bool value)
+    {
+        if (value)
+        {
+            _shuffleQueue.Clear();
+            _lastShuffleIndex = -1;
+        }
+    }
+
     public string SlideshowGlyph => IsSlideshowActive ? "\uE71A" /* Stop */ : "\uE768" /* Play */;
     public string SlideshowLabel => IsSlideshowActive ? "Stop Slideshow" : "Start Slideshow";
     public string SlideshowTooltip => IsSlideshowActive
         ? "Stop slideshow"
-        : $"Start slideshow (auto-advance every {_slideshowInterval.TotalSeconds:0.#}s)";
+        : $"Start slideshow (auto-advance every {SlideshowInterval:0.#}s)";
 
     // Loop button — same glyph in both states, but a different
     // background tint would normally distinguish the active one.
@@ -138,30 +152,55 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         ? "Shuffling: slideshow picks a random next image each tick"
         : "Sequential: slideshow advances in order";
 
-    private TimeSpan _slideshowInterval = TimeSpan.FromSeconds(5);
+    /// <summary>
+    /// Auto-advance interval in seconds. Stored as <c>double</c> (not
+    /// <see cref="TimeSpan"/>) so a WinUI <c>Slider</c> can bind TwoWay
+    /// without a converter. The setter also re-arms the running timer
+    /// so the user sees the new interval take effect immediately on
+    /// the next tick — no need to stop+start the slideshow after
+    /// dragging the slider.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SlideshowIntervalText))]
+    [NotifyPropertyChangedFor(nameof(SlideshowTooltip))]
+    public partial double SlideshowInterval { get; set; } = 5.0;
 
-    public TimeSpan SlideshowInterval
+    partial void OnSlideshowIntervalChanged(double value)
     {
-        get => _slideshowInterval;
-        set
+        // Same live-rearm behaviour as the previous TimeSpan-based
+        // setter: a running slideshow picks up the new cadence
+        // immediately. We don't clamp here — the Slider's Minimum
+        // / Maximum on the XAML side enforces the [1, 30] range
+        // and the input contract; the VM trusts the binding.
+        if (IsSlideshowActive && _slideshowTimer is not null)
         {
-            _slideshowInterval = value;
-            // If the timer is already running, re-arm at the new
-            // cadence so the next tick uses the new interval
-            // (otherwise the user has to stop+start to see the
-            // change take effect, which is surprising).
-            if (IsSlideshowActive) _slideshowTimer!.Interval = value;
+            _slideshowTimer.Interval = TimeSpan.FromSeconds(value);
         }
     }
 
+    /// <summary>
+    /// Human-readable "5" / "7.5" text for display next to the
+    /// slider. Re-raises on <see cref="SlideshowInterval"/>
+    /// changes via the <c>[NotifyPropertyChangedFor]</c> attribute
+    /// above, so the label tracks the slider value live.
+    /// </summary>
+    public string SlideshowIntervalText => SlideshowInterval.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
     private DispatcherQueueTimer? _slideshowTimer;
 
-    public void StartSlideshow(TimeSpan interval)
+    /// <summary>
+    /// Start the slideshow using the current
+    /// <see cref="SlideshowInterval"/>. Parameterless because the
+    /// interval is now a bindable property — the gallery's Slideshow
+    /// button no longer needs to pass it explicitly (it reads
+    /// <c>ViewModel.SlideshowInterval</c> via x:Bind), and the
+    /// viewer's own SlideshowCommand has direct access.
+    /// </summary>
+    public void StartSlideshow()
     {
-        _slideshowInterval = interval;
         IsSlideshowActive = true;
         _slideshowTimer ??= CreateSlideshowTimer();
-        _slideshowTimer.Interval = _slideshowInterval;
+        _slideshowTimer.Interval = TimeSpan.FromSeconds(SlideshowInterval);
         _slideshowTimer.Start();
     }
 
@@ -189,7 +228,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
         else
         {
-            StartSlideshow(_slideshowInterval);
+            StartSlideshow();
         }
     }
 
@@ -205,16 +244,12 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     {
         if (Images.Count == 0) return;
 
-        // End-of-set policy:
-        // - Loop: wrap CurrentIndex to 0 and continue.
-        // - No loop: stop the slideshow (user can re-start).
-        // - Shuffle: a random pick at the end can land on any
-        //   image (including the current), so the "end" check
-        //   is just a guard against Count == 1 (random pick would
-        //   have to exclude the only item, infinite loop). Skipped
-        //   in the normal case because the random pick rarely
-        //   lands on the very last index.
-        if (CurrentIndex >= Images.Count - 1 && !IsSlideshowLooping)
+        // End-of-set policy. Skipped in shuffle mode: a shuffle pick
+        // can land on any image (including past the current), so the
+        // conventional "reached the last image" check doesn't apply
+        // and would just falsely stop the slideshow. Sequential mode
+        // still respects the loop / no-loop choice.
+        if (!IsSlideshowShuffling && CurrentIndex >= Images.Count - 1 && !IsSlideshowLooping)
         {
             StopSlideshow();
             return;
@@ -222,20 +257,25 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
         if (IsSlideshowShuffling && Images.Count > 1)
         {
-            // Pick a random index different from the current. The
-            // do/while handles the "only image in the set" edge
-            // case (where the only valid index IS the current, but
-            // we already short-circuited above) and avoids showing
-            // the same image twice in a row (which would feel like
-            // the slideshow got stuck). The Random instance is
-            // deliberately not thread-safe — slideshow ticks are
-            // always on the dispatcher thread.
-            int newIndex;
-            do
+            // Smart shuffle: a queue of all-but-shuffled indices.
+            // Each tick dequeue's the next index, so within one cycle
+            // (queue length) the same image is never picked twice
+            // (no consecutive repeat — the goal of "smart shuffle").
+            // When the queue drains, RefillShuffleQueue builds a new
+            // full shuffle of [0, Count) so the next cycle is also
+            // repeat-free internally. The boundary case (last image
+            // of the previous cycle = first image of the new cycle)
+            // is handled inside RefillShuffleQueue by swapping the
+            // first element out if it would repeat the just-shown
+            // index, so the slideshow never shows the same image
+            // back-to-back across a cycle boundary either.
+            if (_shuffleQueue.Count == 0)
             {
-                newIndex = _slideshowRandom.Next(Images.Count);
-            } while (newIndex == CurrentIndex);
-            CurrentIndex = newIndex;
+                RefillShuffleQueue();
+            }
+            var nextIdx = _shuffleQueue.Dequeue();
+            _lastShuffleIndex = nextIdx;
+            CurrentIndex = nextIdx;
         }
         else if (IsSlideshowLooping && CurrentIndex >= Images.Count - 1)
         {
@@ -251,7 +291,49 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Build a new shuffled permutation of <c>[0, Images.Count)</c>
+    /// and enqueue it. Fisher-Yates so the distribution is uniform.
+    /// If the first element of the new queue would equal
+    /// <c>_lastShuffleIndex</c> (the image shown at the end of the
+    /// previous cycle), swap it with a random later position so the
+    /// boundary doesn't show the same image twice in a row.
+    /// </summary>
+    private void RefillShuffleQueue()
+    {
+        var n = Images.Count;
+        _shuffleQueue.Clear();
+        var indices = new int[n];
+        for (int i = 0; i < n; i++) indices[i] = i;
+        for (int i = n - 1; i > 0; i--)
+        {
+            int j = _slideshowRandom.Next(i + 1);
+            (indices[i], indices[j]) = (indices[j], indices[i]);
+        }
+        if (n > 1 && indices[0] == _lastShuffleIndex)
+        {
+            // Swap with a position in [1, n) so the boundary image
+            // doesn't repeat. Pick from later in the array to keep
+            // the first-cycle image being a "fresh" pick after the
+            // gap.
+            int swapWith = _slideshowRandom.Next(1, n);
+            (indices[0], indices[swapWith]) = (indices[swapWith], indices[0]);
+        }
+        foreach (var idx in indices) _shuffleQueue.Enqueue(idx);
+    }
+
     private readonly System.Random _slideshowRandom = new();
+
+    // Smart-shuffle state. The queue is the "no consecutive repeat"
+    // buffer: enqueue a Fisher-Yates permutation of [0, Count),
+    // dequeue one per tick, refill when empty. _lastShuffleIndex is
+    // remembered across cycle boundaries so RefillShuffleQueue can
+    // avoid putting the just-shown image first in the new cycle.
+    // The queue is intentionally NOT cleared on manual nav
+    // (Next/Prev clicks) — per the user spec "不做 smart history
+    // (只防连续重复)", manual navigation doesn't perturb the cycle.
+    private readonly System.Collections.Generic.Queue<int> _shuffleQueue = new();
+    private int _lastShuffleIndex = -1;
 
     // ----------------------------------------------------------------
     // Video playback state.
