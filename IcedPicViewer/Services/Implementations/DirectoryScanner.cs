@@ -19,19 +19,31 @@ public class DirectoryScanner : IDirectoryScanner
     public async IAsyncEnumerable<ImageSource> ScanAsync(
         string rootPath,
         bool recursive,
-        IEnumerable<string>? extensions = null,
+        IEnumerable<(string Extension, MediaKind Kind)>? extensions = null,
         IProgress<ScanError>? errorReporter = null,
         IProgress<int>? discoveredReporter = null,
         IProgress<string>? currentPathReporter = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
-        var extensionSet = extensions != null
-            ? new HashSet<string>(extensions, StringComparer.OrdinalIgnoreCase)
-            : null;
+        // Build a (lowercase extension → kind) lookup once, outside the
+        // directory loop. The caller passes the combined image+video list
+        // (see IImageLoader.SupportedMedia); null means "no filter, default
+        // everything to Image". The dictionary avoids per-file string
+        // allocations and lets the inner loop use a single hash lookup.
+        Dictionary<string, MediaKind>? extensionMap = null;
+        if (extensions != null)
+        {
+            extensionMap = new Dictionary<string, MediaKind>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (ext, kind) in extensions)
+            {
+                extensionMap[ext] = kind;
+            }
+        }
+
         var directories = new Queue<string>();
         directories.Enqueue(rootPath);
 
-        // Running count of image sources yielded so far. Reported through
+        // Running count of media sources yielded so far. Reported through
         // discoveredReporter (when supplied) so callers can show a live scan
         // progress, e.g. when opening a whole drive where the scan can run
         // for tens of seconds. IProgress<T>.Report is fire-and-forget on the
@@ -84,20 +96,40 @@ public class DirectoryScanner : IDirectoryScanner
                         // For archive enumeration we report the archive's own
                         // path (not the entry key — entry keys are
                         // archive-internal paths like "folder/img.jpg" and
-                        // are not actionable for the user).
+                        // are not actionable for the user). Archive entries
+                        // are still image-only in this release (videos inside
+                        // archives are out of scope) so EnumerateArchiveAsync
+                        // only takes the image-only extension set.
                         if (currentPathReporter is not null) currentPathReporter.Report(entry);
-                        await foreach (var imageSource in EnumerateArchiveAsync(entry, extensionSet, errorReporter, ct))
+                        await foreach (var imageSource in EnumerateArchiveAsync(entry, GetImageOnlyExtensions(extensions), errorReporter, ct))
                         {
                             discovered++;
                             if (discoveredReporter is not null) discoveredReporter.Report(discovered);
                             yield return imageSource;
                         }
                     }
-                    else if (extensionSet == null || extensionSet.Contains(Path.GetExtension(entry)))
+                    else
                     {
+                        // Loose file: classify by extension. If no filter
+                        // was passed, default to Image (the record-struct
+                        // default kind). The lookup is O(1) once the map
+                        // is built, and Path.GetExtension is the only per-
+                        // file allocation.
+                        var ext = Path.GetExtension(entry);
+                        MediaKind kind = MediaKind.Image;
+                        bool include = true;
+                        if (extensionMap != null)
+                        {
+                            if (!extensionMap.TryGetValue(ext, out kind))
+                            {
+                                include = false;
+                            }
+                        }
+                        if (!include) continue;
+
                         discovered++;
                         if (discoveredReporter is not null) discoveredReporter.Report(discovered);
-                        yield return ImageSource.FromFile(entry);
+                        yield return ImageSource.FromFile(entry, kind);
                     }
                 }
             }
@@ -142,8 +174,32 @@ public class DirectoryScanner : IDirectoryScanner
         foreach (var entry in entries)
         {
             ct.ThrowIfCancellationRequested();
+            // Archive entries are image-only in this release — Kind is left
+            // at the record-struct default (Image). When/if we add video
+            // archive support, mirror the loose-file lookup here.
             yield return ImageSource.FromArchive(archivePath, entry.Key);
         }
+    }
+
+    /// <summary>
+    /// Pulls the image-only extension list out of the (extension, kind)
+    /// tuple list passed to <see cref="ScanAsync"/>. Used by the archive
+    /// path because video entries inside archives are out of scope for
+    /// this release. Returns null when the caller passed no filter
+    /// (scanner falls back to "list every entry in the archive").
+    /// </summary>
+    private static HashSet<string>? GetImageOnlyExtensions(
+        IEnumerable<(string Extension, MediaKind Kind)>? extensions)
+    {
+        if (extensions is null) return null;
+        HashSet<string>? result = null;
+        foreach (var (ext, kind) in extensions)
+        {
+            if (kind != MediaKind.Image) continue;
+            result ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            result.Add(ext);
+        }
+        return result;
     }
 
     /// <summary>

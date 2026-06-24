@@ -18,6 +18,16 @@ public class ImageLoader : IImageLoader
         [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
          ".tiff", ".tif", ".ico", ".avif", ".heic"];
 
+    // Video formats the gallery can surface. Decoded via FFmpeg (not
+    // BitmapDecoder), but listed here so the scanner / FileSystemWatcher
+    // "is this a file I care about" check has a single source of truth.
+    // FFmpeg actually covers far more than this list (mkv/mov/mp4/m4v
+    // family, plus avi, flv, webm, ts, m2ts, wmv, asf...), but for the
+    // first pass we keep the surface narrow and add formats as users
+    // actually have them on disk. The user spec calls out this exact set.
+    private static readonly HashSet<string> _supportedVideoExtensions =
+        [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"];
+
     // Bounded LRU cache for thumbnails. Cap is intentionally modest: a 400px BitmapImage
     // averages ~150-400 KB, so 200 entries ≈ 30-80 MB worst case instead of "unbounded".
     private const int ThumbnailCacheCapacity = 200;
@@ -29,10 +39,41 @@ public class ImageLoader : IImageLoader
 
     public IEnumerable<string> SupportedExtensions => _supportedExtensions;
 
+    public IEnumerable<string> SupportedVideoExtensions => _supportedVideoExtensions;
+
+    public IEnumerable<(string Extension, MediaKind Kind)> SupportedMedia { get; } =
+        BuildSupportedMedia(_supportedExtensions, _supportedVideoExtensions);
+
+    private static IEnumerable<(string Extension, MediaKind Kind)> BuildSupportedMedia(
+        HashSet<string> images, HashSet<string> videos)
+    {
+        // Emitted in a stable order (image first, then video) so unit tests
+        // and any diagnostic dump see a deterministic sequence.
+        foreach (var ext in images)
+        {
+            yield return (ext, MediaKind.Image);
+        }
+        foreach (var ext in videos)
+        {
+            yield return (ext, MediaKind.Video);
+        }
+    }
+
     public bool IsSupportedFormat(string path)
     {
         var ext = Path.GetExtension(path).ToLowerInvariant();
-        return _supportedExtensions.Contains(ext);
+        return _supportedExtensions.Contains(ext) || _supportedVideoExtensions.Contains(ext);
+    }
+
+    public MediaKind GetKindForFile(string path)
+    {
+        // Video check first: a path with a known video extension is
+        // unambiguously a video. Everything else (image, unknown,
+        // no extension) falls through to Image — consistent with
+        // ImageSource's record-struct default.
+        var ext = Path.GetExtension(path);
+        if (_supportedVideoExtensions.Contains(ext)) return MediaKind.Video;
+        return MediaKind.Image;
     }
 
     public async Task<Stream?> LoadImageStreamAsync(ImageSource source, CancellationToken ct = default)

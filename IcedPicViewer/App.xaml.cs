@@ -75,6 +75,12 @@ public partial class App : Application
         services.AddSingleton<IDirectoryScanner, DirectoryScanner>();
         services.AddSingleton<IImageLoader, ImageLoader>();
 
+        // Video metadata + thumbnail extraction (FFmpeg-backed).
+        // Singleton — service holds no per-request state, and the
+        // constructor fires the FFmpeg warm-up task (see
+        // VideoMetadataService doc comment for why).
+        services.AddSingleton<IVideoMetadataService, VideoMetadataService>();
+
         // Navigation
         services.AddSingleton<INavigationService, NavigationService>();
 
@@ -107,6 +113,20 @@ public partial class App : Application
         _window = new MainWindow();
         _window.AppWindow.Closing += OnAppWindowClosing;
         _window.Activate();
+
+        // Trigger FFmpeg native warm-up at app startup. The first call
+        // into the FFmpeg native DLLs costs ~6.5 s (LoadLibrary +
+        // AutoGen wrapper JIT); doing it on the UI thread when the
+        // user first opens a video would freeze the window for that
+        // whole window. The service ctor schedules a fire-and-forget
+        // Task.Run that absorbs the cost on a worker thread during
+        // startup. By the time the user navigates to a folder with
+        // videos, the native side is already warm.
+        //
+        // We resolve the service (rather than just `new`-ing it) so
+        // DI also gets a chance to wire its dependencies; the resolved
+        // instance is otherwise unused here.
+        _ = GetService<IVideoMetadataService>();
 
         // FFmpeg probe (development-only). Runs only when:
 //   - IPV_FFMPEG_PROBE=1 env var (does NOT propagate through MSIX

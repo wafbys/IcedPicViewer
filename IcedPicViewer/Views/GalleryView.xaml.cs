@@ -15,7 +15,7 @@ public sealed partial class GalleryView : Page
 
     private readonly INavigationService _navigationService;
 
-    private ImageItem? _selectedItemForDelete;
+    private MediaItem? _selectedItemForDelete;
     private int _isNavigatingToViewer;
     private ImageViewModel? _currentImageViewModel;
 
@@ -82,7 +82,7 @@ public sealed partial class GalleryView : Page
 
     private void ImageItem_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        if (sender is FrameworkElement element && element.DataContext is ImageItem item)
+        if (sender is FrameworkElement element && element.DataContext is MediaItem item)
         {
             OpenImageViewer(item);
         }
@@ -90,7 +90,7 @@ public sealed partial class GalleryView : Page
 
     private void ImageItem_RightTapped(object sender, RightTappedRoutedEventArgs e)
     {
-        if (sender is FrameworkElement element && element.DataContext is ImageItem item)
+        if (sender is FrameworkElement element && element.DataContext is MediaItem item)
         {
             _selectedItemForDelete = item;
         }
@@ -129,7 +129,7 @@ public sealed partial class GalleryView : Page
         }
     }
 
-    private async void OpenImageViewer(ImageItem item)
+    private async void OpenImageViewer(MediaItem item)
     {
         if (System.Threading.Interlocked.CompareExchange(ref _isNavigatingToViewer, 1, 0) != 0) return;
 
@@ -224,5 +224,16 @@ public sealed partial class GalleryView : Page
         }
 
         Unloaded -= OnGalleryViewUnloaded;
+    }
+
+    /// <summary>
+    /// Top-bar About button. Navigates to <see cref="AboutPage"/>, which
+    /// surfaces the FFmpeg attribution + LGPL license link (LGPL 2.1+
+    /// requires the user be able to find both). Frame's GoBack returns
+    /// the user to the gallery.
+    /// </summary>
+    private void AboutButton_Click(object sender, RoutedEventArgs e)
+    {
+        _navigationService.NavigateTo<AboutPage>();
     }
 }

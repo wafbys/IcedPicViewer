@@ -20,7 +20,11 @@
         </Grid.RowDefinitions>
 
         <Grid Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <StackPanel Orientation="Horizontal">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
                 <Button Command="{x:Bind ViewModel.OpenFolderCommand}"
                         VerticalAlignment="Stretch"
                         Background="Transparent"
@@ -44,6 +48,18 @@
                     </StackPanel>
                 </Button>
             </StackPanel>
+            <Button Grid.Column="1"
+                    Click="AboutButton_Click"
+                    VerticalAlignment="Stretch"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Padding="12,0"
+                    ToolTipService.ToolTip="About IcedPicViewer">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE946;" FontSize="16"/>
+                    <TextBlock Text="About" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
         </Grid>
 
         <ScrollViewer x:Name="MainScrollViewer"
@@ -59,7 +75,7 @@
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="models:ImageItem">
+                <DataTemplate x:DataType="models:MediaItem">
                     <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1"
@@ -105,7 +121,7 @@
                                 source is transparent; the card's CardBackground
                                 brush shows through) and the user can't tell
                                 whether the gallery is stuck or still loading.
-                                IsThumbnailLoading is set true in the ImageItem
+                                IsThumbnailLoading is set true in the MediaItem
                                 ctor and cleared by GalleryViewModel's
                                 LoadThumbnailAsync finally block.
                             -->
@@ -115,6 +131,36 @@
                                           Height="32"
                                           HorizontalAlignment="Center"
                                           VerticalAlignment="Center"/>
+                            <!--
+                                Play overlay shown on video cards. Bound to
+                                MediaItem.IsVideoVisibility, which evaluates
+                                to Visible only when Source.Kind == Video, so
+                                image cards never see this element. The
+                                background is intentionally a fixed
+                                semi-opaque black rather than a theme brush:
+                                it has to read clearly on top of any
+                                thumbnail (light, dark, busy), and the few
+                                theme brushes designed for "overlay on
+                                arbitrary content" don't ship a high-contrast
+                                solid round shape. The 40×40 size is small
+                                enough to stay out of the way of the
+                                thumbnail content but large enough to spot
+                                at a glance while scrolling.
+                            -->
+                            <Border HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom"
+                                    Margin="0,0,8,8"
+                                    Background="#CC000000"
+                                    CornerRadius="20"
+                                    Width="40"
+                                    Height="40"
+                                    Visibility="{x:Bind IsVideoVisibility, Mode=OneTime}">
+                                <FontIcon Glyph="&#xE768;"
+                                          FontSize="20"
+                                          Foreground="White"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                            </Border>
                         </Grid>
                     </Border>
                 </DataTemplate>

@@ -1,5 +1,103 @@
 # 更新日志
 
+## v0.14.0 (2026-06-24)
+
+**主题:视频支持数据通路(MediaItem/VideoItem + FFmpeg + ▶ overlay + About page + LGPL) — 下一 session 接入 MediaPlayerElement**
+
+### 背景
+
+v0.13.x 项目已经具备 FFmpeg native DLL(`runtimes\win-x64\native\` 7 个 LGPL-shared build,`commit b68ee5e` 的 probe 验证通过)。本 session 把视频支持的数据通路接上 —— **不**做播放(MediaPlayerElement、Space 键盘、cache layer、format fallback 全部 deferred 到下一 session)。现在的 UX:Gallery 永远静态首帧 + ▶ overlay;Viewer 默认静态首帧(同图片),下一 session 才加 ▶ 按钮 + MediaPlayerElement。
+
+### 改动
+
+**Models 拆分**(从 `ImageItem` 拆出 `MediaItem` 基类 + `VideoItem` 派生类):
+
+- `Models/ImageSource.cs` 加 `Kind: MediaKind` 字段(默认 `Image`)。`MediaKind` 是新 enum,值 `Image` / `Video`。`ToString()` 不变(同 path 才会有同 kind,key 不冲突)。
+- `Models/MediaItem.cs` (新):abstract 基类,持有 `Source`/`Id`/`Name`/`FileSize`/`ModifiedTime`/`OriginalWidth`/`OriginalHeight`/`Thumbnail`/`FullImage`/`IsThumbnailLoading`/`IsThumbnailLoadingVisibility`/`FileSizeText`/`DisplayLocation`/`IsVideo`/`IsVideoVisibility`,以及抽象 `OriginalSizeText`。
+- `Models/ImageItem.cs`:`sealed partial : MediaItem`,只保留 `OriginalSizeText`(返回 `"WxH"` 或 `"Unknown"`)。
+- `Models/VideoItem.cs` (新):`sealed partial : MediaItem`,加 `Duration: TimeSpan` + `HasAudio: bool` + `DurationText`。`OriginalSizeText` 返回 `"WxH · m:ss"`(或 `"h:mm:ss"`,带分号补零),让瀑布流 overlay 一眼看出是 30s 短片还是 2h 录像。
+
+**DirectoryScanner 接视频扩展名**:
+
+- 扩展名 filter 从 `IEnumerable<string>` 改成 `IEnumerable<(string Extension, MediaKind Kind)>`(breaking on `IDirectoryScanner.ScanAsync`)。
+- 调 `IImageLoader.SupportedMedia`(image+video 合并),scanner 内部建 hash map 做 O(1) extension→kind 查找,每个 yield 的 `ImageSource` 自动带正确 `Kind`。
+- 视频扩展名:`.mp4 / .mkv / .mov / .avi / .webm / .flv`(BtbN FFmpeg 全覆盖,无需 format fallback)。
+- Archive entry 仍只列 image(视频在 archive 内的处理 deferred — 需 AVIO 自定义 read callback 或 temp file extract,复杂度高、收益低)。`GetImageOnlyExtensions` helper 把传入的合并列表里 image 部分筛出来给 `ArchiveHelper.ListEntries` 用。
+- 新增 `IImageLoader.GetKindForFile(path)` helper(FileSystemWatcher Created 路径需要按扩展名判断 kind)。
+
+**`IVideoMetadataService` + `VideoMetadataService`**(生产代码,从 `FFmpegProbeService.ExtractFirstFrame` 提精修):
+
+- `GetVideoMetadataAsync(source)`:只开 container 不解帧,几 ms 内返回 `(W, H, Duration, HasAudio)?`。扫页时 6 路 semaphore 限流同 image。
+- `ExtractVideoThumbnailAsync(source, maxSize)`:seek 到 ~10%(很多 codec t=0 是黑帧),解码 1 帧,sws_scale 缩到 maxSize 保持长宽比,BGRA8 输出 → `SoftwareBitmap.CreateCopyFromBuffer` → `BitmapEncoder` (PNG) → `InMemoryRandomAccessStream` → `BitmapImage.SetSourceAsync`。MaxSize 默认 400,符合瀑布流需要。
+- 完整 native 资源清理(swsCtx / bgraBuffer / packet / frame / codecCtx / fmtCtx 全 finally free),用 probe 一样的 7-sentinel 模式。
+- Archive video 入口显式 short-circuit `null`(deferred)。
+- **冷启动预热**:首调 FFmpeg API ~6.5s(DLL LoadLibrary + AutoGen JIT)。Ctor fire-and-forget `Task.Run(() => ffmpeg.av_version_info())`,`Interlocked.CompareExchange` 保证 Singleton 范围只跑一次。`App.OnLaunched` 显式 `GetService<IVideoMetadataService>()` 触发 ctor,预热在 app 启动期并行完成,不阻塞 UI。Trace 记成功/失败,失败不抛(实际调用时再 fail 才有意义)。
+- 一处 `System.Buffer.MemoryCopy` vs `Windows.Storage.Streams.Buffer` 歧义,显式 `System.` 限定。
+
+**Gallery 数据通路按 Kind dispatch**:
+
+- `GalleryViewModel.LoadNextPageAsync` 的 6 路 fetchahead 内部按 `source.Kind` 分两路:image 走 `IImageLoader.GetImageSizeAsync`,video 走 `IVideoMetadataService.GetVideoMetadataAsync`。两者共享 `_sizeFetchSemaphore`(混合文件夹不会破坏限流)。
+- 用 `FetchedMedia` record 统一返回类型(`VideoMeta`/`ImageDimensions` 互斥 nullable),避免 Task.WhenAll 推断出混合 tuple 类型。
+- `LoadThumbnailAsync` 按 Kind 分:image 走 `IImageLoader.LoadThumbnailAsync`(有 LRU + mtime cache 命中),video 走 `IVideoMetadataService.ExtractVideoThumbnailAsync`。VideoItem 的 `FullImage` 也设为同一 BitmapImage(静态首帧 = "full" 视图,Viewer 的 `LoadFullImageAsync` FullImage 短路直接显示)。
+- `HandleCreatedAsync`(FileSystemWatcher Created)同样按 Kind dispatch。
+- `AddArchiveEntriesAsync` 不动(archive entry 还是 image-only)。
+- `_imageIndex` 改 `Dictionary<string, MediaItem>`,`Images` 改 `ObservableCollection<MediaItem>`,`RemoveImage` / `DeleteImageAsync` 签名同步。
+- `OnImagesCollectionChanged` 内部 cast 同步改成 `MediaItem`。
+
+**Gallery 视觉:▶ overlay**:
+
+- `Views/GalleryView.xaml` DataTemplate `x:DataType` 从 `ImageItem` 改 `MediaItem`(同一模板渲染两种 subtype)。
+- 每个 card 加右下角 ▶ 圆形 overlay(`Background="#CC000000"` 半透明黑 + `Foreground="White"` + Segoe Fluent `&#xE768;` Play 字体图标),`Visibility="{x:Bind IsVideoVisibility, Mode=OneTime}"`。注释解释为什么这里用 fixed 半透明黑而不是 ThemeResource brush:overlay 必须跨任何 thumbnail 颜色都清晰可读,Fluent 2 没有"高对比度实心圆形"专用 brush。
+- 顶 bar 加 About 按钮(`Click="AboutButton_Click"`),左侧按钮仍用 `StackPanel`,右侧 About 用 `Grid.Column="1"`(左 `*` / 右 `Auto`)。
+
+**Viewer 不变**(下一 session 切 MediaPlayerElement):
+
+- `ImageViewModel.CurrentImage` 改 `MediaItem?`,`Images` 改 `ObservableCollection<MediaItem>`,`LoadFullImageAsync` / `ShowImageAsync` 同步签名。
+- 新 `IsVideo` 属性 forwarded from `CurrentItem.IsVideo`。当前没 XAML consumer,留作下一 session ▶ 按钮的绑定入口。
+- Viewer xaml 不动 — `DisplayImage` 已经绑到 `item.FullImage`,VideoItem 的 FullImage = 第一帧缩略图,所以 viewer 直接显示静态首帧。
+
+**License + About page + DI 注册**:
+
+- `IcedPicViewer/License/ffmpeg-LGPL.txt`(新):LGPL 2.1 完整正文 + BtbN 构建来源 + LGPL 合规说明(可重新链接 + 署名 + 源码声明)。FOSS 标准的 LGPL 2.1 文本。
+- `Views/AboutPage.xaml` (新)+ `.xaml.cs` (新):App identity(版本 = `BuildInfo.CommitShort`)+ FFmpeg 卡片(版本 8.1 / 用途说明中英 / FFmpeg 官网超链接 / BtbN build 超链接 / **LGPL 全文超链接**)。License 链接走 `StorageFile.GetFileFromApplicationUriAsync(new Uri("ms-appx:///License/ffmpeg-LGPL.txt"))` + `Launcher.LaunchFileAsync`,用户在默认文本编辑器打开。
+- `App.xaml.cs` `ConfigureServices` 注册 `services.AddSingleton<IVideoMetadataService, VideoMetadataService>()`。`OnLaunched` 加 `_ = GetService<IVideoMetadataService>();` 触发预热(见上)。
+
+**csproj 改动**(License 进 AppX):
+
+- `<Content Include="License\**\*.txt" CopyToOutputDirectory="PreserveNewest" />` — 文件先到 build output。
+- 新增 `CopyLicenseToAppX` target(类比 `CopyFFmpegDllsToAppX`):WinAppSDK 2.2.x MSIX layout 只自动包含 `Assets/` / `Views/` / `runtimes/` / `Microsoft.UI.Xaml/`,`License/` 会被 silently dropped。target 把 `License\**\*` 复制到 `$(OutDir)AppX\License\`,使 `ms-appx:///` URI 解析能命中。条件 `WindowsPackageType != 'None'`(unpackaged 不需要此 hack)。注释里写明根因和命中症状(`StorageFile.GetFileFromApplicationUriAsync` 抛 file not found)。
+
+### 已决定的取舍(同 v0.13.x 系列风格,不重新讨论)
+
+- **不**加视频缓存层(image 已有 IImageLoader LRU,Video 暂不缓存,首次解码后 `item.Thumbnail` 充当隐式 cache。需统一 LRU 时下 session 加 `IThumbnailCache` 共享 service)。
+- **不**加 format 检测 fallback(FFmpeg 8.1 全覆盖 `mp4/mkv/mov/avi/webm/flv`)。
+- **不**加视频 archive 支持(deferred — 需 AVIO 自定义 read callback 复杂度过高,本 session 不做)。
+- **不**改 MasonryPanel、不改 `LoadNextPageAsync` 6 路 semaphore、不改 `_pageFillInFlight` / `DrainPageFillAsync` 单一消费者循环、不改 `LoadDirectoryAsync` 轮询条件、**不**改 `IsThumbnailLoading` dispatcher 模式。所有 v0.14.0 pipeline 不变量从 v0.13.2 完整继承,AGENTS.md 章节无需更新。
+- **不**做 `MediaPlayerElement` 集成、**不**做 Space 键盘播放、**不**做视频 Viewer ▶ 按钮(全部下一 session)。
+- **不**用 DataTemplateSelector(MediaItem base + abstract `OriginalSizeText` 让一个 DataTemplate 渲染两种 subtype;`IsVideoVisibility` 控制 ▶ overlay visibility)。
+- `MediaItem.OriginalSizeText` 设计为 abstract 而非新增"DurationText"单独 TextBlock:为了一个 DataTemplate + 一次 x:Bind 渲染,避免模板选择器 + DataType 切换的复杂度。视频 overlay 看起来就是 "1920×1080 · 1:23" 一行。
+
+### 手动验证清单(本 session 不跑,环境 headless)
+
+1. 准备测试目录:N 张直接图片 + N 个 mp4/mkv/mov 文件,混合。
+2. Open Folder → 瀑布流同时显示图片(无 ▶)和视频(右下角 ▶ 圆形 overlay)。ToolTip 上,视频显示 "1920×1080 · 1:23 · 4.2 MB",图片显示 "1920×1080 · 1.4 MB"。
+3. 双击视频 → 单图模式显示静态首帧(同图片,但没有 ▶ 按钮 — 这是本 session 故意)。
+4. 顶 bar About 按钮 → AboutPage → FFmpeg 卡片 + 3 个超链接。点 LGPL 链接 → 默认文本编辑器打开完整 LGPL 2.1 文本。
+5. 切到下一目录,新建一个 mp4 拖进去 → FileSystemWatcher 看到新建 → 视频正常进入瀑布流(走 video dispatch 路径)。
+6. `dotnet run` 启动(不显式调用 `GetService<IVideoMetadataService>()` 的话,cctor 由 DI 触发)→ 打开含视频的目录 → 视频元数据 + 缩略图正常获取,**没有** 6.5s 卡顿(预热在 OnLaunched 已完成)。
+7. 状态栏 / 进度 / 缩略图 spinner 行为同 v0.13.2 — pipeline 不变量继承。
+
+### build 状态
+
+0 errors / 0 warnings(`dotnet build -c Debug -p:Platform=x64` 干净通过)。
+
+### 下一 session 待办(不在本 session 范围)
+
+- `MediaPlayerElement` 集成到 `ImageViewerView.xaml`,VideoItem 在 viewer 切换显示 MediaPlayerElement(ImageItem 仍走静态 Image)。
+- Space 键盘在 `MainWindow.HandleViewerKey` 加 `VirtualKey.Space` → 触发播放/暂停。
+- 统一 `IThumbnailCache` service,让 video 缩略图也走 LRU。
+- 视频 archive 支持(AVIO 自定义 read callback 或 temp file extract,见 `VideoMetadataService` 注释里的 deferred note)。
+
 ## v0.13.2 (2026-06-16)
 
 **主题:Refresh 按钮 — 手动重新扫描当前目录**

@@ -26,7 +26,8 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
     [NotifyPropertyChangedFor(nameof(ActualHeight))]
     [NotifyPropertyChangedFor(nameof(ImagePath))]
-    public partial ImageItem? CurrentImage { get; set; }
+    [NotifyPropertyChangedFor(nameof(IsVideo))]
+    public partial MediaItem? CurrentImage { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
@@ -50,6 +51,17 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     public string ImagePath => CurrentImage?.Source.ToString() ?? string.Empty;
 
+    /// <summary>
+    /// True when the currently-displayed item is a video. Forwarded from
+    /// <see cref="MediaItem.IsVideo"/>; bound by the viewer's overlay
+    /// chrome (the future &gt; button + play / pause affordance).
+    /// The current viewer still shows the static first frame
+    /// (<see cref="DisplayImage"/> = item.FullImage = item.Thumbnail
+    /// for videos), so a true here only affects what the chrome draws
+    /// on top, not what the Image element shows.
+    /// </summary>
+    public bool IsVideo => CurrentImage?.IsVideo ?? false;
+
     partial void OnDisplayImageChanged(BitmapImage? value)
     {
         DisplayImageChanged?.Invoke(this, EventArgs.Empty);
@@ -60,7 +72,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
     }
 
-    partial void OnCurrentImageChanged(ImageItem? value)
+    partial void OnCurrentImageChanged(MediaItem? value)
     {
         DisplayActualWidth = 0;
         DisplayActualHeight = 0;
@@ -82,7 +94,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _displayIndex, value);
     }
 
-    public ObservableCollection<ImageItem> Images => _galleryViewModel.Images;
+    public ObservableCollection<MediaItem> Images => _galleryViewModel.Images;
 
     public bool CanLoadMoreImages => _galleryViewModel.CanLoadMore && !_galleryViewModel.IsLoadingMore;
     public bool IsLoadingMoreImages => _galleryViewModel.IsLoadingMore;
@@ -228,7 +240,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         await LoadFullImageAsync(CurrentImage, _loadCts!.Token);
     }
 
-    public async Task ShowImageAsync(ImageItem item)
+    public async Task ShowImageAsync(MediaItem item)
     {
         ResetLoadCts();
 
@@ -245,12 +257,17 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         await LoadFullImageAsync(item, _loadCts!.Token);
     }
 
-    private async Task LoadFullImageAsync(ImageItem item, CancellationToken ct)
+    private async Task LoadFullImageAsync(MediaItem item, CancellationToken ct)
     {
         if (ct.IsCancellationRequested) return;
 
         if (item.FullImage != null)
         {
+            // For VideoItem the gallery's thumbnail loader already
+            // wired item.FullImage to the extracted first frame, so
+            // the viewer shows that static first frame as the "full"
+            // image. The future MediaPlayerElement session will
+            // replace this path with a real player surface.
             DisplayImage = item.FullImage;
             return;
         }

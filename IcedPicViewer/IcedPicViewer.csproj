@@ -147,6 +147,23 @@
   </ItemGroup>
 
   <!--
+    FFmpeg LGPL 2.1 license text. The default .NET SDK content globs
+    do not pick up the License/ folder under this project (WinUI 3
+    projects opt out of the full default glob in some configurations
+    and only include Assets/, Views/, and a few well-known patterns).
+    The About page opens this file via
+    `StorageFile.GetFileFromApplicationUriAsync(new Uri("ms-appx:///License/ffmpeg-LGPL.txt"))`,
+    so the file must be present in the AppX layout at the same
+    relative path. PreserveNewest is sufficient — the file rarely
+    changes once written and we want a fast incremental build.
+  -->
+  <ItemGroup>
+    <Content Include="License\**\*.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!--
     CopyFFmpegDllsToAppX: WinAppSDK 2.2.x MSIX packaging does NOT pick up
     files placed under runtimes/<rid>/native/ as direct AppX payload. For
     MSIX-packaged deployment, FFmpeg's LoadLibrary("avcodec-62") must find
@@ -174,6 +191,34 @@
           DestinationFolder="$(_FFmpegAppXDir)"
           SkipUnchangedFiles="true" />
     <Message Text="CopyFFmpegDllsToAppX: copied @(_FFmpegDlls) -> $(_FFmpegAppXDir)" Importance="high" Condition="@(_FFmpegDlls) != ''" />
+  </Target>
+
+  <!--
+    CopyLicenseToAppX: WinAppSDK 2.2.x MSIX layout only auto-includes
+    well-known subdirectories (Assets/, Views/, runtimes/, Microsoft.UI.Xaml/).
+    License\ — which holds the LGPL 2.1 text opened from the About page
+    via ms-appx:///License/ffmpeg-LGPL.txt — would be silently dropped
+    from the AppX payload even though the <Content> item above puts the
+    file in the build output root. Copy it to the AppX layout explicitly
+    so the URI resolves at runtime.
+
+    Without this, the About page's license link throws because
+    StorageFile.GetFileFromApplicationUriAsync can't find the file
+    inside the AppX install location.
+  -->
+  <Target Name="CopyLicenseToAppX" AfterTargets="Build" Condition="'$(WindowsPackageType)' != 'None' and '$(_DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_LicenseSourceDir>$(MSBuildProjectDirectory)\License\</_LicenseSourceDir>
+      <_LicenseAppXDir>$(OutDir)AppX\License\</_LicenseAppXDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_LicenseFiles Include="$(_LicenseSourceDir)**\*" />
+    </ItemGroup>
+    <MakeDir Directories="$(_LicenseAppXDir)" Condition="!Exists('$(_LicenseAppXDir)')" />
+    <Copy SourceFiles="@(_LicenseFiles)"
+          DestinationFiles="@(_LicenseFiles->'$(_LicenseAppXDir)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Message Text="CopyLicenseToAppX: copied @(_LicenseFiles) -> $(_LicenseAppXDir)" Importance="high" Condition="@(_LicenseFiles) != ''" />
   </Target>
 
   <PropertyGroup>

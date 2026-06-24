@@ -17,11 +17,19 @@ public enum WatchChangeType
 public interface IDirectoryScanner
 {
     /// <summary>
-    /// Enumerates every supported image in <paramref name="rootPath"/>, both
-    /// loose files and entries inside any archives (.zip / .rar / .7z / .tar*).
+    /// Enumerates every supported media file in <paramref name="rootPath"/>,
+    /// both loose files and entries inside any archives (.zip / .rar / .7z / .tar).
     /// The caller-supplied <paramref name="extensions"/> filter is applied
-    /// uniformly to both loose files and archive entries.
+    /// uniformly to both loose files and archive entries (archive entries
+    /// are currently image-only — see <c>IImageLoader.SupportedExtensions</c>).
     /// </summary>
+    /// <param name="extensions">
+    /// Optional list of (extension, kind) pairs to include. When non-null
+    /// only files whose extension matches an entry in the list are yielded,
+    /// and the yielded <see cref="ImageSource"/> carries the matching
+    /// <see cref="MediaKind"/>. When null, every regular file is yielded
+    /// with <see cref="MediaKind.Image"/> (the record-struct default).
+    /// </param>
     /// <param name="errorReporter">
     /// Optional sink for files that looked like a candidate (matched extension
     /// or magic bytes) but failed to be read. The scanner skips them and
@@ -31,7 +39,7 @@ public interface IDirectoryScanner
     /// thread for VM callers), so the VM does not need its own locking.
     /// </param>
     /// <param name="discoveredReporter">
-    /// Optional sink for the running count of image sources the scanner has
+    /// Optional sink for the running count of media sources the scanner has
     /// yielded so far. Reported roughly once per yielded source; the
     /// Progress&lt;T&gt; post is fire-and-forget on the captured sync context,
     /// so a slow reporter cannot stall the scan loop. The VM is expected to
@@ -51,7 +59,7 @@ public interface IDirectoryScanner
     IAsyncEnumerable<ImageSource> ScanAsync(
         string rootPath,
         bool recursive,
-        IEnumerable<string>? extensions = null,
+        IEnumerable<(string Extension, MediaKind Kind)>? extensions = null,
         IProgress<ScanError>? errorReporter = null,
         IProgress<int>? discoveredReporter = null,
         IProgress<string>? currentPathReporter = null,

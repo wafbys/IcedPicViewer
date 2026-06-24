@@ -3,8 +3,21 @@
 namespace IcedPicViewer.Models;
 
 /// <summary>
-/// Identifies a single image, which may live either on disk as a regular file
-/// or inside an archive (zip / rar / 7z / tar / gz).
+/// What kind of media a <see cref="ImageSource"/> points at. Populated by
+/// the directory scanner from the file extension; carried alongside the
+/// source through the gallery pipeline so the VM can dispatch each
+/// <see cref="MediaItem"/> to the right metadata extractor (BitmapDecoder
+/// for images, FFmpeg for videos) without re-sniffing the path.
+/// </summary>
+public enum MediaKind
+{
+    Image,
+    Video
+}
+
+/// <summary>
+/// Identifies a single media file (image or video), which may live either
+/// on disk as a regular file or inside an archive (zip / rar / 7z / tar / gz).
 ///
 /// <para>
 /// <see cref="Path"/> is always the on-disk path: for a regular file, that's
@@ -19,20 +32,31 @@ namespace IcedPicViewer.Models;
 /// </para>
 ///
 /// <para>
+/// <see cref="Kind"/> is set by the scanner from the file extension. It
+/// does NOT change after construction (an <c>.mp4</c> file is always a
+/// video), so the value is safe to compare with <c>==</c> and to use as
+/// the input to dispatch tables.
+/// </para>
+///
+/// <para>
 /// <see cref="ToString"/> produces <c>"path"</c> for regular files and
 /// <c>"path!entry"</c> for archive entries. It is used as a unique key for
 /// the gallery's path-to-item index and for the thumbnail LRU cache, so it
-/// must be stable and round-trippable.
+/// must be stable and round-trippable. <see cref="Kind"/> is intentionally
+/// NOT part of the key — two files with the same path and different kinds
+/// cannot coexist on a real filesystem, so a single key per path is
+/// sufficient.
 /// </para>
 /// </summary>
-public readonly record struct ImageSource(string Path, string? ArchiveEntry)
+public readonly record struct ImageSource(string Path, string? ArchiveEntry, MediaKind Kind = MediaKind.Image)
 {
     public bool IsInArchive => ArchiveEntry is not null;
 
-    public static ImageSource FromFile(string path) => new(path, null);
+    public static ImageSource FromFile(string path, MediaKind kind = MediaKind.Image)
+        => new(path, null, kind);
 
-    public static ImageSource FromArchive(string archivePath, string entryPath)
-        => new(archivePath, entryPath);
+    public static ImageSource FromArchive(string archivePath, string entryPath, MediaKind kind = MediaKind.Image)
+        => new(archivePath, entryPath, kind);
 
     public override string ToString() => IsInArchive ? $"{Path}!{ArchiveEntry}" : Path;
 }
