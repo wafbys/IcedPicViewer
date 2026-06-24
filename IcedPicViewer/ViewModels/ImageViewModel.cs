@@ -24,6 +24,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     private readonly IVideoMetadataService _videoMetadataService;
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
+    private readonly ISettingsService _settingsService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource? _loadCts;
     private MediaPlayer? _mediaPlayer;
@@ -100,6 +101,19 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(SlideshowLoopTooltip))]
     public partial bool IsSlideshowLooping { get; set; }
 
+    partial void OnIsSlideshowLoopingChanged(bool value)
+    {
+        // Persist. Same write-back happens for every other preference
+        // property in this VM — see OnIsSlideshowShufflingChanged,
+        // OnSlideshowIntervalChanged, OnVolumeChanged. The constructor
+        // sets the property from the persisted value first, which fires
+        // this same partial method and writes the same value back; the
+        // duplicate is harmless (ScheduleSave coalesces and the JSON
+        // round-trip is idempotent).
+        _settingsService.Current.SlideshowLoop = value;
+        _settingsService.ScheduleSave();
+    }
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SlideshowShuffleGlyph))]
     [NotifyPropertyChangedFor(nameof(SlideshowShuffleLabel))]
@@ -118,6 +132,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             _shuffleQueue.Clear();
             _lastShuffleIndex = -1;
         }
+        // Persist (same write-back pattern as OnIsSlideshowLoopingChanged).
+        _settingsService.Current.SlideshowShuffle = value;
+        _settingsService.ScheduleSave();
     }
 
     public string SlideshowGlyph => IsSlideshowActive ? "\uE71A" /* Stop */ : "\uE768" /* Play */;
@@ -177,6 +194,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         {
             _slideshowTimer.Interval = TimeSpan.FromSeconds(value);
         }
+        // Persist. Same write-back pattern as the other preference
+        // properties — see OnIsSlideshowLoopingChanged.
+        _settingsService.Current.SlideshowInterval = value;
+        _settingsService.ScheduleSave();
     }
 
     /// <summary>
@@ -479,6 +500,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
                 Trace.TraceWarning($"ImageViewModel.OnVolumeChanged: failed to push to MediaPlayer: {ex.GetType().Name}: {ex.Message}");
             }
         }
+        // Persist. Same write-back pattern as the other preference
+        // properties — see OnIsSlideshowLoopingChanged.
+        _settingsService.Current.VideoVolume = value;
+        _settingsService.ScheduleSave();
     }
 
     /// <summary>
@@ -854,13 +879,26 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
     }
 
-    public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, IVideoMetadataService videoMetadataService, INavigationService navigationService, IDialogService dialogService)
+    public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, IVideoMetadataService videoMetadataService, INavigationService navigationService, IDialogService dialogService, ISettingsService settingsService)
     {
         _galleryViewModel = galleryViewModel;
         _imageLoader = imageLoader;
         _videoMetadataService = videoMetadataService;
         _navigationService = navigationService;
         _dialogService = dialogService;
+        _settingsService = settingsService;
+
+        // Hydrate persisted preferences. Setting the property here runs
+        // the OnXxxChanged partial method (because [ObservableProperty]
+        // generates a real setter), which writes the same value back to
+        // settings — redundant but harmless. The OnXxxChanged methods
+        // null-check _settingsService so the partial-method calls during
+        // field initialisation (which run before this constructor body)
+        // don't NRE.
+        IsSlideshowLooping = _settingsService.Current.SlideshowLoop;
+        IsSlideshowShuffling = _settingsService.Current.SlideshowShuffle;
+        SlideshowInterval = _settingsService.Current.SlideshowInterval;
+        Volume = _settingsService.Current.VideoVolume;
 
         // Named handlers (not lambdas) so Dispose can unsubscribe — avoids lambda
         // captures keeping this singleton alive past the App's lifetime.

@@ -23,6 +23,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private readonly IVideoMetadataService _videoMetadataService;
     private readonly IFolderPickerService _folderPicker;
     private readonly IDialogService _dialogService;
+    private readonly ISettingsService _settingsService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
     private CancellationTokenSource? _loadCts;
@@ -183,8 +184,30 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// type. Mirrored to <c>ImageViewModel.SlideshowInterval</c> at
     /// gallery's Slideshow-button click time — the viewer's own
     /// slider writes directly to the ImageViewModel.
+    ///
+    /// <para>
+    /// Persisted: the setter writes through to
+    /// <see cref="ISettingsService"/> so the next launch starts at
+    /// the same cadence. The user controls the value via the
+    /// viewer's slider (which writes to <c>ImageViewModel.SlideshowInterval</c>,
+    /// a different property that mirrors back here through the
+    /// gallery's Slideshow-button click handler).
+    /// </para>
     /// </summary>
-    public double SlideshowInterval { get; set; } = 5.0;
+    public double SlideshowInterval
+    {
+        get => _slideshowInterval;
+        set
+        {
+            if (_slideshowInterval == value) return;
+            _slideshowInterval = value;
+            // Persist. Same write-back pattern as ImageViewModel's
+            // preference setters — see OnIsSlideshowLoopingChanged there.
+            _settingsService.Current.SlideshowInterval = value;
+            _settingsService.ScheduleSave();
+        }
+    }
+    private double _slideshowInterval = 5.0;
 
     public ObservableCollection<MediaItem> Images { get; } = new();
 
@@ -193,13 +216,21 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         IImageLoader imageLoader,
         IVideoMetadataService videoMetadataService,
         IFolderPickerService folderPicker,
-        IDialogService dialogService)
+        IDialogService dialogService,
+        ISettingsService settingsService)
     {
         _scanner = scanner;
         _imageLoader = imageLoader;
         _videoMetadataService = videoMetadataService;
         _folderPicker = folderPicker;
         _dialogService = dialogService;
+        _settingsService = settingsService;
+
+        // Hydrate the persisted slideshow interval. The setter is
+        // not used here because the backing field is private and the
+        // setter would re-trigger ScheduleSave for the value we just
+        // read — assignment to the field is enough.
+        _slideshowInterval = _settingsService.Current.SlideshowInterval;
 
         // Progress<T> captures the sync context of the thread that created
         // it (the UI thread here), so the callback is auto-dispatched back

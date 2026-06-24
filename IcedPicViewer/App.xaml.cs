@@ -123,6 +123,12 @@ public partial class App : Application
         // don't take a dependency on Microsoft.UI.Xaml.
         services.AddSingleton<IDialogService, DialogService>();
 
+        // Persistent user preferences (slideshow loop/shuffle/interval,
+        // video volume). Singleton — reads JSON file at construction,
+        // holds the in-memory AppSettings snapshot for the lifetime of
+        // the process, debounces writes through ScheduleSave.
+        services.AddSingleton<ISettingsService, JsonSettingsService>();
+
         // ViewModels - appropriate lifetimes
         // GalleryViewModel: Singleton (owns current gallery + file watcher + shared collection)
         // ImageViewModel: Singleton (instance prepared in GalleryView with ShowImageAsync
