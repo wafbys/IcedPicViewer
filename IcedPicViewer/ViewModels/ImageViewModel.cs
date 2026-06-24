@@ -29,6 +29,13 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _loadCts;
     private MediaPlayer? _mediaPlayer;
     private string? _currentPlaybackPath;
+    // Auto-transcode fallback state. Set to true the first time
+    // MediaFailed fires for the current video so the second
+    // failure (after a successful transcode + retry) surfaces the
+    // regular error dialog instead of looping the fallback. Reset
+    // to false when navigation moves to a new image.
+    private bool _transcodeAttempted;
+    private CancellationTokenSource? _transcodeCts;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
@@ -456,6 +463,34 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     public Visibility PrePlayStripVisibility => IsVideo && !IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
+    /// Visibility for the play-controls sub-section of the pre-play
+    /// strip (▶ button + filename + duration + volume). Hidden when
+    /// the auto-transcode fallback is running so the user can't click
+    /// play on a file that's mid-encode. Replaces the need for an
+    /// inverse-bool converter in XAML.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PrePlayControlsVisibility))]
+    public partial bool IsTranscoding { get; set; }
+
+    public Visibility PrePlayControlsVisibility => IsTranscoding ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>
+    /// Visibility for the transcode-progress sub-section of the pre-play
+    /// strip (progress ring + bar + Cancel button). Only shown while
+    /// the FFmpeg.AutoGen transcode is running.
+    /// </summary>
+    public Visibility TranscodeProgressVisibility => IsTranscoding ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// Fractional transcode progress in [0, 1]. Updated via IProgress
+    /// callbacks from the FFmpeg.AutoGen DoTranscode loop. Bound to
+    /// a ProgressBar in the pre-play strip's transcode state.
+    /// </summary>
+    [ObservableProperty]
+    public partial double TranscodeProgress { get; set; }
+
+    /// <summary>
     /// The current MediaPlayer volume, on the [0.0, 1.0] scale that
     /// <see cref="MediaPlayer.Volume"/> uses internally. Bound by the
     /// pre-playback strip's volume Slider and pushed into
@@ -528,6 +563,11 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             ? FormatDuration(v.Duration)
             : string.Empty;
 
+    /// <summary>
+    /// Fractional transcode progress in [0, 1]. Updated via IProgress
+    /// callbacks from the FFmpeg.AutoGen DoTranscode loop. Bound to
+    /// a ProgressBar in the pre-play strip's transcode state.
+    /// </summary>
     private static string FormatDuration(TimeSpan d)
     {
         // hh:mm:ss only when ≥ 1 hour; mm:ss otherwise. Matches the
@@ -663,7 +703,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
     }
 
-    private bool CanPlay() => IsVideo && !IsVideoPlaying && _mediaPlayer == null;
+    private bool CanPlay() => IsVideo && !IsVideoPlaying && _mediaPlayer == null && !IsTranscoding;
 
     // ----------------------------------------------------------------
     // MediaPlayer event handlers.
@@ -742,10 +782,151 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         // codec-specific (ProRes vs HEVC vs AV1 each need different
         // recovery advice). The trace below still logs the full args.
         var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
+
+        // Auto-transcode fallback: when MediaPlayer rejects the
+        // source because the codec isn't decodable (typical: ProRes
+        // in .mov, HEVC without the extension installed), kick off
+        // an FFmpeg re-encode to H.264/AAC mp4 and replay the result.
+        // The transcode path is the headline feature behind the
+        // "能播尽播" user ask — without it the dialog is just an
+        // error with no path forward. We only attempt it ONCE per
+        // item; if the transcoded file also fails (extreme edge case),
+        // fall through to the regular error dialog below.
+        if (!_transcodeAttempted
+            && CurrentImage is VideoItem
+            && (args.Error == MediaPlayerError.SourceNotSupported
+                || args.Error == MediaPlayerError.DecodingError))
+        {
+            _transcodeAttempted = true;
+            _ = TryTranscodeAndReplayAsync(codec);
+            return;
+        }
+
         _ = _dialogService.ShowInfoAsync(
             "视频播放失败",
             BuildPlaybackErrorMessage(args, codec),
             "关闭");
+    }
+
+    /// <summary>
+    /// Fallback path triggered when the direct-play attempt failed
+    /// with a codec-not-supported error. Asks the video metadata
+    /// service to transcode the source into a H.264 + AAC mp4 temp
+    /// file (FFmpeg.AutoGen DoTranscode, ~30s-2min on a 4K ProRes
+    /// file), then re-runs PlayAsync against the transcoded path.
+    /// On success the user sees normal playback; on failure the
+    /// regular error dialog fires.
+    /// </summary>
+    private async Task TryTranscodeAndReplayAsync(string codec)
+    {
+        if (CurrentImage is not VideoItem video) return;
+
+        IsTranscoding = true;
+        TranscodeProgress = 0;
+        _transcodeCts?.Cancel();
+        _transcodeCts?.Dispose();
+        _transcodeCts = new CancellationTokenSource();
+
+        string? transcodedPath = null;
+        try
+        {
+            transcodedPath = await _videoMetadataService.TranscodeToMp4Async(
+                video.Source,
+                new Progress<double>(p => _dispatcher.TryEnqueue(() => TranscodeProgress = p)),
+                _transcodeCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // User pressed Cancel in the transcode-progress strip.
+            // Fall through to cleanup without an error dialog.
+            Trace.TraceInformation($"ImageViewModel: transcode cancelled for {CurrentImage?.Id}");
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"ImageViewModel.TryTranscodeAndReplayAsync transcode failed for {CurrentImage?.Id}: {ex.GetType().Name}: {ex.Message}");
+            // Surface as user-visible error (no codec-specific hint
+            // here because the failure is at the FFmpeg level, not MF).
+            _ = _dialogService.ShowInfoAsync(
+                "转码失败",
+                $"无法将视频 ({codec}) 转码为可播放格式。\n\n{ex.Message}",
+                "关闭");
+        }
+        finally
+        {
+            IsTranscoding = false;
+        }
+
+        // Play the transcoded file if transcode succeeded. We do NOT
+        // reset _transcodeAttempted here — if the transcoded file
+        // ALSO fails to play (very rare — could happen if the FFmpeg
+        // build is broken), we want the regular error dialog to
+        // surface, not loop the fallback forever.
+        if (!string.IsNullOrEmpty(transcodedPath))
+        {
+            await StartPlaybackFromPathAsync(transcodedPath);
+        }
+    }
+
+    /// <summary>
+    /// User-initiated cancellation of an in-progress transcode. Wired
+    /// to the Cancel button in the transcode-progress strip; calls
+    /// Cancel on the transcode CTS, which surfaces as
+    /// OperationCanceledException in TryTranscodeAndReplayAsync's
+    /// try block.
+    /// </summary>
+    [RelayCommand]
+    private void CancelTranscode()
+    {
+        _transcodeCts?.Cancel();
+    }
+
+    /// <summary>
+    /// Shared helper used by both the first PlayAsync attempt and the
+    /// post-transcode retry: open the given path as a MediaPlayer,
+    /// wire the MediaOpened / MediaFailed handlers, set MediaPlayer /
+    /// IsVideoPlaying / _currentPlaybackPath, and start playing. The
+    /// path must already be tracked by the video metadata service
+    /// (so the post-playback ReleasePlaybackFilePath call in
+    /// StopAndDisposePlayer actually finds it).
+    /// </summary>
+    private async Task StartPlaybackFromPathAsync(string playbackPath)
+    {
+        try
+        {
+            var file = await StorageFile.GetFileFromPathAsync(playbackPath);
+            var source = MediaSource.CreateFromStorageFile(file);
+
+            var player = new MediaPlayer();
+            player.Volume = Math.Clamp(Volume, 0.0, 1.0);
+            player.Source = source;
+            player.MediaOpened += OnMediaPlayerOpened;
+            player.MediaFailed += OnMediaPlayerFailed;
+            MediaPlayer = player;
+            _currentPlaybackPath = playbackPath;
+            IsVideoPlaying = true;
+            player.Play();
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"ImageViewModel.StartPlaybackFromPathAsync error for {CurrentImage?.Id}: {ex.GetType().Name}: {ex.Message}");
+            IsVideoPlaying = false;
+            MediaPlayer = null;
+            if (!string.IsNullOrEmpty(_currentPlaybackPath))
+            {
+                try { _videoMetadataService.ReleasePlaybackFilePath(_currentPlaybackPath); } catch { }
+                _currentPlaybackPath = null;
+            }
+            // The transcoded file path is tracked inside
+            // TranscodeToMp4Async; if StartPlayback fails to open it,
+            // we still need to release the tracking entry. The catch
+            // runs after the try, so _currentPlaybackPath was either
+            // set (we attempted to use it) or is the previous value.
+            // Best-effort: also release transcodedPath explicitly.
+            if (!string.IsNullOrEmpty(playbackPath))
+            {
+                try { _videoMetadataService.ReleasePlaybackFilePath(playbackPath); } catch { }
+            }
+        }
     }
 
     /// <summary>
@@ -929,6 +1110,16 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     {
         DisplayActualWidth = 0;
         DisplayActualHeight = 0;
+        // Reset auto-transcode fallback state for the new item. The
+        // previous item's transcode attempt doesn't apply here — if
+        // the new file also has a non-MF-decodable codec we'll
+        // re-enter the fallback path with a clean slate.
+        _transcodeAttempted = false;
+        _transcodeCts?.Cancel();
+        _transcodeCts?.Dispose();
+        _transcodeCts = null;
+        IsTranscoding = false;
+        TranscodeProgress = 0;
     }
 
     [ObservableProperty]
