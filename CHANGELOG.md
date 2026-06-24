@@ -224,105 +224,163 @@ seek 走 VLC 习惯,跟用户脑子里"按 5 跳到一半"的肌肉记忆对齐�
 
 ## v0.14.7 (2026-06-25)
 
-**主题: 真正的全屏 + Loop/Shuffle 视觉态**
+**主题: Chrome 浮动 overlay (A 模式) + 修 App.MainWindow ctor 期间 null + 短期 Load More 智能预加载 + 状态栏视频计数**
 
 ### 背景
 
-v0.14.6 收尾时发现两件遗留的体验短板:
+v0.14.6 留了几件问题需要收尾:
 
-1. 之前 v0.14.5 的 fullscreen 调的是
-   `AppWindow.SetPresenter(FullScreen)`,这个 API 只藏 OS title bar
-   (Win32 non-client area),**app 自己的 in-app TitleBar 元素 +
-   gallery 的 header (Open/Refresh/Slideshow/About) + gallery 的
-   status bar (Scan progress / Load More) 仍然显示**。结果是
-   "按了 F11 但还是有 3 道 chrome"的伪全屏感。
-2. Loop 和 Shuffle 用 `AppBarButton` 配 `Click` handler 自己翻
-   `IsSlideshowLooping` / `IsSlideshowShuffling`,但 `AppBarButton`
-   没有内置 checked 视觉态 — 只有 Tooltip + Label 文字翻,Icon
-   不动、背景不变。用户看不出 "现在 Loop/Shuffle 是开着还是关着"。
+1. **F11 "假全屏"**: `AppWindow.SetPresenter(FullScreen)` 只藏 OS title bar,gallery 的 header (Open/Refresh/Slideshow/About) + status bar (Scan progress / Load More) 仍然显示,viewer 的图片盖住顶部 CommandBar — 视觉上是 "3 道 chrome 还在"。
+2. **viewer CommandBar 浮动显示会挤图片**:v0.14.6 用 `CommandBarRowHeight` (GridLength 48↔0) 让 row 伸缩,hover 上去时 row 从 0 变 48,**图片被往下挤**。row 伸缩方案 UX 不友好。
+3. **`App.MainWindow` 在 GalleryView ctor 期间是 null**:F11 / button click 触发 PropertyChanged 但 GalleryView 的 `if (App.MainWindow is not null)` 整块订阅静默跳过,chrome 永远不动。
+4. **Load More 需要频繁点击**:PageSize=150 + threshold=200px,拖动滚动到底部时还有 ~1.5 个 viewport 才触发,体验断档。
+5. **状态栏不显示视频数**:"Loaded 16 images" 没区分照片 / 视频,从根目录扫混合文件夹时无法一眼看出视频数量。
 
 ### 改动
 
-**真正的全屏 (MainWindow + GalleryView + MainWindow.HandleViewerKey)**
+**Chrome 浮动 overlay — RowSpan overlay 模式 (GalleryView + ImageViewerView + 各自 xaml.cs)**
 
-- `MainWindow` 显式 `implement INotifyPropertyChanged`(原来 event
-  已经有了,缺 interface 声明),x:Bind OneWay 不再报 WMC1506。
-- 新 `IsAppTitleBarVisible` property (`!IsFullscreen`),绑到 in-app
-  `TitleBar` 的 `Visibility`。RowDefinition 是 `Auto` 所以
-  Collapsed 后整行高度变 0,不留空白带。
-- `MainWindow.HandleViewerKey` 把 F11 case **移到 page-type
-  guard 之前** — 之前只在 `ImageViewerView` 页面响应 F11,在
-  gallery 页面 F11 是 no-op。现在 gallery 也能 F11。
-- `GalleryView` 加 `IsChromeVisible` (bool) + `HeaderRowHeight` /
-  `StatusRowHeight` (GridLength) 三个 property。Row 0 (header, 48px)
-  + Row 2 (status, 32px) 的 Height 直接绑到这两个 GridLength —
-  不用 `Visibility.Collapsed` 因为固定高度 RowDefinition 即便 child
-  Collapsed 也会保留高度,会留 80px 空白。绑 GridLength 是唯一
-  能真把 row 高度收为 0 的方法。
-- `GalleryView` 加 `OnMainWindowPropertyChanged` 订阅 `IsFullscreen`
-  变化 → 抛 `IsChromeVisible` / `HeaderRowHeight` /
-  `StatusRowHeight` 三个 PropertyChanged,`Unloaded` 解订避免泄漏。
-- `GalleryView` class 加 `: INotifyPropertyChanged` 声明(原来
-  GalleryView 不实现,只有 ViewerView 实现,加 chrome binding 后
-  x:Bind OneWay 需要源实现 INotifyPropertyChanged)。
-- Viewer 的 CommandBar 隐藏行为 v0.14.6 的 auto-hide 不变 —
-  它是 "mouse-near-top 显 / 离开 3s 隐",gallery 是 "全屏时
-  完全隐",两套机制独立,viewer 那边已经正确,无需改。
+- 抛弃 v0.14.6 的 `RowDefinition.Height = GridLength(0↔48)` 伸缩方案。
+  新方案:**chrome 行高度固定为 0**,chrome 自身用 `Grid.RowSpan="2/3"`
+  + `VerticalAlignment="Top"/"Bottom"` + 显式 `Height` 浮动在 root
+  grid 之上 — **chrome 显示/隐藏不影响图片位置**(row 不再伸缩)。
+- Gallery: 3 个 RowDefinition (Row 0/2 高度=0,Row 1=*),ScrollViewer
+  + HeaderChrome + StatusChrome 都 `RowSpan="3"`。ScrollViewer 自然
+  撑满 root grid,HeaderChrome 顶部对齐,StatusChrome 底部对齐。
+- Viewer: 2 个 RowDefinition (Row 0=0,Row 1=*),ImageHost/PlayerHost
+  在 Row 1,CommandBar `RowSpan="2"` + `VerticalAlignment="Top"` +
+  `Canvas.ZIndex="100"` — 显式 ZIndex 修原 bug:CommandBar 在 XAML
+  里早于 ImageHost,WinUI 按 XAML 顺序绘制导致图片在 CommandBar
+  之上(盖住工具栏)。ZIndex 强制 CommandBar 浮在图片上。
 
-**Loop/Shuffle 视觉态 (ImageViewerView.xaml + .xaml.cs)**
+**Chrome 浮动状态机 — A 模式 hit-zone 直控 (GalleryView + ImageViewerView)**
 
-- 两个按钮 `AppBarButton` → `AppBarToggleButton`,`IsChecked` 走
-  `TwoWay` 绑到 `IsSlideshowLooping` / `IsSlideshowShuffling`。
-  WinUI `ToggleButton` 的 default style 自带 checked 视觉态
-  (背景高亮),用户点完一眼能看出 "开了"。
-- 删 `SlideshowLoopBtn_Click` + `SlideshowShuffleBtn_Click`
-  两个 Click handler — TwoWay bind 已经覆盖翻状态,且
-  `OnIsSlideshowShufflingChanged(true)` partial method
-  (清空 shuffle queue) 会在 IsChecked 翻为 true 时照样触发
-  (ObservableProperty setter 抛 PropertyChanged 同时调 partial
-  method),所以原 Click handler 的行为完全保留。
-- 删 Click handler 也消除了"按钮自己翻 + handler 翻"两次的
-  风险(虽然 IsChecked TwoWay 路径下 Click handler 不会被调,
-  但留着是个 dead code 看着也烦)。
+- 抛弃 v0.14.6 的 3s DispatchQueueTimer "hide after stillness" 方案。
+  原因:PointerMoved 只在 mouse move 时触发,持续拖动时 non-repeating
+  DispatchQueueTimer 一直被 `Start()` reset 倒计时永远清零,timer-based
+  UX 实际上不可达(Photos 风格在这里不适用,用户在 gallery 里 30-50ms
+  就触发一次 PointerMoved)。
+- A 模式:PointerMoved handler **直接**根据 hit-zone 设 Visibility,
+  无 timer:
+  - Gallery: 鼠标在 top 60px → HeaderChrome.Visible;鼠标在 bottom 40px
+    → StatusChrome.Visible;鼠标在其他地方 → 立刻 Collapsed。两个 bar
+    独立 hit-zone,可同时显示。
+  - Viewer: 鼠标在 top 60px → CommandBar.Visible;鼠标在其他地方 → 立刻
+    Collapsed。
+- Windowed 模式全屏外 chrome 永远 Visible(标准窗口应用 UX)。
+- 跨页面同步:Page ctor 订阅 `MainWindow.PropertyChanged` 后**手动**
+  `OnMainWindowPropertyChanged(synthetic IsFullscreen)` 同步一次,
+  处理"窗口已经是 fullscreen 时新 page 加载"的 race(window 不会
+  重复 fire PropertyChanged,因为 IsFullscreen 没变化,新 page
+  ctor 默认 `IsHeaderVisible=true` 就会渲染错误的 chrome)。
+
+**修 App.MainWindow ctor 期间 null (App.xaml.cs + MainWindow.xaml.cs)**
+
+- 根因:`App.OnLaunched` 里 `_window = new MainWindow()` 的赋值
+  发生在 MainWindow ctor body 跑完之后,但 ctor body 内部
+  `RootFrame.Navigate(typeof(GalleryView))` 触发的 page ctor
+  期间读 `App.MainWindow` 拿到 null,`if (App.MainWindow is not null)`
+  整块订阅静默跳过 — PropertyChanged 后续 fire 但无订阅者,
+  chrome 永远不动。
+- 修法:`App` 加 `internal void SetMainWindow(MainWindow window)
+  => _window = window;`。`MainWindow` ctor **第一行**(在
+  InitializeComponent / RootFrame.Navigate 之前)调 `app.SetMainWindow(this)`,
+  让 Window 先把自己注册到 App,再触发 page 加载。
+- 见 AGENTS.md "已知坑:App.SetMainWindow 早注册" 章节,有完整的
+  chronology + 跨项目适用说明。
+
+**短期 Load More 智能预加载 (GalleryViewModel + GalleryView.xaml.cs)**
+
+- `PageSize` 150 → **200**:Load More 一次多 33%,减少点击频率。
+  200 是 layout pass 成本(~75ms)与点击次数的甜区;调到 300
+  会到 ~150ms,疯狂滚到底时能感到卡顿。ScanPageSize=30 不动
+  (scan 自动 drain 路径独立)。
+- `LoadMoreThreshold` 200px → **1000px**:滚到距底 1000px 就触发
+  触发,下一批 200 张加载完时用户正好滚到底,实现 preload 无缝衔接。
+- `LoadMoreDebounceMs` 180 → **100**:响应更快。
+- 见 AGENTS.md "Gallery 扫描/加载 pipeline" 章节,PageSize / 阈值
+  数字已同步更新。
+
+**状态栏视频计数 (GalleryViewModel.UpdateStatusText)**
+
+- 算 `Images.Count(i => i.IsVideo)` 显示 loaded videos:没视频时
+  仍显示 `Loaded X images`(不加 ", 0 videos" 噪音),有视频时
+  `Loaded X images, N videos`。scanner 没有按 Kind 分别报 total,
+  所以只显示 loaded 视频数(无分母)— 等 Load More 跟上 scanner
+  进度就能看到全量。
+
+### 验证
+
+- `dotnet build -c Debug -p:Platform=x64` 干净通过 (0 errors / 0 warnings)。
+- **Chrome overlay**:
+  - Windowed 模式:gallery header + status bar 常驻显示;viewer
+    CommandBar 常驻显示且在图片上面(不被盖住)。
+  - Gallery F11 进全屏 → header + status bar 默认 Collapsed,
+    鼠标移到 top 60px → header 浮现;移到中部 → 立刻 Collapsed;
+    底部 40px 同理。鼠标在中部持续移动 → chrome 完全不显示
+    (不在 hit-zone)。
+  - Viewer F11 进全屏 → CommandBar 默认 Collapsed;鼠标在 top 60px
+    → CommandBar 浮现;离开 top zone → 立刻 Collapsed。
+  - 跨页面:gallery F11 → 打开 viewer → 退回 gallery,全程 chrome
+    状态正确(订阅链路打通 + ctor 同步)。
+- **Load More**:从 0 滚到 50 张,自动 Load More 触发 0 次或 1 次
+  (取决于是否到了距底 1000px);点 Load More 按钮一次灌 200 张。
+- **状态栏视频计数**:open 混合文件夹,看到 `Loaded X images, Y videos`。
+
+### 经验教训
+
+- "F11 进 viewer → chrome 浮动 → 鼠标在 chrome 内 → chrome 不藏"
+  不是 timer bug 而是设计选择错。PointerMoved 只在 move 时触发,
+  任何 "hide after N seconds of stillness" 在快速 drag 场景都不
+  现实可达,得重新设计 hit-zone 直控的 UX(A 模式)。
+- 跨页面订阅 `App.X.PropertyChanged` 的 page 必须确认 X 已注册
+  到 App,否则订阅静默失败。最佳实践:X 的 ctor **入口第一行**
+  自我注册。
+- AppWindow.SetPresenter 在 MSIX packaged + Win11 25H2 下是
+  **同步**的 (`Presenter.Kind` 立即翻转),不需要延迟一帧再 raise
+  PropertyChanged。
+
+---
+
+## v0.14.7-fix (2026-06-25)
+
+**主题: Slideshow shuffle / loop wrap 分支显式加载图片**
+
+### 背景
+
+v0.14.7 chrome overlay 改造之外还发现 Slideshow 在 Smart shuffle
+或 Loop wrap 到第一张时,**CurrentIndex 变了但图片不刷新**。普通
+sequential 顺序播没问题,因为走 NavigateNextCommand 内部会调
+ShowCurrentImageAsync 加载 DisplayImage。
+
+### 真因
+
+`OnSlideshowTick` 在 v0.14.6 新加的 smart shuffle + loop wrap 两个
+分支里 **直接** `CurrentIndex = nextIdx;` / `CurrentIndex = 0;`,
+绕过了 NavigateNextCommand —— 而 NavigateNextCommand 内部才调
+`ShowCurrentImageAsync` 加载新图的 `DisplayImage`。direct set 只
+更新 `CurrentIndex` + 触发 `OnCurrentIndexChanged` (更新
+`DisplayIndex` 文字 + `NavigationChanged` event),DisplayImage 不变,
+UI 上 index 变但 bitmap 不换。
+
+### 修法
+
+两个 direct-set 分支末尾加 `await ShowCurrentImageAsync()`,让
+`OnSlideshowTick` 自己负责走完整加载路径(不用 NavigateNext 是
+因为 shuffle 跳回前面的 index 时 `CanNavigateNext` 可能为 false,
+loop wrap 时 `CurrentIndex >= Images.Count - 1` 也让 CanNavigateNext
+为 false)。`OnSlideshowTick` 签名改 `async void` 支持 await。普通
+sequential 分支不动 — 走 `NavigateNextCommand.ExecuteAsync(null)`
+原本就 OK。
 
 ### 验证
 
 - `dotnet build -c Debug -p:Platform=x64` 0 errors / 0 warnings。
-- Gallery F11 进全屏 → header (48px) + status bar (32px) 立即
-  消失,MasonryPanel 占满全屏(连 in-app TitleBar 32px 也藏了);
-  F11 退出 → 3 道 chrome 都回来。
-- Viewer F11 进全屏 → 立即隐 CommandBar,鼠标上移显 (v0.14.6
-  行为不变)。
-- Loop/Shuffle 按钮各点一次,看 button 背景高亮(checked 态);
-  再点取消高亮。运行 Slideshow 时翻 Loop/Shuffle,看 timer
-  行为对 (Loop on 跳到末尾回 0;Shuffle on 走 queue)。
-
-### 修 viewer 全屏时顶部 48px 空白 (Task D)
-
-**问题**:v0.14.7 改完 viewer 全屏时,`CommandBar.Visibility=Collapsed`
-但 `RowDefinition Height="48"` 仍是 fixed,固定高度 row 即便
-child Collapsed 也会保留 48px。图片看上去"没充满上部"。
-
-**修法**:跟 GalleryView 的 header / status row 同款套路 — 把
-`RowDefinition.Height` 绑到 GridLength,可见时 48,隐时 0。
-`Visibility` 绑在 CommandBar 上保留(不影响,但对看代码的人
-"显式"比较清楚)。
-
-- `ImageViewerView` 加 `CommandBarRowHeight` (GridLength) property,
-  从 `CommandBarVisibility` 派生 (Visible → 48, Collapsed → 0)。
-- `IsCommandBarVisible` setter 在抛 `CommandBarVisibility` 的同时
-  也抛 `CommandBarRowHeight`(派生属性,源一变它必变)。
-- `OnMainWindowPropertyChanged` (fullscreen toggle) 同样抛
-  `CommandBarRowHeight` 防御性 re-notify。
-- `ImageViewerView.xaml` 把 `RowDefinition Height="48"` 改成
-  `Height="{x:Bind CommandBarRowHeight, Mode=OneWay}"`。
-
-**验证**:
-- `dotnet build -c Debug -p:Platform=x64` 0 errors / 0 warnings。
-- Viewer F11 进全屏 → 顶部 48px 空白消失,图片充满全屏。
-- 鼠标移到顶部 60px → CommandBar 滑出 (row 从 0 变 48,
-  bar 可见);鼠标离开 3s → 滑回 0,row 又消失。
-- F11 退出全屏 → row 永远保持 48,bar 一直显,无闪。
+- Smart shuffle 模式下,每 tick 都正确切换图片(不再是 index 变
+  图片不变);loop wrap 到第一张也正确显示第一张。
+- 普通 sequential 顺序播行为不变(原本就走 NavigateNextCommand)。
+- 测试覆盖盲区:这个 bug 只在 shuffle / loop wrap 时触发,普通
+  sequential 测试看不出来 — 教训是"特殊路径要单独覆盖测一遍"。
 
 ## v0.14.4 (2026-06-25)
 

@@ -48,8 +48,17 @@
 
 ## 版本
 
-- v0.13.0 - 单图模式键盘导航修复(WH_KEYBOARD thread-scope hook) + 标题栏 commit hash + VM/Model partial property 消除 MVVMTK0045
-- v0.12.0 - 读取压缩包内图片 (ZIP/RAR/7Z) + 状态栏错误汇总 + 压缩包内图不可删 + overlay 显示位置 + publish target 自我繁殖 bug 修复
+- v0.14.7 - Chrome 浮动 overlay (RowSpan + A 模式 hit-zone) + 修 App.MainWindow ctor 期间 null bug + 短期 Load More 智能预加载 (PageSize 150→200, threshold 200→1000px) + 状态栏加视频计数
+- v0.14.7-fix - Slideshow shuffle / loop wrap 分支显式 await ShowCurrentImageAsync (修 v0.14.6 引入的 regression:direct CurrentIndex set 绕过 NavigateNextCommand → DisplayImage 不刷新)
+- v0.14.6 - Slideshow interval slider 改 double + Smart shuffle 整 cycle 内不重复 + OnIsSlideshowShufflingChanged 清 queue + 数字键 0-9 跳到 0%/10%-90% (VLC 习惯)
+- v0.14.5 - 真正的全屏 (MainWindow.IsFullscreen 绑 AppWindow.Presenter.Kind + F11 WH_KEYBOARD hook 拦截) + Slideshow loop / shuffle 按钮 + 视频 archive 支持
+- v0.14.4 - EXIF 自动旋转 + Slideshow 初始集成 + ThumbnailCache 容量自适应 + 1:1 视频 transport controls 钉在底部 + HEIC/AVIF decoder 探测
+- v0.14.3 - 修 v0.14.2 视频播放 XAML 布局 bug (PlayOverlay 仍被拦截 + transport controls 渲染异常)
+- v0.14.2 - IThumbnailCache 共享 LRU + 视频 archive 支持 + 1:1 视频模式 + 修 PlayOverlay 被遮挡 bug
+- v0.14.1 - 视频播放集成 (MediaPlayerElement + Space 键盘 + 完整 lifecycle)
+- v0.14.0 - 视频数据通路 (MediaItem/VideoItem + FFmpeg + ▶ overlay + About page + LGPL)
+- v0.13.x - Refresh 按钮 + 坏 archive 不中断扫描 + 单图模式键盘导航修复(12 commits, WH_KEYBOARD thread-scope hook)
+- v0.12.0 - 读取压缩包内图片 (ZIP/RAR/7Z) + 状态栏错误汇总 + 压缩包内图不可删 + overlay 显示位置
 - v0.11.0 - 修 0xC0000602 启动崩溃 + 改 framework-dependent 发布模式
 - v0.10.0 - 删除测试项目 + 架构精简为仅 x64
 - v0.9.2 - 修复 dotnet publish 产物无法启动

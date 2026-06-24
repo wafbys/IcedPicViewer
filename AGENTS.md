@@ -7,7 +7,7 @@
 这是一个基于 **WinUI 3 + Windows App SDK** 的图片查看器桌面应用（MSIX 打包）。
 
 - 使用 **MasonryPanel** 实现瀑布流视觉效果（这是用户明确选择保留的设计，不建议轻易改成虚拟化列表）。
-- 采用 **边扫边灌到 150 张停**（scanner 后台 yield source → 50ms batch flush → UI thread 灌入 gallery，第一张图约 200ms 内可见 → 满 150 张后 drain 退出，scanner 继续跑 TotalCount 增长但不自动灌图）+ **Load More 按钮**（手动一次 150 张）+ **滚动到底自动加载**。
+- 采用 **边扫边灌到 200 张停**（scanner 后台 yield source → 50ms batch flush → UI thread 灌入 gallery，第一张图约 200ms 内可见 → 满 200 张后 drain 退出，scanner 继续跑 TotalCount 增长但不自动灌图）+ **Load More 按钮**（手动一次 200 张）+ **滚动到底自动加载**（距底 1000px 触发，实现 preload 无缝）。
 - 使用 CommunityToolkit.Mvvm + Microsoft.Extensions.DependencyInjection。
 - 重视**可维护性**，但反对为了“正确”而过度设计。
 
@@ -57,10 +57,10 @@
 - **扫描/加载 pipeline 不变量**（v0.14.0+）：
   - scanner 永远在 `Task.Run` 包住的 worker thread,`yield` 不能跑在 UI thread
   - `IngestScanBatch` 内部必须 fire-and-forget **单一** `DrainPageFillAsync` 循环(用 `_pageFillInFlight` flag),**不要**每次都启动新 `LoadNextPageAsync`(多重并发会把 UI thread marshal 压垮,导致"窗口消失"症状)
-  - `IngestScanBatch` 启动 drain 条件 + drain 内部退出条件: `Images.Count < PageSize` —— **混合模式**(边扫边灌到 150 张停)的不变量,150 张后 drain 退出,scanner 继续跑但不再自动灌图
+  - `IngestScanBatch` 启动 drain 条件 + drain 内部退出条件: `Images.Count < PageSize` —— **混合模式**(边扫边灌到 200 张停)的不变量,200 张后 drain 退出,scanner 继续跑但不再自动灌图
   - **不要**再加回 page fill timer;不要在 fire-and-forget 路径 set `IsLoadingMore`(那是 `LoadMoreAsync` / "Load More" 按钮的)
   - `LoadDirectoryAsync` 轮询完成条件:`!_pageFillInFlight && !IsLoadingMode` —— **不要**等 `_remainingFilePaths.Count == 0`(drain 提前退会留 source,会卡死轮询)
-  - `ScanPageSize=30` / `PageSize=150` 两个 page size 分工,不要合并
+  - `ScanPageSize=30` / `PageSize=200` 两个 page size 分工,不要合并
   - `GetImageSizeAsync` 必须经 6 路 `_sizeFetchSemaphore` 限流
   - `IsThumbnailLoading` setter 必须经 `dispatcher.TryEnqueue`,不能 worker thread 直接写
   - 详见下面 "Gallery 扫描/加载 pipeline" 章节
@@ -166,6 +166,46 @@ dotnet publish -c Release -p:Platform=$Platform
 
 之前对 IcedPicViewer 0xC0000602 错误的"api-set 缺失"猜测**已推翻**;这个事实本身仍然有用(下次不要被"找不到 api-set DLL"表象误导)。
 
+### 已知坑:`App.SetMainWindow` 早注册 — MainWindow ctor 期间 `App.MainWindow` 是 null (2026-06-24)
+
+**症状**:Page 构造函数里写
+
+```csharp
+if (App.MainWindow is not null) {
+    App.MainWindow.PropertyChanged += OnMainWindowPropertyChanged;
+}
+```
+
+然后 F11 / Esc / button click 等任何会触发 MainWindow 状态变更的事件,**handler 全部不跑**。检查 log 也没有 handler 入口的 trace —— 因为 handler 根本没被订阅上。F11 多次按 chrome 仍显示,因为每次 toggle 都 raise PropertyChanged 但无订阅者。
+
+**真因**:`App.OnLaunched` 里的
+
+```csharp
+_window = new MainWindow();   // 赋值发生在 MainWindow ctor body 跑完之后
+```
+
+而 `MainWindow` ctor body **内部** 调 `RootFrame.Navigate(typeof(GalleryView))` 触发 `GalleryView` ctor。在 GalleryView ctor 跑的瞬间,`_window` **还是 null**,所以 `App.MainWindow is not null` 是 `false`,整个 `if` 块静默跳过 —— **订阅从未发生**。
+
+`App.MainWindow` 表面看是简单属性 getter,但 ctor 期间 null 是 WinUI 3 模板的隐性陷阱:`OnLaunched` 用 `var x = new X()` 的写法隐含"ctor 跑完才赋值",而 X 的 ctor body 又会触发 page 加载,page 读 App.X 时 X 还没注册。
+
+**修法**:让 `MainWindow` ctor **入口** 自己注册,先于 InitializeComponent 和 Navigate:
+
+```csharp
+// MainWindow.xaml.cs ctor
+public MainWindow() {
+    if (Application.Current is App app) app.SetMainWindow(this);   // 第一行
+    InitializeComponent();
+    ...
+}
+
+// App.xaml.cs
+internal void SetMainWindow(MainWindow window) => _window = window;
+```
+
+**诊断捷径**:症状是"handler 应该 fire 但不 fire",最低成本验证是加一行 `LogApp("handler entered")` 在 handler body 最顶端跑 log 看。如果**一行都没出现**,99% 是订阅没成功 —— 读 subscribe 处的 `if (App.X is not null)` 这种 guard,检查它依赖的 accessor 在 subscribe 时能不能非 null。
+
+**跨项目适用**:WinUI 3 / UWP / 任何 XAML-based shell,只要 App 暴露 singleton Window 而 Window 自己 Navigate page 进 page ctor,就中招。
+
 ---
 
 ### Gallery 扫描/加载 pipeline（v0.14.0+）
@@ -195,10 +235,10 @@ dotnet publish -c Release -p:Platform=$Platform
 - **scanner 永远在 worker thread**:`Task.Run(RunScanAndBatchAsync)` 包住整个 `await foreach`;`yield` 是 worker 上下文,不抓 UI 同步上下文,scanner 内部 `Directory.GetFileSystemEntries` 阻塞几秒不会卡 UI。
 - **`batchStartTick` 而非 `lastFlushTick`**:`batch.Count == 0` 时设 `batchStartTick = now`,**保证第一张 source 50ms 内必 flush**。用 scan 起始时间做锚点的话,scanner 慢(每张 5 秒)要等更久才显示第一张。
 - **`IngestScanBatch` 内部 fire-and-forget `LoadNextPageAsync`**:**完全删了 page fill timer**。但 fire-and-forget 路径**不**复用 `IsLoadingMore`(那个 flag 归 `LoadMoreAsync` 管,被 "Load More" 按钮 `CanExecute` 观察),而是使用私有 `_pageFillInFlight` flag + `DrainPageFillAsync` 单一消费者循环(详见下面"单一消费者循环")。否则每次 IngestScanBatch 都启动一个新的 LoadNextPageAsync,整盘扫描时 10+ 并发 GetImageSizeAsync fetchahead 会把 UI thread marshal 压垮 → "窗口不见"症状(进程在,UI 不刷新)。
-- **`ScanPageSize=30` vs `PageSize=150`**:scan-time 用 30(避免一次 layout 30 个 Border 让 UI 卡死),手动 Load More 按钮用 150(用户主动操作期望大块加载)。`LoadNextPageAsync` 接受 `pageSize` 参数,默认走 `PageSize`。
+- **`ScanPageSize=30` vs `PageSize=200`**:scan-time 用 30(避免一次 layout 30 个 Border 让 UI 卡死),手动 Load More 按钮用 200(用户主动操作期望大块加载)。`LoadNextPageAsync` 接受 `pageSize` 参数,默认走 `PageSize`。200 是 150→200 调优结果:Load More 一次多 33% 减少点击频率,但 layout pass 时间从 ~50ms 涨到 ~75ms 仍可接受;改到 300 会到 ~150ms,疯狂滚到底时能感到卡顿。
 - **6 路 fetchahead**:`LoadNextPageAsync` 内部 `Task.WhenAll(batch.Select(...))` 并行 30 个 source 的 `GetSourceMetadataAsync + GetImageSizeAsync`。`BitmapDecoder.CreateAsync` 是 WinRT STA-bound,6 路限流(独立 `_sizeFetchSemaphore` 跟 `_thumbnailLoadSemaphore` 对称)避免 marshal 把 UI thread 压垮。
 - **单一消费者循环**(`DrainPageFillAsync`):第一个 `IngestScanBatch` 设 `_pageFillInFlight=true` 并 fire-and-forget 启动 drain 循环,之后所有 `IngestScanBatch` 调用都是 no-op(同时 gate 在 `Images.Count < PageSize` 上,见下)。drain 循环内**串行** `await LoadNextPageAsync(Min(ScanPageSize, PageSize-Images.Count))` 直到 `_remainingFilePaths.Count == 0` 或 `Images.Count >= PageSize`,finally 释放 flag。保证同时只有**一个** `LoadNextPageAsync` 在跑(fetchahead 6 路 + 自身 1 路 = 7 路 marshal 上限,UI thread 不死锁)。这是修复"窗口消失"的关键。
-- **混合模式:边扫边灌到 150 张停**(v0.14.1+):drain 每次循环计算精确 `target = PageSize - Images.Count`,到 150 张就 `break` 退出;`IngestScanBatch` 启动条件也 gate 在 `Images.Count < PageSize` 上,150 张之后**不**再触发 drain。**scanner 继续在后台跑,`TotalCount` 持续增长**,只是 `Images` 集合不再自动灌入——用户手动点 "Load More" 触发 `LoadMoreAsync`(默认 `PageSize=150`)拉下一批。`LoadDirectoryAsync` 轮询条件从"`remaining == 0 && !IsLoadingMore`"改为"`!_pageFillInFlight && !IsLoadingMore`"——drain 提前退后 `_remainingFilePaths` 里可能还有几千个 source,不能等它清空。这是用户选择的"既保留立即可见,又把控制权还给用户"的折中。
+- **混合模式:边扫边灌到 200 张停**(v0.14.1+,v0.14.7 调优 PageSize 150→200):drain 每次循环计算精确 `target = PageSize - Images.Count`,到 200 张就 `break` 退出;`IngestScanBatch` 启动条件也 gate 在 `Images.Count < PageSize` 上,200 张之后**不**再触发 drain。**scanner 继续在后台跑,`TotalCount` 持续增长**,只是 `Images` 集合不再自动灌入——用户手动点 "Load More" 触发 `LoadMoreAsync`(默认 `PageSize=200`)拉下一批。`LoadDirectoryAsync` 轮询条件从"`remaining == 0 && !IsLoadingMore`"改为"`!_pageFillInFlight && !IsLoadingMore`"——drain 提前退后 `_remainingFilePaths` 里可能还有几千个 source,不能等它清空。这是用户选择的"既保留立即可见,又把控制权还给用户"的折中。
 
 **`IsThumbnailLoading` 状态机**(`Models/ImageItem.cs`):
 
