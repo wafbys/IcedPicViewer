@@ -101,15 +101,81 @@ public sealed partial class ImageViewerView : Page
         }
         else if (e.PropertyName == nameof(ImageViewModel.IsFitMode))
         {
-            // The video surface (MediaPlayerElement.Stretch + the
-            // wrapping ScrollViewer modes) is x:Bound and updates
-            // automatically. The image surface (FitContainer /
-            // ActualSizeContainer / MinimapOverlay) is visibility-
-            // managed in code because it also has to keep the minimap
-            // in sync — the minimap is only relevant in 1:1 mode and
-            // its viewport rectangle has to be redrawn when the
-            // scrollable area changes size.
+            // Image surface: existing FitContainer/ActualSizeContainer/
+            // MinimapOverlay swap (code-managed because the minimap
+            // needs explicit UpdateMinimap calls).
             ApplyImageFitMode(ViewModel.IsFitMode);
+
+            // Video surface: reparent the single MediaPlayerElement
+            // between the Fit container (Grid) and the 1:1 container
+            // (ScrollViewer). The element's parent is what tells it
+            // how to lay out — a Grid gives a finite slot (Uniform
+            // works), a ScrollViewer offers infinite space (None works
+            // for the user's native-resolution scroll). One element
+            // + two hosts keeps the MediaPlayer reference stable
+            // across the toggle and avoids the v0.14.2 "ScrollViewer
+            // swallows PlayOverlay clicks" problem by hiding the
+            // ScrollViewer container itself when there's no player.
+            ApplyVideoFitMode(ViewModel.IsFitMode);
+        }
+        else if (e.PropertyName == nameof(ImageViewModel.CurrentImage))
+        {
+            // The IsFitMode state is per-VM, not per-item, so when
+            // the user navigates from an image (where 1:1 = the
+            // minimap) to a video (where 1:1 = the scrollable
+            // player) the IsFitMode property doesn't change but the
+            // Player still needs to be in the right container. The
+            // IsFitMode=true default + the XAML's initial Player
+            // placement in PlayerFitContainer covers the common path
+            // (Fit mode from the start), but if the user was in 1:1
+            // mode when navigating to a video, reparent now. This is
+            // a no-op when the Player is already in the right
+            // container (the early-return inside ApplyVideoFitMode).
+            ApplyVideoFitMode(ViewModel.IsFitMode);
+        }
+    }
+
+    private void ApplyVideoFitMode(bool isFitMode)
+    {
+        if (isFitMode)
+        {
+            // No-op if the element is already in the Fit host
+            // (the common case — the user just toggled back from 1:1
+            // and the element was last moved there).
+            if (Player.Parent == PlayerFitContainer) return;
+            DetachPlayerFromCurrentParent();
+            PlayerFitContainer.Children.Add(Player);
+        }
+        else
+        {
+            if (Player.Parent == PlayerScrollViewer) return;
+            DetachPlayerFromCurrentParent();
+            PlayerScrollViewer.Content = Player;
+        }
+    }
+
+    /// <summary>
+    /// Removes the MediaPlayerElement from whichever container is
+    /// currently holding it. Both host types are Panel / ContentControl
+    /// variants in WinUI 3: the Grid is a <see cref="Panel"/> with
+    /// a <c>Children</c> collection, and the ScrollViewer exposes its
+    /// single child via <c>Content</c>. Trying to add the element to
+    /// a new host while it's still attached to the old one fails
+    /// (UIElement can only have one parent), so the detach is
+    /// mandatory before the attach.
+    /// </summary>
+    private void DetachPlayerFromCurrentParent()
+    {
+        switch (Player.Parent)
+        {
+            case Panel oldPanel:
+                oldPanel.Children.Remove(Player);
+                break;
+            case ScrollViewer oldScrollViewer:
+                oldScrollViewer.Content = null;
+                break;
+            // null = never attached; null-parent means we're in the
+            // XAML default state. Nothing to do.
         }
     }
 

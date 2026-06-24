@@ -1,5 +1,80 @@
 # 更新日志
 
+## v0.14.3 (2026-06-24)
+
+**主题: 修 v0.14.2 视频播放 XAML 布局 bug(PlayOverlay 仍被拦截 + transport controls 渲染异常)**
+
+### 背景
+
+v0.14.2 修过一遍 PlayOverlay 被遮挡 bug(PlayerElementVisibility
+Collapsed 让 MediaPlayerElement 不渲染),但实测显示:
+1. 鼠标点 ▶ 仍不响应(第一次打开视频)
+2. Space 播放后 transport controls 消失
+
+### 根因
+
+v0.14.2 修了一半。给 MediaPlayerElement 加 Visibility=Collapsed
+只是让 element 自己不渲染,但它的**父 ScrollViewer** 仍然占满整个
+Grid row —— ScrollViewer 的 hit-test 区域覆盖全 row,把所有指向
+▶ 区域的指针事件都吃掉了。Space 走 WH_KEYBOARD hook 绕开 XAML
+指针路径所以能 work。
+
+第二个 bug: 把 MediaPlayerElement 放进 ScrollViewer 后,ScrollViewer
+给子元素的是"infinite layout space"。MediaPlayerElement.Stretch
+= Uniform 在无限空间下行为异常 —— 元素取视频的原始分辨率而不是
+viewport 缩放,transport controls 渲染位置也不对(看不见)。
+
+### 修复
+
+**两个 container + 一个 MediaPlayerElement reparent**
+
+XAML 把单一 `Player` 拆成两个 host:
+- `PlayerFitContainer` (Grid, 给 Uniform stretch 有限 layout slot)
+- `PlayerScrollViewer` (ScrollViewer, 给 None stretch 无限空间
+  + 1:1 模式允许滚出视口)
+
+`Player` XAML 默认在 `PlayerFitContainer` 里。`ApplyVideoFitMode`
+code-behind 在 `IsFitMode` 变化时把 `Player` detach from old host
++ attach to new host(同时 detach/attach 两边都支持 Panel 和
+ScrollViewer 两种 parent type)。MediaPlayer 引用保持稳定,
+transport controls 跟着 element 走。
+
+**Container-level visibility (不是 element-level)**
+
+新增:
+- `PlayerFitContainerVisibility` = `IsVideo && IsFitMode && IsVideoPlaying`
+- `PlayerActualSizeContainerVisibility` = `IsVideo && !IsFitMode && IsVideoPlaying`
+
+`!IsVideoPlaying` 把 container 整个 Collapsed(不只是 element),
+ScrollViewer 的 hit-test 区域也消失,PlayOverlay 第一次就能点。
+删了 v0.14.2 的 `PlayerElementVisibility` 和 `PlayerScrollMode` (后者
+没用 —— ScrollViewer 永远在 1:1 模式才 visible,hardcode `Auto` 就够)。
+
+**CurrentImage 变化时同步 reparent**
+
+新增 `OnViewModelPropertyChanged` 分支处理 `CurrentImage` 变化:
+`IsFitMode` 是 VM 全局状态不是 per-item,所以从 image 1:1 模式浏览
+后 Next 切到 video 时,`IsFitMode` 仍是 false 但 Player 还在
+`PlayerFitContainer` (XAML 默认位置)。`ApplyVideoFitMode` 此时调用
+把 Player 移到 `PlayerScrollViewer`,无 IsFitMode 变化也能保持
+reparenting 状态正确(no-op if already in right container)。
+
+### 验证清单(本 session 不跑)
+
+1. 打开视频 → 鼠标点中央 ▶ → 播放,transport controls 出现(底部
+   居中,跟原来 v0.13.x image 体验一致)。
+2. Space 播放 → 同样能播,transport controls 出现。
+3. 视频播放中点 Fit/1:1 → 切到 1:1 模式,video 显原生分辨率(可滚)。
+   再点切回 Fit,video 重新适配窗口。
+4. 切 image 浏览(调到 1:1 + minimap) → Next 到 video → video 自动
+   显在 1:1 模式(CurrentImage reparenting 生效)。
+5. 来回 Next/Prev → MediaPlayer 引用稳定(同一 element,只是 parent
+   在变),无内存泄漏。
+
+### build
+
+0 errors / 0 warnings。
+
 ## v0.14.2 (2026-06-24)
 
 **主题: IThumbnailCache 共享 LRU + 视频 archive 支持 + 1:1 视频模式 + 修 PlayOverlay 被遮挡 bug**

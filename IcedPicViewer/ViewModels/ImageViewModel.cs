@@ -36,7 +36,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ImageHostVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerHostVisibility))]
     [NotifyPropertyChangedFor(nameof(IsPlayOverlayVisibility))]
-    [NotifyPropertyChangedFor(nameof(PlayerElementVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerFitContainerVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerActualSizeContainerVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerStretch))]
     [NotifyPropertyChangedFor(nameof(FitModeBtnVisibility))]
     [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
     public partial MediaItem? CurrentImage { get; set; }
@@ -93,9 +95,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PlayerHostVisibility))]
     [NotifyPropertyChangedFor(nameof(IsPlayOverlayVisibility))]
-    [NotifyPropertyChangedFor(nameof(PlayerElementVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerFitContainerVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerActualSizeContainerVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerStretch))]
-    [NotifyPropertyChangedFor(nameof(PlayerScrollMode))]
     [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
     public partial bool IsVideoPlaying { get; set; }
 
@@ -105,13 +107,14 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// based on this flag plus <see cref="IsVideo"/>. True = fit-to-view
     /// (current default), false = 1:1 native resolution. For images
     /// this swaps between the existing Viewbox and the ScrollViewer-with-
-    /// minimap; for videos it swaps between MediaPlayerElement.Stretch=
-    /// Uniform and Stretch=None inside a ScrollViewer (1:1 = scrollable
-    /// native resolution).
+    /// minimap; for videos it swaps between a Grid host (Fit) and a
+    /// ScrollViewer host (1:1) — the MediaPlayerElement itself is
+    /// reparented between the two via code-behind.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PlayerFitContainerVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerActualSizeContainerVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerStretch))]
-    [NotifyPropertyChangedFor(nameof(PlayerScrollMode))]
     public partial bool IsFitMode { get; set; } = true;
 
     /// <summary>
@@ -141,41 +144,40 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     public Visibility IsPlayOverlayVisibility => IsVideo && !IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
-    /// The MediaPlayerElement is hidden until a <see cref="MediaPlayer"/>
-    /// is actually attached. With no player attached, the element
-    /// would still lay out and its built-in transport controls would
-    /// render in a "no media" state — opaque, on top of the
-    /// <see cref="IsPlayOverlayVisibility"/> button, so clicking the
-    /// ▶ button hits the dead player surface instead. Collapsing the
-    /// element while there's no player lets pointer events reach the
-    /// overlay button, and re-shows the element only after
-    /// <see cref="PlayAsync"/> has created a live <see cref="MediaPlayer"/>
-    /// (so the transport controls are actually functional).
+    /// Visibility for the Grid that hosts the MediaPlayerElement in
+    /// Fit mode. Collapsed when not a video, in 1:1 mode (the
+    /// ScrollViewer host takes over), or not yet playing (the
+    /// "no media" state would otherwise lay out an opaque dead
+    /// surface on top of the PlayOverlay button and intercept
+    /// clicks). Gating the container (rather than just the
+    /// MediaPlayerElement) means even the host's hit-test area
+    /// goes away, so the PlayOverlay button sees real pointer
+    /// events on the first interaction.
     /// </summary>
-    public Visibility PlayerElementVisibility => IsVideo && IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PlayerFitContainerVisibility =>
+        IsVideo && IsFitMode && IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// Visibility for the ScrollViewer that hosts the MediaPlayerElement
+    /// in 1:1 mode. Collapsed in Fit mode and when not yet playing
+    /// (so the PlayOverlay button can be clicked).
+    /// </summary>
+    public Visibility PlayerActualSizeContainerVisibility =>
+        IsVideo && !IsFitMode && IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility FitModeBtnVisibility => !IsVideo ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
-    /// <see cref="MediaPlayerElement.Stretch"/> binding for the video
-    /// surface. Fit mode = Uniform (scale to fit the viewport); 1:1
-    /// mode = None (native resolution, scrollable via
-    /// <see cref="PlayerScrollMode"/>).
+    /// <see cref="MediaPlayerElement.Stretch"/> binding. Fit mode =
+    /// Uniform (scale to fit the viewport); 1:1 mode = None (native
+    /// resolution, scrollable). Toggles when the user clicks the
+    /// Fit/1:1 button; the view's OnViewModelPropertyChanged
+    /// handler also reparents the element between the two
+    /// containers so the layout (Grid vs ScrollViewer) is correct
+    /// for the chosen stretch.
     /// </summary>
     public Microsoft.UI.Xaml.Media.Stretch PlayerStretch =>
         IsFitMode ? Microsoft.UI.Xaml.Media.Stretch.Uniform : Microsoft.UI.Xaml.Media.Stretch.None;
-
-    /// <summary>
-    /// <see cref="Microsoft.UI.Xaml.Controls.ScrollViewer"/>'s scroll
-    /// mode for the video surface. Disabled in Fit mode (no point
-    /// scrolling when the player is already scaled to fit); enabled
-    /// in 1:1 mode so the user can scroll past the viewport edges to
-    /// see the full native-resolution frame.
-    /// </summary>
-    public Microsoft.UI.Xaml.Controls.ScrollMode PlayerScrollMode =>
-        IsFitMode
-            ? Microsoft.UI.Xaml.Controls.ScrollMode.Disabled
-            : Microsoft.UI.Xaml.Controls.ScrollMode.Enabled;
 
     [RelayCommand(CanExecute = nameof(CanPlay))]
     private async Task PlayAsync()

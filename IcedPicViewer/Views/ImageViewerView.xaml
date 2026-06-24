@@ -194,56 +194,52 @@
                 <FontIcon Glyph="&#xE768;" FontSize="36" Foreground="White"/>
             </Button>
             <!--
-                ScrollViewer wrapping the MediaPlayerElement so 1:1 mode
-                (Stretch=None) can pan past the viewport edges. In Fit
-                mode the scroll modes are both Disabled so the user
-                can't drag a non-existent "view"; in 1:1 mode they're
-                Enabled so the full 1920x1080 (or whatever native size)
-                is reachable. The bar visibility is also gated by the
-                scroll mode — Auto shows a bar only when scrolling is
-                possible, which means the bar correctly disappears in
-                Fit mode (no need to scroll → no bar) and appears in
-                1:1 mode (and disappears when the content fits).
+                Two containers for the MediaPlayerElement. The element
+                itself is initially in PlayerFitContainer; when the
+                user toggles to 1:1 mode the view's code-behind
+                reparents it into PlayerScrollViewer (and back when
+                they return to Fit). Reparenting is needed because:
+
+                - A ScrollViewer always offers infinite layout space to
+                  its child, which is the right behaviour for 1:1
+                  mode (native resolution is larger than the viewport,
+                  the ScrollViewer allows panning) but the wrong
+                  behaviour for Fit mode (Uniform stretch needs a
+                  finite viewport to know what to scale to — inside
+                  a ScrollViewer the element ends up at the video's
+                  natural size, not scaled to fit).
+                - A Grid gives the element a finite layout slot, which
+                  is right for Fit mode (Uniform stretches correctly)
+                  but offers no scroll affordance for 1:1 mode.
+
+                Two containers + reparenting gives each mode the host
+                it needs without paying for a complex Grid+ScrollViewer
+                stack or a custom canvas. Visibility on the containers
+                is gated by IsVideo && IsFitMode (or !IsFitMode) &&
+                IsVideoPlaying, so the element is only ever laid out
+                when there's actually a player to render — preventing
+                the v0.14.2 "no media" state that blocked pointer
+                events on the PlayOverlay button.
+
+                The ScrollViewer's scroll modes are fixed at Auto
+                (not bound) because the ScrollViewer itself is only
+                Visible in 1:1 mode — in Fit mode it's Collapsed and
+                its scroll mode is irrelevant. Hardcoding here
+                removes a binding round-trip without changing
+                behaviour.
             -->
-            <ScrollViewer x:Name="PlayerScrollViewer"
-                          HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollMode="{x:Bind ViewModel.PlayerScrollMode, Mode=OneWay}"
-                          VerticalScrollMode="{x:Bind ViewModel.PlayerScrollMode, Mode=OneWay}">
-                <!--
-                    MediaPlayerElement. The MediaPlayer can't be x:Bind directly
-                    (read-only in WinUI 3) — instead the page's code-behind
-                    subscribes to ViewModel.PropertyChanged and calls
-                    Player.SetMediaPlayer(...) whenever the VM's MediaPlayer
-                    property changes.
-
-                    Visibility is bound to PlayerElementVisibility
-                    (IsVideo && IsVideoPlaying) so the element is hidden until
-                    PlayAsync has actually attached a live MediaPlayer.
-                    Without this, the element would lay out in a "no media"
-                    state — opaque, on top of the PlayOverlay button — and
-                    pointer events on the centered ▶ would hit the dead
-                    transport controls instead of the button. Space still
-                    works because the WH_KEYBOARD hook routes through the VM
-                    directly and bypasses the visual tree entirely.
-
-                    Stretch is bound to PlayerStretch (Uniform in Fit, None
-                    in 1:1) so the FitModeBtn toggles the video surface
-                    between scaled-to-fit and native-resolution scrollable.
-
-                    AreTransportControlsEnabled gives us the standard
-                    play/pause/scrubber/volume chrome; the WH_KEYBOARD hook
-                    in MainWindow skips the play command when IsVideoPlaying
-                    is true so Space doesn't fight the transport controls
-                    for pause. Note: in 1:1 mode the transport controls
-                    scroll with the content (they're part of the
-                    MediaPlayerElement, not pinned to the bottom); users
-                    who lose the controls can scroll down to find them.
-                -->
+            <Grid x:Name="PlayerFitContainer"
+                  Visibility="{x:Bind ViewModel.PlayerFitContainerVisibility, Mode=OneWay}">
                 <MediaPlayerElement x:Name="Player"
-                                    Visibility="{x:Bind ViewModel.PlayerElementVisibility, Mode=OneWay}"
                                     AreTransportControlsEnabled="True"
                                     Stretch="{x:Bind ViewModel.PlayerStretch, Mode=OneWay}"/>
+            </Grid>
+            <ScrollViewer x:Name="PlayerScrollViewer"
+                          Visibility="{x:Bind ViewModel.PlayerActualSizeContainerVisibility, Mode=OneWay}"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollMode="Auto"
+                          VerticalScrollMode="Auto">
             </ScrollViewer>
         </Grid>
 
