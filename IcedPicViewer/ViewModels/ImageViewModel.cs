@@ -227,16 +227,27 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsErrorBarOpen))]
+    [NotifyPropertyChangedFor(nameof(IsErrorBarVisibility))]
     public partial string? ErrorMessage { get; set; }
 
     /// <summary>
     /// True when <see cref="ErrorMessage"/> holds a non-empty hint to
-    /// show. Drives the InfoBar's <c>IsOpen</c> via x:Bind OneWay.
+    /// show. Drives the error panel's visibility (via the
+    /// <see cref="IsErrorBarVisibility"/> sibling for XAML binding).
     /// Computed (not a separate field) so any path that clears
     /// <c>ErrorMessage</c> automatically collapses the bar — there's
     /// no separate flag that could go out of sync.
     /// </summary>
     public bool IsErrorBarOpen => !string.IsNullOrEmpty(ErrorMessage);
+
+    /// <summary>
+    /// Visibility projection of <see cref="IsErrorBarOpen"/> for XAML
+    /// binding. The viewer page's pinned error panel binds its
+    /// Visibility to this — no converter needed.
+    /// </summary>
+    public Visibility IsErrorBarVisibility => IsErrorBarOpen
+        ? Visibility.Visible
+        : Visibility.Collapsed;
 
     /// <summary>
     /// Start the slideshow using the current

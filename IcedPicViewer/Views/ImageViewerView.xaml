@@ -505,80 +505,76 @@
                       Width="48"
                       Height="48"/>
         <!--
-            Pinned error hint. Non-blocking, no auto-dismiss, no close
-            button — the user prefers the hint to stick until they
-            navigate to another item (Next / Prev / Delete) or return
-            to the gallery, at which point OnCurrentImageChanged on
-            the VM nulls ErrorMessage and the bar collapses.
+            Pinned error hint — custom panel, not InfoBar.
 
-            Canvas.ZIndex="200" keeps it above the CommandBar (Z=100).
-            Top margin "0,56,0,0" puts it just below the CommandBar
-            (48 px tall) with a few px of breathing room; centered
-            horizontally, max-width 600 px so a long codec hint stays
-            readable without spanning the whole window on wide
-            monitors.
+            The earlier InfoBar implementation had two issues the
+            user called out:
+              1. It looked out of place in the app (default red
+                 severity chrome doesn't match the dark gallery UI).
+              2. It capped the message height at 180 px with an
+                 internal scrollbar — Microsoft's own InfoBar docs
+                 (https://learn.microsoft.com/en-us/windows/apps/design/controls/info-bar)
+                 say it's designed for 1-2 line alerts and explicitly
+                 recommend ContentDialog for "long messages or
+                 detailed content". We have 8-15 line codec hints,
+                 which is the exact case InfoBar warns against — the
+                 scrollbar was a forced workaround for using the
+                 wrong control.
 
-            Severity="Error" → red icon + accent. The Message property
-            is intentionally NOT used (it's a plain string with no
-            selection affordance). Instead, Content hosts a 2-column
-            Grid: a read-only TextBox on the left, an explicit "复制"
-            button on the right. The button is the primary affordance
-            because earlier mouse-drag selection on a wrapped TextBox
-            failed in practice — the TextBox is read-only and very
-            long messages wrap to many short lines, so a single click
-            copy is more reliable than drag-select. The TextBox still
-            allows selection / Ctrl+A / Ctrl+C for users who prefer
-            keyboard or want to copy a partial snippet.
+            This replacement is a plain Border styled to fit the
+            app's chrome: subtle dark background (same theme brush
+            the rest of the UI uses), thin red accent border, dark
+            primary text. The message is a TextBlock with
+            IsTextSelectionEnabled=True — no MaxHeight, no scroll,
+            no truncation. TextBlock selection supports
+            mouse-drag / double-click-word / triple-click-paragraph /
+            Ctrl+A / Ctrl+C out of the box, so the explicit copy
+            button becomes the "one-click, full text" path while
+            the TextBlock is the "drag to grab a substring" path.
 
-            TextBox has its own MaxHeight=180 + TextWrapping="Wrap" +
-            internal scroll, so no outer ScrollViewer is needed (and
-            adding one would cause it to steal mouse drag from the
-            TextBox — a classic WinUI ScrollViewer-vs-selection
-            conflict).
-
-            IsClosable="False" because the only "close" the user
-            needs is navigating to another item, and exposing an X
-            would imply a path that doesn't exist (auto-dismiss is
-            gone).
+            Visibility tied to VM.IsErrorBarVisibility (projected
+            from IsErrorBarOpen). Cleared on navigation by
+            OnCurrentImageChanged, same as before.
         -->
-        <InfoBar x:Name="ErrorInfoBar"
-                 Grid.Row="0" Grid.RowSpan="2"
-                 VerticalAlignment="Top"
-                 HorizontalAlignment="Center"
-                 Margin="0,56,0,0"
-                 MaxWidth="600"
-                 Canvas.ZIndex="200"
-                 IsOpen="{x:Bind ViewModel.IsErrorBarOpen, Mode=OneWay}"
-                 Severity="Error"
-                 Title="无法播放此视频"
-                 IsClosable="False">
-            <InfoBar.Content>
-                <Grid ColumnSpacing="8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox Grid.Column="0"
-                             IsReadOnly="True"
-                             IsTabStop="False"
-                             Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
-                             TextWrapping="Wrap"
-                             BorderThickness="0"
-                             Background="Transparent"
-                             Padding="0"
-                             MaxHeight="180"/>
-                    <Button Grid.Column="1"
-                            x:Name="CopyErrorBtn"
-                            Click="CopyErrorBtn_Click"
-                            VerticalAlignment="Top"
-                            ToolTipService.ToolTip="复制全部错误信息到剪贴板">
-                        <StackPanel x:Name="CopyBtnContent" Orientation="Horizontal" Spacing="6">
-                            <FontIcon x:Name="CopyBtnGlyph" Glyph="&#xE8C8;" FontSize="14"/>
-                            <TextBlock x:Name="CopyBtnLabel" Text="复制"/>
-                        </StackPanel>
-                    </Button>
-                </Grid>
-            </InfoBar.Content>
-        </InfoBar>
+        <Border x:Name="ErrorPanel"
+                Grid.Row="0" Grid.RowSpan="2"
+                VerticalAlignment="Top"
+                HorizontalAlignment="Center"
+                Margin="16,56,16,0"
+                MaxWidth="720"
+                Padding="14"
+                CornerRadius="6"
+                Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                BorderBrush="{ThemeResource SystemFillColorCriticalBrush}"
+                BorderThickness="1"
+                Canvas.ZIndex="200"
+                Visibility="{x:Bind ViewModel.IsErrorBarVisibility, Mode=OneWay}">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Spacing="6">
+                    <TextBlock Text="无法播放此视频"
+                               FontWeight="SemiBold"
+                               FontSize="14"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                               TextWrapping="Wrap"
+                               IsTextSelectionEnabled="True"
+                               FontSize="13"/>
+                </StackPanel>
+                <Button Grid.Column="1"
+                        x:Name="CopyErrorBtn"
+                        Click="CopyErrorBtn_Click"
+                        VerticalAlignment="Top"
+                        ToolTipService.ToolTip="复制全部错误信息到剪贴板">
+                    <StackPanel x:Name="CopyBtnContent" Orientation="Horizontal" Spacing="6">
+                        <FontIcon x:Name="CopyBtnGlyph" Glyph="&#xE8C8;" FontSize="14"/>
+                        <TextBlock x:Name="CopyBtnLabel" Text="复制"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
     </Grid>
 </Page>
