@@ -505,18 +505,34 @@
                       Width="48"
                       Height="48"/>
         <!--
-            Transient error hint. Non-blocking InfoBar (no OK button) —
-            user preference: playback failures should interrupt browsing
-            as little as possible. Auto-collapses after 6 s via the
-            VM's dismiss timer; user can also dismiss with the X.
+            Pinned error hint. Non-blocking, no auto-dismiss, no close
+            button — the user prefers the hint to stick until they
+            navigate to another item (Next / Prev / Delete) or return
+            to the gallery, at which point OnCurrentImageChanged on
+            the VM nulls ErrorMessage and the bar collapses.
+
             Canvas.ZIndex="200" keeps it above the CommandBar (Z=100).
             Top margin "0,56,0,0" puts it just below the CommandBar
             (48 px tall) with a few px of breathing room; centered
             horizontally, max-width 600 px so a long codec hint stays
-            readable without spanning the whole window on wide monitors.
-            Severity="Error" → red icon + accent. Title is the
-            punchline ("无法播放此视频"), Message is the long-form
-            detail (codec hint + reason + exception details).
+            readable without spanning the whole window on wide
+            monitors.
+
+            Severity="Error" → red icon + accent. The Message property
+            is intentionally NOT used (it's a plain string with no
+            selection affordance). Instead, Content hosts a read-only
+            TextBox inside a ScrollViewer so the user can:
+              - mouse-drag to select text
+              - Ctrl+A / Ctrl+C to copy the codec name, HRESULT,
+                system message straight into a web search / bug
+                report
+              - scroll if the codec hint + reason + exception details
+                together exceed MaxHeight=180
+
+            IsClosable="False" because the only "close" the user
+            needs is navigating to another item, and exposing an X
+            would imply a path that doesn't exist (auto-dismiss is
+            gone).
         -->
         <InfoBar x:Name="ErrorInfoBar"
                  Grid.Row="0" Grid.RowSpan="2"
@@ -528,8 +544,23 @@
                  IsOpen="{x:Bind ViewModel.IsErrorBarOpen, Mode=OneWay}"
                  Severity="Error"
                  Title="无法播放此视频"
-                 Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
-                 IsClosable="True"
-                 Closed="ErrorInfoBar_Closed"/>
+                 IsClosable="False">
+            <InfoBar.Content>
+                <ScrollViewer MaxHeight="180"
+                              HorizontalScrollMode="Disabled"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Padding="0">
+                    <TextBox IsReadOnly="True"
+                             IsTabStop="False"
+                             IsHitTestVisible="True"
+                             Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                             TextWrapping="Wrap"
+                             BorderThickness="0"
+                             Background="Transparent"
+                             Padding="0"/>
+                </ScrollViewer>
+            </InfoBar.Content>
+        </InfoBar>
     </Grid>
 </Page>

@@ -500,19 +500,6 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         // refreshes it on the next tick.
     }
 
-    /// <summary>
-    /// User dismissed the transient error InfoBar (clicked X, or set
-    /// IsOpen=false some other way). Route through the VM so the
-    /// dismiss timer is also stopped — otherwise the timer would tick
-    /// 6 s later and try to clear an already-empty ErrorMessage, which
-    /// is harmless but wasteful and looks like a late flicker if the
-    /// binding re-raises anything.
-    /// </summary>
-    private void ErrorInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
-    {
-        ViewModel.ClearError();
-    }
-
     private void PositionSlider_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
         // Slider thumb enter = the user is about to drag. Block

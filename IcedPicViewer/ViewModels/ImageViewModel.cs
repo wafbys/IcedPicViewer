@@ -211,18 +211,18 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     private DispatcherQueueTimer? _slideshowTimer;
 
     // ----------------------------------------------------------------
-    // Transient error hint (non-blocking InfoBar in the viewer).
+    // Pinned error hint (viewer InfoBar).
     //
-    // The user prefers in-place hint over a modal ContentDialog with
-    // an OK button — playback failures should interrupt as little as
-    // possible (the user is mid-browsing; we just want them to know
-    // this specific item couldn't play and why). The view's InfoBar
-    // binds to ErrorMessage + IsErrorBarOpen; the dismiss timer fires
-    // once after the configured duration and clears the message, which
-    // in turn collapses the bar. The user can also close it manually
-    // (InfoBar.IsClosable="True" + the view's Closed event), which
-    // routes through ClearError() so the dismiss timer doesn't try to
-    // re-clear an already-empty message.
+    // The user wants playback-failure hints to STICK — no auto-dismiss
+    // timer, no close button. The hint clears only when the user moves
+    // on (back to gallery, Next, Prev, Delete, open a different item)
+    // because <see cref="OnCurrentImageChanged"/> sets
+    // <see cref="ErrorMessage"/> back to null on every CurrentImage
+    // swap. The view renders the message in a read-only TextBox so the
+    // user can select and Ctrl+C the codec name / HRESULT / system
+    // message for troubleshooting or web search — important for
+    // diagnoses like "ProRes needs LAV Filters" where the user wants
+    // the exact codec string to copy into a search box.
     // ----------------------------------------------------------------
 
     [ObservableProperty]
@@ -231,67 +231,12 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// True when <see cref="ErrorMessage"/> holds a non-empty hint to
-    /// show. Drives the InfoBar's <c>IsOpen</c> via x:Bind OneWay. Kept
-    /// as a computed property (not a separate field) so a manual clear
-    /// of <c>ErrorMessage = null</c> from any code path automatically
-    /// collapses the bar — no chance of forgetting to flip a flag in
-    /// tandem with the message.
+    /// show. Drives the InfoBar's <c>IsOpen</c> via x:Bind OneWay.
+    /// Computed (not a separate field) so any path that clears
+    /// <c>ErrorMessage</c> automatically collapses the bar — there's
+    /// no separate flag that could go out of sync.
     /// </summary>
     public bool IsErrorBarOpen => !string.IsNullOrEmpty(ErrorMessage);
-
-    private DispatcherQueueTimer? _errorDismissTimer;
-
-    /// <summary>
-    /// Show a transient error hint. Replaces the previous
-    /// <see cref="IDialogService.ShowInfoAsync"/> ContentDialog — the
-    /// user prefers not to click OK every time something fails. Default
-    /// dwell is 6 s, long enough to read the codec hint, short enough
-    /// not to linger on screen when the user moves on. Each call
-    /// restarts the timer so a rapid second error resets the dwell
-    /// instead of being cut short by the first timer.
-    /// </summary>
-    public void ShowTransientError(string message, TimeSpan? duration = null)
-    {
-        ErrorMessage = message;
-        _errorDismissTimer ??= CreateErrorDismissTimer();
-        _errorDismissTimer.Interval = duration ?? TimeSpan.FromSeconds(6);
-        _errorDismissTimer.Stop();
-        _errorDismissTimer.Start();
-    }
-
-    /// <summary>
-    /// Clear the error hint immediately. Called from the view's
-    /// InfoBar.Closed event when the user clicks the bar's X — keeps
-    /// the dismiss timer from re-firing on an already-empty message
-    /// (harmless but wasteful) and lets the user dismiss the hint
-    /// before the natural dwell expires.
-    /// </summary>
-    public void ClearError()
-    {
-        if (ErrorMessage == null) return;
-        ErrorMessage = null;
-        _errorDismissTimer?.Stop();
-    }
-
-    private DispatcherQueueTimer CreateErrorDismissTimer()
-    {
-        var timer = _dispatcher.CreateTimer();
-        timer.IsRepeating = false;
-        timer.Tick += OnErrorDismissTimerTick;
-        return timer;
-    }
-
-    private void OnErrorDismissTimerTick(DispatcherQueueTimer sender, object args)
-    {
-        // Don't blindly set to null — a second error arriving between
-        // the tick and now would already have overwritten ErrorMessage,
-        // and we don't want to wipe a fresh hint. The comparison
-        // isn't strictly needed because the timer is non-repeating
-        // (Start() resets Interval), but it's a cheap guard against
-        // a stale tick if the dispatcher processes work items out of
-        // order under load.
-        ErrorMessage = null;
-    }
 
     /// <summary>
     /// Start the slideshow using the current
@@ -763,13 +708,15 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // mid-prep (Close / Next / Prev) — no hint in that case, the
             // page is already gone or about to be.
             //
-            // Non-blocking InfoBar (not a ContentDialog): the user
-            // prefers not to click OK to dismiss — a transient hint
-            // auto-collapses after 6 s, the X button, or a fresh error.
+            // Pinned InfoBar: no auto-dismiss, no close button. Cleared
+            // only when the user moves to a different item (see
+            // OnCurrentImageChanged). The view's TextBox-based content
+            // makes the codec / HRESULT / system message selectable +
+            // Ctrl+C-able for troubleshooting.
             if (ex is not OperationCanceledException)
             {
                 var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
-                ShowTransientError(BuildPrePlayErrorMessage(ex, codec));
+                ErrorMessage = BuildPrePlayErrorMessage(ex, codec);
             }
         }
     }
@@ -848,15 +795,15 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         // for postmortem.
         Trace.TraceError($"ImageViewModel.MediaFailed for {CurrentImage?.Id}: error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
 
-        // Best-effort user-visible hint. Non-blocking InfoBar instead
-        // of a ContentDialog — the user prefers to keep browsing
-        // without clicking OK. The view's InfoBar binds to
-        // ErrorMessage / IsErrorBarOpen; ClearError handles manual
-        // dismissal, the 6 s timer handles auto-dismiss. Pull the
-        // codec off CurrentImage up front so the hint is codec-specific
-        // (ProRes vs HEVC vs AV1 each need different recovery advice).
+        // Pinned hint: no auto-dismiss timer, no close button.
+        // Cleared by OnCurrentImageChanged when the user navigates to
+        // another item (Next / Prev / Close / Delete). The view's
+        // TextBox-based content lets the user select + Ctrl+C the
+        // codec name / HRESULT / system message. Pull the codec off
+        // CurrentImage up front so the hint is codec-specific (ProRes
+        // vs HEVC vs AV1 each need different recovery advice).
         var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
-        ShowTransientError(BuildPlaybackErrorMessage(args, codec));
+        ErrorMessage = BuildPlaybackErrorMessage(args, codec);
     }
 
     /// <summary>
@@ -1113,6 +1060,15 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     {
         DisplayActualWidth = 0;
         DisplayActualHeight = 0;
+        // Pinned hint cleanup: a new item means the old error (codec
+        // mismatch / decode failure / file error) is no longer
+        // relevant. Clearing here covers every navigation path
+        // (Next / Prev / Delete / ShowImageAsync / Close — Close sets
+        // CurrentImage = null before navigating back to gallery)
+        // without sprinkling the same line through each navigation
+        // method. Subsequent failures on the new item set
+        // ErrorMessage fresh.
+        ErrorMessage = null;
     }
 
     [ObservableProperty]
@@ -1432,13 +1388,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // and releases the surface.
             StopAndDisposePlayer();
             StopSlideshow();
-            // Stop the error-bar dismiss timer so a pending Tick can't
-            // fire after disposal and write to a half-torn-down VM.
-            // The timer holds a delegate referencing this instance, so
-            // leaving it running would also keep the VM alive until the
-            // natural 6 s dwell elapsed.
-            _errorDismissTimer?.Stop();
-            _errorDismissTimer = null;
+            // Clear the pinned error hint so the singleton doesn't
+            // outlive its window with a stale message. The InfoBar
+            // binding collapses as a side effect of ErrorMessage
+            // becoming null.
             ErrorMessage = null;
 
             _loadCts?.Cancel();
