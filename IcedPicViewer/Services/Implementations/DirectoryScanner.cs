@@ -8,12 +8,12 @@ namespace IcedPicViewer.Services.Implementations;
 
 public class DirectoryScanner : IDirectoryScanner
 {
-    private static readonly HashSet<string> _recycleBinNames = ["$RECYCLE.BIN", "Recycler", ".trash"];
+    private static readonly HashSet<string> _recycleBinNames = new(
+        ["$RECYCLE.BIN", "Recycler", "RECYCLED"], StringComparer.OrdinalIgnoreCase);
 
     private static bool IsRecycleBin(string path)
     {
-        var dirName = Path.GetFileName(path);
-        return _recycleBinNames.Contains(dirName, StringComparer.OrdinalIgnoreCase);
+        return _recycleBinNames.Contains(Path.GetFileName(path));
     }
 
     public async IAsyncEnumerable<ImageSource> ScanAsync(

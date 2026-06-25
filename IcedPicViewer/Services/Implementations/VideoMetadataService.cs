@@ -131,8 +131,13 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         EnsureWarmedUp();
     }
 
+    private bool _disposed;
+
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         // Best-effort cleanup of any temp files the caller forgot to
         // release. Same isolation as the ctor sweep — one locked file
         // doesn't block the others.

@@ -60,12 +60,7 @@ public partial class MasonryPanel : Panel
         }
     }
 
-    private static int FindShortestColumn(double[] columnHeights)
-    {
-        return MasonryLayoutEngine.FindShortestColumn(columnHeights);
-    }
-
-    protected override Size MeasureOverride(Size availableSize)
+    private (double actualItemWidth, double spacing) GetLayoutParams(Size availableSize)
     {
         var columnCount = ColumnCount;
         if (columnCount <= 0) columnCount = 3;
@@ -76,9 +71,14 @@ public partial class MasonryPanel : Panel
         var availableWidth = availableSize.Width - totalSpacing;
         if (availableWidth <= 0) availableWidth = columnCount * itemWidth;
 
-        var actualItemWidth = availableWidth / columnCount;
+        return (availableWidth / columnCount, spacing);
+    }
 
-        var columnHeights = new double[columnCount];
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var (actualItemWidth, spacing) = GetLayoutParams(availableSize);
+
+        var columnHeights = new double[ColumnCount > 0 ? ColumnCount : 3];
 
         foreach (var child in Children)
         {
@@ -90,8 +90,7 @@ public partial class MasonryPanel : Panel
                 desiredHeight = actualItemWidth;
             }
 
-            var shortestColumn = FindShortestColumn(columnHeights);
-
+            var shortestColumn = MasonryLayoutEngine.FindShortestColumn(columnHeights);
             columnHeights[shortestColumn] += desiredHeight + spacing;
         }
 
@@ -101,16 +100,8 @@ public partial class MasonryPanel : Panel
 
     protected override Size ArrangeOverride(Size finalSize)
     {
-        var columnCount = ColumnCount;
-        if (columnCount <= 0) columnCount = 3;
-
-        var itemWidth = ItemWidth;
-        var spacing = ItemSpacing;
-        var totalSpacing = spacing * (columnCount - 1);
-        var availableWidth = finalSize.Width - totalSpacing;
-        if (availableWidth <= 0) availableWidth = columnCount * itemWidth;
-
-        var actualItemWidth = availableWidth / columnCount;
+        var (actualItemWidth, spacing) = GetLayoutParams(finalSize);
+        var columnCount = ColumnCount > 0 ? ColumnCount : 3;
 
         var columnPositions = new double[columnCount];
         for (int i = 0; i < columnCount; i++)
@@ -124,7 +115,7 @@ public partial class MasonryPanel : Panel
         int index = 0;
         foreach (var child in Children)
         {
-            var shortestColumn = FindShortestColumn(columnHeights);
+            var shortestColumn = MasonryLayoutEngine.FindShortestColumn(columnHeights);
 
             var x = columnPositions[shortestColumn];
             var y = columnHeights[shortestColumn];

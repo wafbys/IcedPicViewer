@@ -203,6 +203,7 @@ if (FFmpegProbeService.IsProbeRequested || File.Exists(
         if (_services is null) return;
         (_services.GetService<GalleryViewModel>() as IDisposable)?.Dispose();
         (_services.GetService<ImageViewModel>() as IDisposable)?.Dispose();
+        (_services.GetService<IVideoMetadataService>() as IDisposable)?.Dispose();
     }
 
     /// <summary>

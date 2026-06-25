@@ -2,9 +2,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
-
-// Copyright (c) IcedPicViewer. All rights reserved.
 
 namespace IcedPicViewer.Controls;
 

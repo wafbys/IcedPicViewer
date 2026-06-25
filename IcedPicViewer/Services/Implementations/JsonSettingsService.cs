@@ -189,7 +189,7 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
         {
             if (_pendingSave is not null)
             {
-                try { _pendingSave.Cancel(); } catch { }
+                try { _pendingSave.Cancel(); } catch { /* CTS may already be disposed during shutdown */ }
                 _pendingSave.Dispose();
                 _pendingSave = null;
             }

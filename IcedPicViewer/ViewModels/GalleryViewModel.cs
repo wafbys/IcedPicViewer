@@ -310,8 +310,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             {
                 TotalCount--;
             }
-            _remainingFilePaths.RemoveAll(s => s.ToString() == item.Id);
-            CanLoadMore = _remainingFilePaths.Count > 0;
+            lock (_remainingLock)
+            {
+                _remainingFilePaths.RemoveAll(s => s.ToString() == item.Id);
+                CanLoadMore = _remainingFilePaths.Count > 0;
+            }
 
             var loaded = Images.Count;
             StatusText = (TotalCount > 0 && TotalCount != loaded)
@@ -671,20 +674,24 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Starts the repeating timer that drains <c>_remainingFilePaths</c>
-    /// into the gallery while the scan is in progress. A no-op if a timer
-    /// from a previous load is somehow still alive (defensive — LoadDirectoryAsync
-    /// already stops the old one).
+    /// Loads more items from <c>_remainingFilePaths</c>, up to <see cref="PageSize"/>.
+    /// Links the caller's token with the current scan's CTS so that switching
+    /// folders cancels in-flight Load More.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanLoadMoreCommand))]
     public async Task LoadMoreAsync(CancellationToken ct = default)
     {
         if (!CanLoadMore || IsLoadingMore) return;
 
+        var loadCts = Volatile.Read(ref _loadCts);
+        using var linkedCts = loadCts is not null
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct, loadCts.Token)
+            : CancellationTokenSource.CreateLinkedTokenSource(ct);
+
         IsLoadingMore = true;
         try
         {
-            await LoadNextPageAsync(ct);
+            await LoadNextPageAsync(linkedCts.Token);
             UpdateStatusText();
         }
         finally
