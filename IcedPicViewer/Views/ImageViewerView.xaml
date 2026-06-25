@@ -504,5 +504,32 @@
                       VerticalAlignment="Center"
                       Width="48"
                       Height="48"/>
+        <!--
+            Transient error hint. Non-blocking InfoBar (no OK button) —
+            user preference: playback failures should interrupt browsing
+            as little as possible. Auto-collapses after 6 s via the
+            VM's dismiss timer; user can also dismiss with the X.
+            Canvas.ZIndex="200" keeps it above the CommandBar (Z=100).
+            Top margin "0,56,0,0" puts it just below the CommandBar
+            (48 px tall) with a few px of breathing room; centered
+            horizontally, max-width 600 px so a long codec hint stays
+            readable without spanning the whole window on wide monitors.
+            Severity="Error" → red icon + accent. Title is the
+            punchline ("无法播放此视频"), Message is the long-form
+            detail (codec hint + reason + exception details).
+        -->
+        <InfoBar x:Name="ErrorInfoBar"
+                 Grid.Row="0" Grid.RowSpan="2"
+                 VerticalAlignment="Top"
+                 HorizontalAlignment="Center"
+                 Margin="0,56,0,0"
+                 MaxWidth="600"
+                 Canvas.ZIndex="200"
+                 IsOpen="{x:Bind ViewModel.IsErrorBarOpen, Mode=OneWay}"
+                 Severity="Error"
+                 Title="无法播放此视频"
+                 Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                 IsClosable="True"
+                 Closed="ErrorInfoBar_Closed"/>
     </Grid>
 </Page>

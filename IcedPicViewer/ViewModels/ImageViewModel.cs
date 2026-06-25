@@ -210,6 +210,89 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     private DispatcherQueueTimer? _slideshowTimer;
 
+    // ----------------------------------------------------------------
+    // Transient error hint (non-blocking InfoBar in the viewer).
+    //
+    // The user prefers in-place hint over a modal ContentDialog with
+    // an OK button — playback failures should interrupt as little as
+    // possible (the user is mid-browsing; we just want them to know
+    // this specific item couldn't play and why). The view's InfoBar
+    // binds to ErrorMessage + IsErrorBarOpen; the dismiss timer fires
+    // once after the configured duration and clears the message, which
+    // in turn collapses the bar. The user can also close it manually
+    // (InfoBar.IsClosable="True" + the view's Closed event), which
+    // routes through ClearError() so the dismiss timer doesn't try to
+    // re-clear an already-empty message.
+    // ----------------------------------------------------------------
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsErrorBarOpen))]
+    public partial string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// True when <see cref="ErrorMessage"/> holds a non-empty hint to
+    /// show. Drives the InfoBar's <c>IsOpen</c> via x:Bind OneWay. Kept
+    /// as a computed property (not a separate field) so a manual clear
+    /// of <c>ErrorMessage = null</c> from any code path automatically
+    /// collapses the bar — no chance of forgetting to flip a flag in
+    /// tandem with the message.
+    /// </summary>
+    public bool IsErrorBarOpen => !string.IsNullOrEmpty(ErrorMessage);
+
+    private DispatcherQueueTimer? _errorDismissTimer;
+
+    /// <summary>
+    /// Show a transient error hint. Replaces the previous
+    /// <see cref="IDialogService.ShowInfoAsync"/> ContentDialog — the
+    /// user prefers not to click OK every time something fails. Default
+    /// dwell is 6 s, long enough to read the codec hint, short enough
+    /// not to linger on screen when the user moves on. Each call
+    /// restarts the timer so a rapid second error resets the dwell
+    /// instead of being cut short by the first timer.
+    /// </summary>
+    public void ShowTransientError(string message, TimeSpan? duration = null)
+    {
+        ErrorMessage = message;
+        _errorDismissTimer ??= CreateErrorDismissTimer();
+        _errorDismissTimer.Interval = duration ?? TimeSpan.FromSeconds(6);
+        _errorDismissTimer.Stop();
+        _errorDismissTimer.Start();
+    }
+
+    /// <summary>
+    /// Clear the error hint immediately. Called from the view's
+    /// InfoBar.Closed event when the user clicks the bar's X — keeps
+    /// the dismiss timer from re-firing on an already-empty message
+    /// (harmless but wasteful) and lets the user dismiss the hint
+    /// before the natural dwell expires.
+    /// </summary>
+    public void ClearError()
+    {
+        if (ErrorMessage == null) return;
+        ErrorMessage = null;
+        _errorDismissTimer?.Stop();
+    }
+
+    private DispatcherQueueTimer CreateErrorDismissTimer()
+    {
+        var timer = _dispatcher.CreateTimer();
+        timer.IsRepeating = false;
+        timer.Tick += OnErrorDismissTimerTick;
+        return timer;
+    }
+
+    private void OnErrorDismissTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        // Don't blindly set to null — a second error arriving between
+        // the tick and now would already have overwritten ErrorMessage,
+        // and we don't want to wipe a fresh hint. The comparison
+        // isn't strictly needed because the timer is non-repeating
+        // (Start() resets Interval), but it's a cheap guard against
+        // a stale tick if the dispatcher processes work items out of
+        // order under load.
+        ErrorMessage = null;
+    }
+
     /// <summary>
     /// Start the slideshow using the current
     /// <see cref="SlideshowInterval"/>. Parameterless because the
@@ -666,26 +749,27 @@ public partial class ImageViewModel : ObservableObject, IDisposable
                 _currentPlaybackPath = null;
             }
 
-            // Surface a user-visible prompt for the pre-MediaPlayer failure
+            // Surface a user-visible hint for the pre-MediaPlayer failure
             // path. The MediaPlayer.MediaFailed handler covers the case
             // where MediaPlayer.Source is set and MF later refuses to
             // decode, but THIS path fails BEFORE MediaPlayer exists —
             // GetPlaybackFilePathAsync (FFmpeg remux) is the most common
             // culprit: a .mov / .mkv containing a codec MP4 can't carry
             // (ProRes, DNxHD, ...) hits avformat_write_header failure →
-            // re-thrown → caught here. Without this dialog the user
-            // clicks ▶, nothing happens, and they have no idea why.
+            // re-thrown → caught here. Without this hint the user clicks
+            // ▶, nothing happens, and they have no idea why.
             //
             // OperationCanceledException = the user navigated away
-            // mid-prep (Close / Next / Prev) — no dialog in that case,
-            // the page is already gone or about to be.
+            // mid-prep (Close / Next / Prev) — no hint in that case, the
+            // page is already gone or about to be.
+            //
+            // Non-blocking InfoBar (not a ContentDialog): the user
+            // prefers not to click OK to dismiss — a transient hint
+            // auto-collapses after 6 s, the X button, or a fresh error.
             if (ex is not OperationCanceledException)
             {
                 var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
-                _ = _dialogService.ShowInfoAsync(
-                    "无法播放此视频",
-                    BuildPrePlayErrorMessage(ex, codec),
-                    "关闭");
+                ShowTransientError(BuildPrePlayErrorMessage(ex, codec));
             }
         }
     }
@@ -758,21 +842,21 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             catch (Exception ex) { Trace.TraceWarning($"ImageViewModel: failed release threw: {ex.GetType().Name}: {ex.Message}"); }
         }
 
-        // Log the full diagnostic first — Trace is always safe, the
-        // dialog below may fail to show (no XamlRoot, etc.) but the
-        // log entry still gives us a breadcrumb for postmortem.
+// Log the full diagnostic first — Trace is always safe, the
+        // InfoBar hint below may fail to surface (page torn down
+        // mid-shutdown) but the log entry still gives us a breadcrumb
+        // for postmortem.
         Trace.TraceError($"ImageViewModel.MediaFailed for {CurrentImage?.Id}: error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
 
-        // Best-effort user-visible message. ShowInfoAsync swallows
-        // "no XamlRoot" silently so we don't need a try/catch here.
-        // Pull the codec off CurrentImage up front so the hint can be
-        // codec-specific (ProRes vs HEVC vs AV1 each need different
-        // recovery advice). The trace below still logs the full args.
+        // Best-effort user-visible hint. Non-blocking InfoBar instead
+        // of a ContentDialog — the user prefers to keep browsing
+        // without clicking OK. The view's InfoBar binds to
+        // ErrorMessage / IsErrorBarOpen; ClearError handles manual
+        // dismissal, the 6 s timer handles auto-dismiss. Pull the
+        // codec off CurrentImage up front so the hint is codec-specific
+        // (ProRes vs HEVC vs AV1 each need different recovery advice).
         var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
-        _ = _dialogService.ShowInfoAsync(
-            "视频播放失败",
-            BuildPlaybackErrorMessage(args, codec),
-            "关闭");
+        ShowTransientError(BuildPlaybackErrorMessage(args, codec));
     }
 
     /// <summary>
@@ -1348,6 +1432,14 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // and releases the surface.
             StopAndDisposePlayer();
             StopSlideshow();
+            // Stop the error-bar dismiss timer so a pending Tick can't
+            // fire after disposal and write to a half-torn-down VM.
+            // The timer holds a delegate referencing this instance, so
+            // leaving it running would also keep the VM alive until the
+            // natural 6 s dwell elapsed.
+            _errorDismissTimer?.Stop();
+            _errorDismissTimer = null;
+            ErrorMessage = null;
 
             _loadCts?.Cancel();
             _loadCts?.Dispose();
