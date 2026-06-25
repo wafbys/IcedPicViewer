@@ -981,6 +981,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         // enqueued will see the cancelled token and early-exit instead of
         // mutating the new Images collection.
         var token = _loadCts?.Token ?? CancellationToken.None;
+        if (DirectoryScanner.IsRecycleBin(info.Path)) return;
+
         _dispatcher.TryEnqueue(async () =>
         {
             if (token.IsCancellationRequested) return;

@@ -11,9 +11,16 @@ public class DirectoryScanner : IDirectoryScanner
     private static readonly HashSet<string> _recycleBinNames = new(
         ["$RECYCLE.BIN", "Recycler", "RECYCLED"], StringComparer.OrdinalIgnoreCase);
 
-    private static bool IsRecycleBin(string path)
+    internal static bool IsRecycleBin(string path)
     {
-        return _recycleBinNames.Contains(Path.GetFileName(path));
+        var current = path;
+        while (current != null)
+        {
+            if (_recycleBinNames.Contains(Path.GetFileName(current)))
+                return true;
+            current = Path.GetDirectoryName(current);
+        }
+        return false;
     }
 
     public async IAsyncEnumerable<ImageSource> ScanAsync(
