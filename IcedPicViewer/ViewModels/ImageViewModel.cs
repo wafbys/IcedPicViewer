@@ -665,6 +665,28 @@ public partial class ImageViewModel : ObservableObject, IDisposable
                 _videoMetadataService.ReleasePlaybackFilePath(playbackPath);
                 _currentPlaybackPath = null;
             }
+
+            // Surface a user-visible prompt for the pre-MediaPlayer failure
+            // path. The MediaPlayer.MediaFailed handler covers the case
+            // where MediaPlayer.Source is set and MF later refuses to
+            // decode, but THIS path fails BEFORE MediaPlayer exists —
+            // GetPlaybackFilePathAsync (FFmpeg remux) is the most common
+            // culprit: a .mov / .mkv containing a codec MP4 can't carry
+            // (ProRes, DNxHD, ...) hits avformat_write_header failure →
+            // re-thrown → caught here. Without this dialog the user
+            // clicks ▶, nothing happens, and they have no idea why.
+            //
+            // OperationCanceledException = the user navigated away
+            // mid-prep (Close / Next / Prev) — no dialog in that case,
+            // the page is already gone or about to be.
+            if (ex is not OperationCanceledException)
+            {
+                var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
+                _ = _dialogService.ShowInfoAsync(
+                    "无法播放此视频",
+                    BuildPrePlayErrorMessage(ex, codec),
+                    "关闭");
+            }
         }
     }
 
@@ -851,6 +873,79 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         // Generic fallback for other rare codecs (DNxHD, Cineform, etc.)
         return $"此文件用非主流 codec ({codec}) 编码,Windows Media Foundation 很可能无法解码。\n" +
                "建议:用 FFmpeg 转 H.264 + AAC 的 mp4 后再播放,或者用 VLC / mpv 直接打开本文件。";
+    }
+
+    /// <summary>
+    /// Turns a pre-MediaPlayer exception into a user-friendly explanation,
+    /// mirroring <see cref="BuildPlaybackErrorMessage"/> for the post-MediaPlayer
+    /// MediaFailed path. Used when the failure happens BEFORE
+    /// <c>MediaPlayer.Source</c> is set (remux / extract / file-open step),
+    /// which means MediaFailed will never fire and we have to surface the
+    /// error ourselves. The most common scenario is a .mov / .mkv file
+    /// whose codec MP4 can't carry (ProRes, DNxHD, ...) — FFmpeg's
+    /// avformat_write_header fails, the exception bubbles up to PlayAsync's
+    /// catch, and without this dialog the user clicks ▶ and sees nothing.
+    /// </summary>
+    private static string BuildPrePlayErrorMessage(Exception ex, string codec)
+    {
+        var codecHint = GetCodecSpecificHint(codec);
+        var reason = ClassifyPrePlayException(ex);
+
+        var codecLine = string.IsNullOrEmpty(codec)
+            ? "(codec 未知 — 扫描时未识别)"
+            : codec;
+
+        var details = $"异常类型: {ex.GetType().Name}\n" +
+                      $"视频 codec: {codecLine}\n" +
+                      $"系统消息: {ex.Message}";
+
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(codecHint)) parts.Add(codecHint);
+        parts.Add(reason);
+        parts.Add("— 详细信息 —\n" + details);
+        return string.Join("\n\n", parts);
+    }
+
+    /// <summary>
+    /// Maps a pre-MediaPlayer exception to a short, user-readable
+    /// explanation. Priority: text-sniff the FFmpeg-remux error message
+    /// first (it's the dominant case and the most actionable), then fall
+    /// through to the standard CLR exception types.
+    /// </summary>
+    private static string ClassifyPrePlayException(Exception ex)
+    {
+        // VideoMetadataService.RemuxToMp4 annotates its throws with
+        // "source codec likely not MP4-compatible" specifically so the
+        // user-facing layer can route this to the codec hint. The other
+        // "rc={ret}" messages from RemuxToMp4 are less specific (open /
+        // header / write failures can be codec OR corrupt file), so we
+        // also accept the broader "RemuxToMp4:" prefix as a "this was
+        // an FFmpeg remux failure" signal — paired with the codec hint
+        // it gives the user a coherent story.
+        var msg = ex.Message ?? string.Empty;
+        if (msg.Contains("not MP4-compatible", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("codec likely", StringComparison.OrdinalIgnoreCase))
+        {
+            return "无法将此视频重新封装为 MP4 — 视频使用的 codec 不被 MP4 容器支持,本应用的播放引擎也不直接支持该 codec。";
+        }
+        if (msg.StartsWith("RemuxToMp4:", StringComparison.Ordinal))
+        {
+            return "FFmpeg 重新封装失败。可能是视频文件已损坏,或 codec / 容器组合不被 MP4 支持。";
+        }
+
+        return ex switch
+        {
+            FileNotFoundException =>
+                "找不到视频文件 (可能在浏览到此处后被移动 / 删除 / 重命名)。",
+            DirectoryNotFoundException =>
+                "视频所在目录不存在 (可能被移动 / 删除)。",
+            UnauthorizedAccessException =>
+                "没有读取此视频文件的权限 (可能被其他进程独占,或目录权限不足)。",
+            IOException =>
+                "读取视频文件时发生 I/O 错误。可能是文件被外部 AV 扫描程序锁定,或磁盘出错。",
+            _ =>
+                "播放准备失败。",
+        };
     }
 
     /// <summary>
