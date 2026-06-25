@@ -520,14 +520,21 @@
 
             Severity="Error" → red icon + accent. The Message property
             is intentionally NOT used (it's a plain string with no
-            selection affordance). Instead, Content hosts a read-only
-            TextBox inside a ScrollViewer so the user can:
-              - mouse-drag to select text
-              - Ctrl+A / Ctrl+C to copy the codec name, HRESULT,
-                system message straight into a web search / bug
-                report
-              - scroll if the codec hint + reason + exception details
-                together exceed MaxHeight=180
+            selection affordance). Instead, Content hosts a 2-column
+            Grid: a read-only TextBox on the left, an explicit "复制"
+            button on the right. The button is the primary affordance
+            because earlier mouse-drag selection on a wrapped TextBox
+            failed in practice — the TextBox is read-only and very
+            long messages wrap to many short lines, so a single click
+            copy is more reliable than drag-select. The TextBox still
+            allows selection / Ctrl+A / Ctrl+C for users who prefer
+            keyboard or want to copy a partial snippet.
+
+            TextBox has its own MaxHeight=180 + TextWrapping="Wrap" +
+            internal scroll, so no outer ScrollViewer is needed (and
+            adding one would cause it to steal mouse drag from the
+            TextBox — a classic WinUI ScrollViewer-vs-selection
+            conflict).
 
             IsClosable="False" because the only "close" the user
             needs is navigating to another item, and exposing an X
@@ -546,20 +553,31 @@
                  Title="无法播放此视频"
                  IsClosable="False">
             <InfoBar.Content>
-                <ScrollViewer MaxHeight="180"
-                              HorizontalScrollMode="Disabled"
-                              VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled"
-                              Padding="0">
-                    <TextBox IsReadOnly="True"
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0"
+                             IsReadOnly="True"
                              IsTabStop="False"
-                             IsHitTestVisible="True"
                              Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
                              TextWrapping="Wrap"
                              BorderThickness="0"
                              Background="Transparent"
-                             Padding="0"/>
-                </ScrollViewer>
+                             Padding="0"
+                             MaxHeight="180"/>
+                    <Button Grid.Column="1"
+                            x:Name="CopyErrorBtn"
+                            Click="CopyErrorBtn_Click"
+                            VerticalAlignment="Top"
+                            ToolTipService.ToolTip="复制全部错误信息到剪贴板">
+                        <StackPanel x:Name="CopyBtnContent" Orientation="Horizontal" Spacing="6">
+                            <FontIcon x:Name="CopyBtnGlyph" Glyph="&#xE8C8;" FontSize="14"/>
+                            <TextBlock x:Name="CopyBtnLabel" Text="复制"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
             </InfoBar.Content>
         </InfoBar>
     </Grid>

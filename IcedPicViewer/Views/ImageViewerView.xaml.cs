@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.Media.Playback;
 
@@ -500,6 +501,59 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         // refreshes it on the next tick.
     }
 
+    // ----------------------------------------------------------------
+    // Pinned-error InfoBar copy button.
+    //
+    // The user's primary path for getting the error text out: one
+    // click on this button dumps the full hint (codec hint + reason
+    // + exception details) to the Windows clipboard. Drag-selection
+    // on the TextBox works in theory but the wrapped multi-line
+    // layout makes it fiddly, so the explicit button is the
+    // affordance that guarantees success.
+    //
+    // Feedback: button glyph + label swap to "已复制 ✓" for 1.5 s so
+    // the user knows the click actually fired (without feedback, a
+    // single click on a quiet button can leave doubt about whether
+    // anything happened). The reset is a non-repeating
+    // DispatcherQueueTimer — Stop+Start on every click so a rapid
+    // double-click resets the dwell rather than firing two reverts
+    // back-to-back.
+    // ----------------------------------------------------------------
+    private DispatcherQueueTimer? _copyResetTimer;
+
+    private void CopyErrorBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var text = ViewModel.ErrorMessage;
+        if (string.IsNullOrEmpty(text)) return;
+
+        var dataPackage = new DataPackage();
+        dataPackage.SetText(text);
+        Clipboard.SetContent(dataPackage);
+
+        // Swap to "copied" affordance for 1.5 s. Glyph: E73E CheckMark
+        // (Segoe Fluent Icons). Doing both glyph AND label change makes
+        // the state change unmistakable even at a glance.
+        CopyBtnGlyph.Glyph = "\uE73E";
+        CopyBtnLabel.Text = "已复制";
+
+        _copyResetTimer ??= CreateCopyResetTimer();
+        _copyResetTimer.Stop();
+        _copyResetTimer.Start();
+    }
+
+    private DispatcherQueueTimer CreateCopyResetTimer()
+    {
+        var timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        timer.IsRepeating = false;
+        timer.Interval = TimeSpan.FromMilliseconds(1500);
+        timer.Tick += (_, _) =>
+        {
+            CopyBtnGlyph.Glyph = "\uE8C8"; // Copy
+            CopyBtnLabel.Text = "复制";
+        };
+        return timer;
+    }
+
     private void PositionSlider_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
         // Slider thumb enter = the user is about to drag. Block
@@ -575,6 +629,15 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         // element to release its reference. The actual Close() is the
         // VM's job; this is just the XAML-side detach.
         Player.SetMediaPlayer(null);
+
+        // Stop the copy-button feedback timer so a pending tick can't
+        // fire after the page is torn down and try to mutate disposed
+        // XAML elements (which would throw or silently no-op). The
+        // timer holds a delegate capturing this page instance, so
+        // leaving it running would also keep the page alive past
+        // navigation.
+        _copyResetTimer?.Stop();
+        _copyResetTimer = null;
     }
 
     private void OnDisplayImageChanged(object? sender, EventArgs e)
