@@ -4,6 +4,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
+using WinImageSource = Microsoft.UI.Xaml.Media.ImageSource;
 
 namespace IcedPicViewer.Models;
 
@@ -60,7 +61,7 @@ public abstract partial class MediaItem : ObservableObject
     public partial BitmapImage? Thumbnail { get; set; }
 
     [ObservableProperty]
-    public partial BitmapImage? FullImage { get; set; }
+    public partial WinImageSource? FullImage { get; set; }
 
     // True while the thumbnail is being decoded on a worker thread. The
     // gallery template overlays a ProgressRing on top of the empty Image

@@ -1,5 +1,6 @@
 using IcedPicViewer.Models;
 using Microsoft.UI.Xaml.Media.Imaging;
+using WinImageSource = Microsoft.UI.Xaml.Media.ImageSource;
 
 // Copyright (c) IcedPicViewer. All rights reserved.
 
@@ -59,7 +60,7 @@ public interface IImageLoader
     /// work from these values without any extra logic. Returns null
     /// if the source can't be opened or decoded.
     /// </summary>
-    Task<BitmapImage?> LoadFullImageAsync(ImageSource source, CancellationToken ct = default);
+    Task<WinImageSource?> LoadFullImageAsync(ImageSource source, int? targetMaxSize = 5120, CancellationToken ct = default);
 
     Task<BitmapImage?> LoadThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default);
 

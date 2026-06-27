@@ -710,62 +710,41 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void UpdateMinimap()
     {
-        double width = 0;
-        double height = 0;
+        if (ActualSizeImage?.Source == null) return;
+        var width = (double)ViewModel.DisplayActualWidth;
+        var height = (double)ViewModel.DisplayActualHeight;
+        if (width <= 0 || height <= 0) return;
 
-        if (ActualSizeImage?.Source is not BitmapImage bmp)
+        MinimapImage.Source = null;
+        MinimapImage.Source = ActualSizeImage.Source;
+        MinimapImage.Width = _minimapWidth;
+        MinimapImage.Height = _minimapHeight;
+
+        MinimapViewport.Children.Clear();
+        _viewportRect = new Rectangle
         {
-            return;
-        }
+            Stroke = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue),
+            StrokeThickness = 1,
+            Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 0, 120, 215))
+        };
+        Canvas.SetLeft(_viewportRect, 0);
+        Canvas.SetTop(_viewportRect, 0);
+        MinimapViewport.Children.Add(_viewportRect);
 
-        if (bmp.PixelWidth > 0 && bmp.PixelHeight > 0)
-        {
-            width = bmp.PixelWidth;
-            height = bmp.PixelHeight;
-        }
-        else if (ActualSizeImage!.ActualWidth > 0 && ActualSizeImage!.ActualHeight > 0)
-        {
-            width = ActualSizeImage!.ActualWidth;
-            height = ActualSizeImage!.ActualHeight;
-        }
-        else
-        {
-            return;
-        }
+        MinimapViewport.Width = _minimapWidth;
+        MinimapViewport.Height = _minimapHeight;
 
-        if (width > 0 && height > 0)
-        {
-            MinimapImage.Source = null;
-            MinimapImage.Source = bmp;
-            MinimapImage.Width = _minimapWidth;
-            MinimapImage.Height = _minimapHeight;
-
-            MinimapViewport.Children.Clear();
-            _viewportRect = new Rectangle
-            {
-                Stroke = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue),
-                StrokeThickness = 1,
-                Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 0, 120, 215))
-            };
-            Canvas.SetLeft(_viewportRect, 0);
-            Canvas.SetTop(_viewportRect, 0);
-            MinimapViewport.Children.Add(_viewportRect);
-
-            MinimapViewport.Width = _minimapWidth;
-            MinimapViewport.Height = _minimapHeight;
-
-            UpdateMinimapViewport();
-        }
+        UpdateMinimapViewport();
     }
 
     private void UpdateMinimapViewport()
     {
         if (_viewportRect == null || ActualSizeImage.Source == null) return;
 
-        if (ActualSizeImage.Source is BitmapImage bmp && bmp.PixelWidth > 0 && bmp.PixelHeight > 0)
+        var imageWidth = (double)ViewModel.DisplayActualWidth;
+        var imageHeight = (double)ViewModel.DisplayActualHeight;
+        if (imageWidth > 0 && imageHeight > 0)
         {
-            var imageWidth = bmp.PixelWidth;
-            var imageHeight = bmp.PixelHeight;
 
             var viewWidth = ActualSizeContainer.ViewportWidth;
             var viewHeight = ActualSizeContainer.ViewportHeight;
@@ -810,11 +789,10 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void ScrollToMinimapPosition(Point pos)
     {
-        if (ActualSizeImage.Source is not BitmapImage bmp || bmp.PixelWidth == 0 || bmp.PixelHeight == 0)
+        var imageWidth = (double)ViewModel.DisplayActualWidth;
+        var imageHeight = (double)ViewModel.DisplayActualHeight;
+        if (imageWidth <= 0 || imageHeight <= 0)
             return;
-
-        var imageWidth = bmp.PixelWidth;
-        var imageHeight = bmp.PixelHeight;
 
         var scaleX = imageWidth / _minimapWidth;
         var scaleY = imageHeight / _minimapHeight;

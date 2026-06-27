@@ -7,6 +7,7 @@ using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
+using WinImageSource = Microsoft.UI.Xaml.Media.ImageSource;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -25,8 +26,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
     private readonly ISettingsService _settingsService;
+    private const int FullImageMaxSize = 5120;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource? _loadCts;
+    private CancellationTokenSource? _preloadCts;
     private MediaPlayer? _mediaPlayer;
     private string? _currentPlaybackPath;
 
@@ -48,7 +51,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
     [NotifyPropertyChangedFor(nameof(ActualHeight))]
-    public partial BitmapImage? DisplayImage { get; set; }
+    public partial WinImageSource? DisplayImage { get; set; }
 
     public event EventHandler? DisplayImageChanged;
     public event EventHandler? NavigationChanged;
@@ -449,6 +452,37 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(PlayerStretch))]
     [NotifyPropertyChangedFor(nameof(PlayerUseBuiltInControls))]
     public partial bool IsFitMode { get; set; } = true;
+
+    partial void OnIsFitModeChanged(bool value)
+    {
+        if (!value && CurrentImage != null)
+        {
+            _ = LoadFullResFor1To1Async(CurrentImage);
+        }
+    }
+
+    private async Task LoadFullResFor1To1Async(MediaItem item)
+    {
+        var cts = new CancellationTokenSource();
+        try
+        {
+            var source = await _imageLoader.LoadFullImageAsync(item.Source, targetMaxSize: null, cts.Token);
+            if (!cts.IsCancellationRequested && source != null)
+            {
+                item.FullImage = source;
+                DisplayImage = source;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"LoadFullResFor1To1Async error: {ex.Message}");
+        }
+        finally
+        {
+            cts.Dispose();
+        }
+    }
 
     /// <summary>
     /// The active <see cref="MediaPlayer"/> for video playback, or null
@@ -1057,13 +1091,18 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
     }
 
-    partial void OnDisplayImageChanged(BitmapImage? value)
+    partial void OnDisplayImageChanged(WinImageSource? value)
     {
         DisplayImageChanged?.Invoke(this, EventArgs.Empty);
-        if (value != null)
+        if (value is BitmapImage bmp)
         {
-            DisplayActualWidth = value.PixelWidth;
-            DisplayActualHeight = value.PixelHeight;
+            DisplayActualWidth = bmp.PixelWidth;
+            DisplayActualHeight = bmp.PixelHeight;
+        }
+        else
+        {
+            DisplayActualWidth = CurrentImage?.OriginalWidth ?? 0;
+            DisplayActualHeight = CurrentImage?.OriginalHeight ?? 0;
         }
     }
 
@@ -1232,6 +1271,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         _loadCts?.Dispose();
         _loadCts = null;
 
+        _preloadCts?.Cancel();
+        _preloadCts?.Dispose();
+        _preloadCts = null;
+
         CurrentImage = null;
         DisplayImage = null;
 
@@ -1275,7 +1318,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         // VM somehow outlived the index change.
         StopAndDisposePlayer();
         ResetLoadCts();
-        await LoadFullImageAsync(CurrentImage, _loadCts!.Token);
+        var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
+        await LoadFullImageAsync(CurrentImage, fitTargetSize, _loadCts!.Token);
+        SchedulePreload();
     }
 
     public async Task ShowImageAsync(MediaItem item)
@@ -1295,20 +1340,17 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         _galleryViewModel.LastViewedIndex = CurrentIndex;
         TotalCount = Images.Count;
 
-        await LoadFullImageAsync(item, _loadCts!.Token);
+        var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
+        await LoadFullImageAsync(item, fitTargetSize, _loadCts!.Token);
+        SchedulePreload();
     }
 
-    private async Task LoadFullImageAsync(MediaItem item, CancellationToken ct)
+    private async Task LoadFullImageAsync(MediaItem item, int? targetMaxSize, CancellationToken ct)
     {
         if (ct.IsCancellationRequested) return;
 
         if (item.FullImage != null)
         {
-            // For VideoItem the gallery's thumbnail loader already
-            // wired item.FullImage to the extracted first frame, so
-            // the viewer shows that static first frame as the default
-            // "full" view before the user clicks play. The play
-            // overlay button is drawn on top by IsPlayOverlayVisibility.
             DisplayImage = item.FullImage;
             return;
         }
@@ -1316,28 +1358,17 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         IsLoading = true;
         try
         {
-            // LoadFullImageAsync returns a BitmapImage with EXIF
-            // orientation already applied at the pixel level, so a
-            // 4000x3000 EXIF-6 portrait photo is decoded as a
-            // 3000x4000 bitmap (PixelWidth/Height match the visible
-            // orientation). The W×H text in the viewer's CommandBar
-            // reads DisplayActualWidth/Height which derive from the
-            // bitmap's PixelWidth/Height, so it shows the same
-            // numbers the user sees on screen. The bitmap is cached
-            // in item.FullImage so re-navigating to the same item
-            // (e.g., after viewing a video, back to the image)
-            // skips the decode + PNG-encode round-trip.
-            var bitmapImage = await _imageLoader.LoadFullImageAsync(item.Source, ct);
+            var source = await _imageLoader.LoadFullImageAsync(item.Source, targetMaxSize, ct);
 
             if (ct.IsCancellationRequested)
             {
                 return;
             }
 
-            if (bitmapImage != null)
+            if (source != null)
             {
-                item.FullImage = bitmapImage;
-                DisplayImage = bitmapImage;
+                item.FullImage = source;
+                DisplayImage = source;
             }
         }
         catch (OperationCanceledException)
@@ -1358,11 +1389,68 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         if (CurrentIndex >= 0 && CurrentIndex < Images.Count)
         {
             CurrentImage = Images[CurrentIndex];
-            // Always rebuild cts here too: a stale token from a previously
-            // cancelled load would either suppress this new load (if the
-            // token is cancelled) or leak the old in-flight task (if not).
             ResetLoadCts();
-            await LoadFullImageAsync(CurrentImage, _loadCts!.Token);
+            var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
+            await LoadFullImageAsync(CurrentImage, fitTargetSize, _loadCts!.Token);
+            SchedulePreload();
+        }
+    }
+
+    private void SchedulePreload()
+    {
+        _preloadCts?.Cancel();
+        _preloadCts?.Dispose();
+        _preloadCts = new CancellationTokenSource();
+        var preloadToken = _preloadCts.Token;
+        _ = PreloadAdjacentAsync(preloadToken);
+    }
+
+    private async Task PreloadAdjacentAsync(CancellationToken ct)
+    {
+        var nextIdx = CurrentIndex + 1;
+        var prevIdx = CurrentIndex - 1;
+
+        var preloadTasks = new List<Task>(2);
+        if (nextIdx < Images.Count)
+        {
+            preloadTasks.Add(PreloadItemAsync(Images[nextIdx], ct));
+        }
+        if (prevIdx >= 0)
+        {
+            preloadTasks.Add(PreloadItemAsync(Images[prevIdx], ct));
+        }
+        if (preloadTasks.Count == 0) return;
+
+        try
+        {
+            await Task.WhenAll(preloadTasks);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"PreloadAdjacentAsync error: {ex.Message}");
+        }
+    }
+
+    private async Task PreloadItemAsync(MediaItem item, CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested || item.FullImage != null) return;
+        try
+        {
+            var source = await _imageLoader.LoadFullImageAsync(item.Source, FullImageMaxSize, ct);
+            if (!ct.IsCancellationRequested && source != null)
+            {
+                item.FullImage = source;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"PreloadItemAsync error for {item?.Id}: {ex.Message}");
         }
     }
 
@@ -1408,6 +1496,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             _loadCts?.Cancel();
             _loadCts?.Dispose();
             _loadCts = null;
+
+            _preloadCts?.Cancel();
+            _preloadCts?.Dispose();
+            _preloadCts = null;
 
             // Unsubscribe event handlers to break the reference cycle and let
             // the singleton be collected if the DI container is ever disposed.
