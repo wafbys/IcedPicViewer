@@ -237,13 +237,36 @@ public class DirectoryScanner : IDirectoryScanner
         var watcher = new FileSystemWatcher(rootPath)
         {
             IncludeSubdirectories = recursive,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite,
+            // Default 8 KB overflows quickly in directories with hundreds
+            // of files — each event costs ~16 B + path length.  64 KB
+            // handles ~3 000 short-path events simultaneously, which is
+            // enough for the burst of Created events during a full scan
+            // or a bulk delete in Explorer.
+            InternalBufferSize = 65536
         };
 
         watcher.Created += (_, e) => onChanged(new FileChangeInfo(WatchChangeType.Created, e.FullPath));
         watcher.Deleted += (_, e) => onChanged(new FileChangeInfo(WatchChangeType.Deleted, e.FullPath));
         watcher.Renamed += (_, e) => onChanged(new FileChangeInfo(WatchChangeType.Renamed, e.FullPath, e.OldFullPath));
         watcher.Changed += (_, e) => onChanged(new FileChangeInfo(WatchChangeType.Modified, e.FullPath));
+        watcher.Error += (_, e) =>
+        {
+            var ex = e.GetException();
+            Trace.TraceError($"FileSystemWatcher error for {rootPath}: {ex.GetType().Name}: {ex.Message}");
+            // Toggle EnableRaisingEvents to restart the internal
+            // buffer — without this the watcher stays dead after an
+            // InternalBufferOverflowException or similar fatal error.
+            try
+            {
+                watcher.EnableRaisingEvents = false;
+                watcher.EnableRaisingEvents = true;
+            }
+            catch (Exception ex2)
+            {
+                Trace.TraceError($"FileSystemWatcher restart failed for {rootPath}: {ex2.GetType().Name}: {ex2.Message}");
+            }
+        };
 
         watcher.EnableRaisingEvents = true;
 

@@ -983,7 +983,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         var token = _loadCts?.Token ?? CancellationToken.None;
         if (DirectoryScanner.IsRecycleBin(info.Path)) return;
 
-        _dispatcher.TryEnqueue(async () =>
+        var enqueued = _dispatcher.TryEnqueue(async () =>
         {
             if (token.IsCancellationRequested) return;
             try
@@ -1012,6 +1012,12 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 Trace.TraceError($"OnFileChanged error for {info.Path} ({info.ChangeType}): {ex.Message}");
             }
         });
+
+        if (!enqueued)
+        {
+            Trace.TraceWarning($"OnFileChanged dropped (dispatcher unavailable): {info.ChangeType} {info.Path}");
+            return;
+        }
     }
 
     private async Task HandleCreatedAsync(FileChangeInfo info, CancellationToken token)

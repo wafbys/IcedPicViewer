@@ -41,6 +41,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ImageHostVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerHostVisibility))]
     [NotifyPropertyChangedFor(nameof(IsPlayOverlayVisibility))]
+    [NotifyPropertyChangedFor(nameof(PrePlayStripVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerFitContainerVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerActualSizeContainerVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerStretch))]
@@ -430,11 +431,25 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PlayerHostVisibility))]
     [NotifyPropertyChangedFor(nameof(IsPlayOverlayVisibility))]
+    [NotifyPropertyChangedFor(nameof(PrePlayStripVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerFitContainerVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerActualSizeContainerVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerStretch))]
     [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
     public partial bool IsVideoPlaying { get; set; }
+
+    /// <summary>
+    /// True while PlayAsync is running its preparation phase (remux /
+    /// extract / MediaPlayer init), before the first frame renders.
+    /// Used to show a ProgressRing so the user knows the app hasn't
+    /// frozen during the potentially slow remux step.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPlayOverlayVisibility))]
+    [NotifyPropertyChangedFor(nameof(PrePlayStripVisibility))]
+    [NotifyPropertyChangedFor(nameof(IsVideoPreparingVisibility))]
+    [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
+    public partial bool IsVideoPreparing { get; set; }
 
     /// <summary>
     /// Fit-mode toggle, shared between the image and video surfaces. The
@@ -508,7 +523,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     public Visibility PlayerHostVisibility => IsVideo ? Visibility.Visible : Visibility.Collapsed;
 
-    public Visibility IsPlayOverlayVisibility => IsVideo && !IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility IsPlayOverlayVisibility => IsVideo && !IsVideoPlaying && !IsVideoPreparing ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
     /// Visibility for the bottom pre-playback control strip (▶ + filename
@@ -526,7 +541,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// surface for adjusting volume / seeing filename + duration before
     /// committing to playback.
     /// </summary>
-    public Visibility PrePlayStripVisibility => IsVideo && !IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PrePlayStripVisibility => IsVideo && !IsVideoPlaying && !IsVideoPreparing ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility IsVideoPreparingVisibility => IsVideo && IsVideoPreparing ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
     /// The current MediaPlayer volume, on the [0.0, 1.0] scale that
@@ -673,6 +690,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         if (_mediaPlayer != null) return;
 
         string? playbackPath = null;
+        IsVideoPreparing = true;
         try
         {
             // Get a file path MediaPlayer can read. For loose files this
@@ -766,9 +784,13 @@ public partial class ImageViewModel : ObservableObject, IDisposable
                 ErrorMessage = BuildPrePlayErrorMessage(ex, codec);
             }
         }
+        finally
+        {
+            IsVideoPreparing = false;
+        }
     }
 
-    private bool CanPlay() => IsVideo && !IsVideoPlaying && _mediaPlayer == null;
+    private bool CanPlay() => IsVideo && !IsVideoPlaying && !IsVideoPreparing && _mediaPlayer == null;
 
     // ----------------------------------------------------------------
     // MediaPlayer event handlers.
@@ -1046,6 +1068,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         MediaPlayer = null;
         _currentPlaybackPath = null;
         IsVideoPlaying = false;
+        IsVideoPreparing = false;
         if (oldPlayer is null && oldPath is null) return;
 
         if (oldPlayer is not null)

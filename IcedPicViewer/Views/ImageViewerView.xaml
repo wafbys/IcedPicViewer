@@ -296,6 +296,25 @@
             <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
                    Stretch="Uniform"/>
             <!--
+                Loading indicator during playback preparation. Shown while
+                PlayAsync is waiting on the FFmpeg remux / extract step,
+                which can take several seconds for large non-MP4 files on
+                slow storage. Centered on the static first frame so the
+                user knows something is happening and doesn't click ▶
+                repeatedly.
+            -->
+            <StackPanel Visibility="{x:Bind ViewModel.IsVideoPreparingVisibility, Mode=OneWay}"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Spacing="12">
+                <ProgressRing IsActive="True"
+                              Width="48" Height="48"
+                              HorizontalAlignment="Center"/>
+                <TextBlock Text="正在准备播放..."
+                           FontSize="14"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+            <!--
                 Centered play button. Visible only when IsVideo is true AND
                 IsVideoPlaying is false — once playback starts, the
                 MediaPlayerElement takes over and the built-in transport
