@@ -623,7 +623,23 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
                 // clearing it forces the muxer to rewrite a valid MP4
                 // tag (avc1 / mp4a / ...).
                 outStream->codecpar->codec_tag = 0;
+
+                // Copy the input stream timebase to the output so
+                // av_interleaved_write_frame's timestamp conversion
+                // preserves the original A/V sync. Without this the
+                // MP4 muxer uses its default timescale (e.g. 1/90000)
+                // which can drift from the source's timing, especially
+                // for VFR content or files with non-standard timebases.
+                outStream->time_base = inStream->time_base;
             }
+
+            // Tell the MP4 muxer to avoid negative timestamps by
+            // shifting all streams to start at 0, instead of creating
+            // edit lists (elst). Media Foundation historically has poor
+            // edit-list support, which causes A/V desync when the
+            // source has non-zero start PTS (common with screen
+            // recordings, webcam captures, and some .mov files).
+            outFmt->avoid_negative_ts = ffmpeg.AVFMT_AVOID_NEG_TS_MAKE_ZERO;
 
             // Open the output file. MP4 always needs avio_open — it's
             // a regular file format, not AVFMT_NOFILE. We hardcode the

@@ -726,8 +726,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             Trace.TraceError($"ImageViewModel.PlayAsync error for {CurrentImage?.Id}: {ex.GetType().Name}: {ex.Message}");
             // Surface as a non-playing state so the user can retry. Don't
             // throw — the play overlay stays visible and CanPlay stays true.
-            IsVideoPlaying = false;
+            // Order: null MediaPlayer first so CanPlay() sees _mediaPlayer==null
+            // when IsVideoPlaying=false fires CanExecuteChanged below.
             MediaPlayer = null;
+            IsVideoPlaying = false;
             // If we successfully created a temp file before the
             // MediaPlayer construction failed, release it so we don't
             // leak the extract. If the failure was before
@@ -796,59 +798,65 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     private void OnMediaPlayerFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
     {
-        // MediaFailed fires on a non-UI thread. The dispatcher's
-        // TryEnqueue queues a work item; if the VM is already disposed
-        // (player torn down mid-shutdown) the call returns false and we
-        // bail — no point showing a dialog to a window that's gone.
-        if (!_dispatcher.TryEnqueue(() => HandleMediaFailedOnUiThread(args)))
+        // MediaFailed fires on a non-UI thread. Capture the failed
+        // player and its path right here so the dispatched handler
+        // operates on the correct instance even if the user has
+        // already navigated away and started a new playback.
+        var failedPlayer = sender;
+        var failedPath = _currentPlaybackPath;
+        if (!_dispatcher.TryEnqueue(() => HandleMediaFailedOnUiThread(failedPlayer, failedPath, args)))
         {
             Trace.TraceWarning($"ImageViewModel: MediaFailed dropped (dispatcher unavailable): code=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
         }
     }
 
-    private void HandleMediaFailedOnUiThread(MediaPlayerFailedEventArgs args)
+    private void HandleMediaFailedOnUiThread(MediaPlayer failedPlayer, string? failedPath, MediaPlayerFailedEventArgs args)
     {
-        // Detach from the failed player — the player is unusable past
-        // this point. Calling StopAndDisposePlayer here would re-enter
-        // the same path (and double-dispose if the failure happened
-        // during Dispose itself), so we do a minimal reset: clear the
-        // VM's MediaPlayer reference, release the temp file, flip
-        // IsVideoPlaying back so the PlayOverlay button reappears for
-        // retry. PlayAsync's catch block handles the temp-file cleanup
-        // pattern; we mirror it here because the MediaFailed path
-        // doesn't go through that catch.
-        var failedPlayer = MediaPlayer;
-        var failedPath = _currentPlaybackPath;
-        MediaPlayer = null;
-        _currentPlaybackPath = null;
-        IsVideoPlaying = false;
-
-        if (failedPlayer is not null)
+        // Only reset VM state if this failed player is still the active
+        // one. If the user already navigated away, StopAndDisposePlayer
+        // already cleaned up the old player and its temp file — we must
+        // NOT kill the new player that replaced it.
+        bool isCurrent = ReferenceEquals(failedPlayer, _mediaPlayer);
+        if (isCurrent)
         {
-            try { failedPlayer.Source = null; failedPlayer.Dispose(); }
-            catch (Exception ex) { Trace.TraceWarning($"ImageViewModel: failed player dispose threw: {ex.GetType().Name}: {ex.Message}"); }
+            // Detach + release only for the still-current player.
+            // Order: null MediaPlayer first so the XAML code-behind
+            // detaches the MediaPlayerElement before IsVideoPlaying
+            // flips and changes surface visibility.
+            MediaPlayer = null;
+            _currentPlaybackPath = null;
+            IsVideoPlaying = false;
+
+            if (failedPlayer is not null)
+            {
+                try { failedPlayer.Source = null; failedPlayer.Dispose(); }
+                catch (Exception ex) { Trace.TraceWarning($"ImageViewModel: failed player dispose threw: {ex.GetType().Name}: {ex.Message}"); }
+            }
+            if (failedPath is not null)
+            {
+                try { _videoMetadataService.ReleasePlaybackFilePath(failedPath); }
+                catch (Exception ex) { Trace.TraceWarning($"ImageViewModel: failed release threw: {ex.GetType().Name}: {ex.Message}"); }
+            }
+
+            // Log + hint only when still on the failed video — if the
+            // user navigated away, OnCurrentImageChanged already cleared
+            // ErrorMessage and logging a stale player is noise.
+            Trace.TraceError($"ImageViewModel.MediaFailed for {CurrentImage?.Id}: error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
+
+            // Pinned hint: no auto-dismiss timer, no close button.
+            // Cleared by OnCurrentImageChanged when the user navigates to
+            // another item (Next / Prev / Close / Delete).
+            var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
+            ErrorMessage = BuildPlaybackErrorMessage(args, codec);
         }
-        if (failedPath is not null)
+        else
         {
-            try { _videoMetadataService.ReleasePlaybackFilePath(failedPath); }
-            catch (Exception ex) { Trace.TraceWarning($"ImageViewModel: failed release threw: {ex.GetType().Name}: {ex.Message}"); }
+            // Not the active player — StopAndDisposePlayer already
+            // disposed it and released its temp file. Skip cleanup
+            // (avoid double-release) and skip error hint (the hint
+            // belongs to the old video, not the current one).
+            Trace.TraceWarning($"ImageViewModel.MediaFailed for stale player (already navigated away): error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
         }
-
-// Log the full diagnostic first — Trace is always safe, the
-        // InfoBar hint below may fail to surface (page torn down
-        // mid-shutdown) but the log entry still gives us a breadcrumb
-        // for postmortem.
-        Trace.TraceError($"ImageViewModel.MediaFailed for {CurrentImage?.Id}: error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
-
-        // Pinned hint: no auto-dismiss timer, no close button.
-        // Cleared by OnCurrentImageChanged when the user navigates to
-        // another item (Next / Prev / Close / Delete). The view's
-        // TextBox-based content lets the user select + Ctrl+C the
-        // codec name / HRESULT / system message. Pull the codec off
-        // CurrentImage up front so the hint is codec-specific (ProRes
-        // vs HEVC vs AV1 each need different recovery advice).
-        var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
-        ErrorMessage = BuildPlaybackErrorMessage(args, codec);
     }
 
     /// <summary>
