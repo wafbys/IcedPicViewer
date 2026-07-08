@@ -191,7 +191,6 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         if (e.PropertyName == nameof(MainWindow.IsFullscreen))
         {
             var fs = IsFullscreenStatic();
-            MainWindow.LogApp($"GalleryView.OnMainWindowPropertyChanged IsFullscreenStatic={fs} _isHeaderVisible={_isHeaderVisible} _isStatusVisible={_isStatusVisible}");
             // Entering fullscreen: chrome defaults to hidden so the
             // masonry fills the screen. The reveal-on-hover logic in
             // RootGrid_PointerMoved takes over once the mouse moves.
@@ -291,7 +290,6 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         // is gone.
         var inTopZone = pos.Y < AutoHideTopHitHeight;
         var inBottomZone = height > 0 && pos.Y > height - AutoHideBottomHitHeight;
-        MainWindow.LogApp($"PointerMoved pos.Y={pos.Y:0.0} inTop={inTopZone} inBottom={inBottomZone}");
 
         IsHeaderVisible = inTopZone;
         IsStatusVisible = inBottomZone;

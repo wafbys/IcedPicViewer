@@ -822,9 +822,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     // or any codec the OS doesn't ship a decoder for). The user
     // previously saw "no error + no playback" — we'd swallow the only
     // signal that something went wrong. We now marshal the error to
-    // the UI thread, log it (Trace + the same kbd.log-style diagnostics
-    // path the rest of the VM uses), and show a ContentDialog so the
-    // user actually knows what happened.
+    // the UI thread, log it via Trace, and surface a user-visible hint.
     // ----------------------------------------------------------------
 
     private void OnMediaPlayerOpened(MediaPlayer sender, object args)

@@ -107,7 +107,7 @@ LoadThumbnailAsync (worker, 6 路 semaphore) ── BitmapImage ── item.Thum
 
 **易错点**：`HandleViewerKey` 从 `viewer.ViewModel` 拿 VM，不是 `viewer.DataContext`（`ImageViewerView` 用 `x:Bind`，DataContext 始终是 null）。
 
-**调试**：hook 诊断 log 写 `%LOCALAPPDATA%\IcedPicViewer\kbd.log`。未来 WinAppSDK 升级后可以考虑 `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId(WindowId).KeyDown`。
+**调试**：键盘 hook 问题可通过 crash.log（未处理异常）和 Trace 输出诊断。未来 WinAppSDK 升级后可以考虑 `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId(WindowId).KeyDown`。
 
 ## 已知坑
 

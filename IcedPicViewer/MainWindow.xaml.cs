@@ -61,7 +61,6 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         {
             AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
         }
-        LogKbd($"ToggleFullscreen: prev={prevIsFullscreen} after_SetPresenter={IsFullscreen} presenter={AppWindow.Presenter.Kind}");
         OnPropertyChanged(nameof(IsFullscreen));
         OnPropertyChanged(nameof(IsAppTitleBarVisible));
         // Defer a second notification by one dispatcher tick. Symptom
@@ -78,7 +77,6 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         // platform behaviour changes in the future.
         DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
         {
-            LogKbd($"ToggleFullscreen deferred tick: IsFullscreen={IsFullscreen} presenter={AppWindow.Presenter.Kind}");
             OnPropertyChanged(nameof(IsFullscreen));
             OnPropertyChanged(nameof(IsAppTitleBarVisible));
         });
@@ -175,12 +173,11 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         if (_hookHandle == IntPtr.Zero)
         {
             var gle = Marshal.GetLastWin32Error();
-            LogKbd($"SetWindowsHookEx FAILED threadId={threadId} gle={gle}");
+            // Hook install failed — keyboard navigation will be broken.
         }
         else
         {
             _hookInstalled = true;
-            LogKbd($"WH_KEYBOARD hook installed threadId={threadId} hhk=0x{_hookHandle.ToInt64():X}");
         }
     }
 
@@ -233,52 +230,20 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
                     bool isKeyUp = (lParam32 & unchecked((int)0x80000000)) != 0;
                     if (!isKeyUp)
                     {
-                        LogKbd($"WH_KEYBOARD vk={vk} page={RootFrame.Content?.GetType().Name ?? "<null>"}");
                         DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
                         {
                             try { HandleViewerKey(vk); }
-                            catch (Exception ex) { LogKbd($"HandleViewerKey threw: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); }
+                            catch { /* swallowed to protect hook */ }
                         });
                     }
                 }
             }
         }
-        catch (Exception ex)
+        catch
         {
-            LogKbd($"hook callback threw: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+            // Must never let exceptions escape the hook proc.
         }
         return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
-    }
-
-    // ---- Diagnostic log for keyboard hook verification ----
-    // Written to %LOCALAPPDATA%\IcedPicViewer\kbd.log so the user can cat it
-    // and see whether the subclass is firing at all. Delete the file to
-    // start fresh; the path is fixed and deterministic.
-
-    private const string KbdLogPath = "kbd.log";
-
-    private static readonly object _logLock = new();
-    internal static void LogApp(string msg) => LogKbd($"app: {msg}");
-
-    private static void LogKbd(string msg)
-    {
-        lock (_logLock)
-        {
-            try
-            {
-                var dir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "IcedPicViewer");
-                Directory.CreateDirectory(dir);
-                File.AppendAllText(
-                    Path.Combine(dir, KbdLogPath),
-                    $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
-            }
-            catch
-            {
-                // Logging must never throw out of the WndProc — would crash the app.
-            }
-        }
     }
 
     private void HandleViewerKey(Windows.System.VirtualKey key)
