@@ -10,7 +10,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
-using System.Diagnostics;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.Media.Playback;
@@ -388,8 +387,6 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
                 Player.SetMediaPlayer(attached);
             }
         }
-
-        Trace.TraceInformation($"[Viewer] Reparented Player to {(isFitMode ? "Fit" : "1:1")} container. Parent now: {Player.Parent?.GetType().Name}, IsVideo={ViewModel.IsVideo}, IsPlaying={ViewModel.IsVideoPlaying}");
     }
 
     /// <summary>
@@ -715,7 +712,6 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void FitModeBtn_Click(object sender, RoutedEventArgs e)
     {
-        Trace.TraceInformation($"[Viewer] FitModeBtn_Click: current IsFitMode={ViewModel.IsFitMode}, IsVideo={ViewModel.IsVideo}");
         // The state now lives on the VM (IsFitMode). Toggling it fires
         // PropertyChanged, which OnViewModelPropertyChanged translates
         // into the actual UI mutations: ImageHost swaps FitContainer /

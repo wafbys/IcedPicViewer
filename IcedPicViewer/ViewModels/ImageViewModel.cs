@@ -471,7 +471,6 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     partial void OnIsFitModeChanged(bool value)
     {
-        Trace.TraceInformation($"[ViewerVM] IsFitMode changed to {value}, IsVideo={IsVideo}, Current={CurrentImage?.Name}");
         if (!value && CurrentImage != null)
         {
             // Entering 1:1: abort any in-flight capped load and force a full-res decode for current item.
@@ -1078,7 +1077,6 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// </summary>
     private void StopAndDisposePlayer()
     {
-        Trace.TraceInformation($"[ViewerVM] StopAndDisposePlayer called. HasPlayer={MediaPlayer != null}, IsVideo={IsVideo}");
         var oldPlayer = MediaPlayer;
         var oldPath = _currentPlaybackPath;
         MediaPlayer = null;
@@ -1267,7 +1265,6 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanNavigatePrevious))]
     private async Task NavigatePreviousAsync()
     {
-        Trace.TraceInformation($"[ViewerVM] NavigatePrevious: index={CurrentIndex}, IsFit={IsFitMode}, IsVideo={IsVideo}");
         if (CanNavigatePrevious())
         {
             // Stop any active video playback before switching items — the
@@ -1281,7 +1278,6 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanNavigateNext))]
     private async Task NavigateNextAsync()
     {
-        Trace.TraceInformation($"[ViewerVM] NavigateNext: index={CurrentIndex}, IsFit={IsFitMode}, IsVideo={IsVideo}");
         // Same navigation-boundary cleanup as NavigatePreviousAsync.
         StopAndDisposePlayer();
         if (CurrentIndex < Images.Count - 1)
