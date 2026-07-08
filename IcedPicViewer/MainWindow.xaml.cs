@@ -19,6 +19,8 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
     private const string SettingsFile = "window_settings.txt";
     private const string AppDataFolder = "IcedPicViewer";
 
+    private Windows.Graphics.RectInt32 _lastWindowedBounds;
+
     private static string GetSettingsPath()
     {
         // Unpackaged WinUI apps should not write next to the exe (Program Files may be
@@ -59,6 +61,11 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         }
         else
         {
+            // Capture current bounds before entering fullscreen so we can
+            // restore them later (both on toggle back and on next launch).
+            _lastWindowedBounds = new Windows.Graphics.RectInt32(
+                AppWindow.Position.X, AppWindow.Position.Y,
+                AppWindow.Size.Width, AppWindow.Size.Height);
             AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
         }
         OnPropertyChanged(nameof(IsFullscreen));
@@ -375,7 +382,22 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         {
             var file = GetSettingsPath();
             var tempFile = file + ".tmp";
-            var content = $"{AppWindow.Position.X},{AppWindow.Position.Y},{AppWindow.Size.Width},{AppWindow.Size.Height}";
+
+            bool isFs = IsFullscreen;
+            int x = AppWindow.Position.X;
+            int y = AppWindow.Position.Y;
+            int w = AppWindow.Size.Width;
+            int h = AppWindow.Size.Height;
+
+            if (isFs && _lastWindowedBounds.Width > 0 && _lastWindowedBounds.Height > 0)
+            {
+                x = _lastWindowedBounds.X;
+                y = _lastWindowedBounds.Y;
+                w = _lastWindowedBounds.Width;
+                h = _lastWindowedBounds.Height;
+            }
+
+            var content = $"{x},{y},{w},{h},{(isFs ? 1 : 0)}";
 
             File.WriteAllText(tempFile, content);
             File.Move(tempFile, file, overwrite: true);
@@ -401,7 +423,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
             var content = File.ReadAllText(file);
             var parts = content.Split(',');
-            if (parts.Length != 4)
+            if (parts.Length < 4)
             {
                 Trace.TraceWarning($"RestoreWindowState: invalid parts count {parts.Length}");
                 return;
@@ -416,7 +438,17 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
                 return;
             }
 
-            AppWindow.MoveAndResize(new Windows.Graphics.RectInt32((int)x, (int)y, (int)width, (int)height));
+            _lastWindowedBounds = new Windows.Graphics.RectInt32((int)x, (int)y, (int)width, (int)height);
+            AppWindow.MoveAndResize(_lastWindowedBounds);
+
+            bool wasFullscreen = parts.Length >= 5 &&
+                int.TryParse(parts[4], out var fs) && fs != 0;
+
+            if (wasFullscreen)
+            {
+                AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+            }
+
             Trace.TraceInformation($"Restored window state: {content}");
         }
         catch (Exception ex)
