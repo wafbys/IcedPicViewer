@@ -144,21 +144,21 @@ public class ImageLoader : IImageLoader
         try
         {
             ct.ThrowIfCancellationRequested();
-            SoftwareBitmap? softwareBitmap;
+            byte[]? pngBytes;
             if (source.IsInArchive)
             {
-                softwareBitmap = await Task.Run(
+                pngBytes = await Task.Run(
                     async () =>
                     {
                         using var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
-                        return await DecodeToSoftwareBitmapAsync(entryStream.AsRandomAccessStream(), targetMaxSize, ct);
+                        return await EncodeToPngBytesAsync(entryStream.AsRandomAccessStream(), targetMaxSize, ct);
                     },
                     ct);
             }
             else
             {
                 if (!File.Exists(source.Path)) return null;
-                softwareBitmap = await Task.Run(
+                pngBytes = await Task.Run(
                     async () =>
                     {
                         using var fileStream = new FileStream(
@@ -168,16 +168,24 @@ public class ImageLoader : IImageLoader
                             FileShare.Read,
                             bufferSize: 4096,
                             FileOptions.Asynchronous);
-                        return await DecodeToSoftwareBitmapAsync(fileStream.AsRandomAccessStream(), targetMaxSize, ct);
+                        return await EncodeToPngBytesAsync(fileStream.AsRandomAccessStream(), targetMaxSize, ct);
                     },
                     ct);
             }
-            if (softwareBitmap == null) return null;
-            if (ct.IsCancellationRequested) return null;
+            if (pngBytes == null) return null;
 
-            var sourceBitmap = new SoftwareBitmapSource();
-            await sourceBitmap.SetBitmapAsync(softwareBitmap);
-            return sourceBitmap;
+            var pngStream = new InMemoryRandomAccessStream();
+            using (var writer = new DataWriter(pngStream.GetOutputStreamAt(0)))
+            {
+                writer.WriteBytes(pngBytes);
+                await writer.StoreAsync();
+                writer.DetachStream();
+            }
+            pngStream.Seek(0);
+
+            var bitmapImage = new BitmapImage();
+            await bitmapImage.SetSourceAsync(pngStream);
+            return bitmapImage;
         }
         catch (OperationCanceledException)
         {
@@ -190,7 +198,7 @@ public class ImageLoader : IImageLoader
         }
     }
 
-    private static async Task<SoftwareBitmap?> DecodeToSoftwareBitmapAsync(
+    private static async Task<byte[]?> EncodeToPngBytesAsync(
         IRandomAccessStream stream,
         int? targetMaxSize,
         CancellationToken ct)
@@ -218,14 +226,26 @@ public class ImageLoader : IImageLoader
                 ExifOrientationMode.RespectExifOrientation,
                 ColorManagementMode.DoNotColorManage);
             ct.ThrowIfCancellationRequested();
+            var bytes = pixelData.DetachPixelData();
 
-            var softwareBitmap = new SoftwareBitmap(
+            using var pngStream = new InMemoryRandomAccessStream();
+            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, pngStream);
+            encoder.SetPixelData(
                 BitmapPixelFormat.Bgra8,
-                (int)scaledWidth,
-                (int)scaledHeight,
-                BitmapAlphaMode.Premultiplied);
-            softwareBitmap.CopyFromBuffer(pixelData.DetachPixelData().AsBuffer());
-            return softwareBitmap;
+                BitmapAlphaMode.Premultiplied,
+                scaledWidth,
+                scaledHeight,
+                96.0,
+                96.0,
+                bytes);
+            await encoder.FlushAsync();
+
+            using var reader = new DataReader(pngStream.GetInputStreamAt(0));
+            var length = (uint)pngStream.Size;
+            await reader.LoadAsync(length);
+            var pngBytes = new byte[length];
+            reader.ReadBytes(pngBytes);
+            return pngBytes;
         }
         catch (OperationCanceledException)
         {
@@ -233,7 +253,7 @@ public class ImageLoader : IImageLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"DecodeToSoftwareBitmapAsync error: {ex.GetType().Name}: {ex.Message}");
+            Trace.TraceError($"EncodeToPngBytesAsync error: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
     }

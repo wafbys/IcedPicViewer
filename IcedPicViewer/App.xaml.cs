@@ -7,7 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.ApplicationModel.DynamicDependency;
+using System;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace IcedPicViewer;
@@ -69,25 +71,72 @@ public partial class App : Application
 
     private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
-        // Last-resort friendly error: catches anything that escapes the
-        // normal error handling — including the OS build check fail-fast
-        // (which WinUI surfaces as a CLR COMException during Application.Start).
+        // 错误报告策略：
+        // - 完整堆栈保存到日志文件（%LOCALAPPDATA%\IcedPicViewer\crash.log），用户可打开复制
+        // - 消息框只做展示 + 指引，简洁易读
+        // - 去掉自动剪贴板功能（用户反馈有时不生效）
         try
         {
-            var caption = "IcedPicViewer failed to start";
-            var message =
-                "IcedPicViewer requires the Windows App Runtime 2.2 standalone installer.\n\n" +
-                "Download and run:\n" +
-                "https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe\n\n" +
-                "Then re-launch this app.\n\n" +
-                "If the issue persists, your Windows build may not be supported.\n\n" +
-                "Details: " + e.Message;
+            var ex = e.Exception;
+
+            // 构建完整错误文本（包含 InnerException）
+            string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture);
+            string fullError = $"【IcedPicViewer 崩溃报告】\n" +
+                               $"时间: {timestamp}\n" +
+                               $"异常类型: {ex.GetType().FullName}\n" +
+                               $"消息: {ex.Message}\n\n" +
+                               $"堆栈跟踪:\n{ex.StackTrace}\n";
+
+            if (ex.InnerException != null)
+            {
+                fullError += $"\n内部异常:\n{ex.InnerException}\n";
+            }
+
+            fullError += $"\n原始 UnhandledException 消息: {e.Message}\n" +
+                         $"建议: 如果是组件/解码相关，可尝试安装 Windows App Runtime 2.2\n" +
+                         $"下载: https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe";
+
+            // 尝试附加当前 viewer 状态（如果可用）
+            try
+            {
+                var vm = IcedPicViewer.App.GetService<IcedPicViewer.ViewModels.ImageViewModel>();
+                if (vm != null)
+                {
+                    fullError += $"\n[ViewerState] IsVideo={vm.IsVideo}, IsFitMode={vm.IsFitMode}, IsVideoPlaying={vm.IsVideoPlaying}, HasMediaPlayer={vm.MediaPlayer != null}, CurrentItem={vm.CurrentImage?.Name ?? "null"}";
+                }
+            }
+            catch { }
+
+            // 1. 写入 crash.log 文件（主要存储方式，用户可手动打开复制完整堆栈）
+            try
+            {
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string dir = Path.Combine(localAppData, "IcedPicViewer");
+                Directory.CreateDirectory(dir);
+                string logPath = Path.Combine(dir, "crash.log");
+                File.AppendAllText(logPath, fullError + "\n\n" + new string('=', 60) + "\n\n");
+            }
+            catch { /* 日志失败忽略 */ }
+
+            // 2. 显示用户友好的提示（展示 + 指引去日志文件）
+            var caption = "IcedPicViewer 发生错误";
+            var message = "发生未处理异常。\n\n" +
+                          "✅ 完整错误信息（含堆栈）已保存到日志文件：\n" +
+                          "   %LOCALAPPDATA%\\IcedPicViewer\\crash.log\n\n" +
+                          "请打开该文件复制堆栈给开发者。\n\n" +
+                          "摘要:\n" +
+                          ex.GetType().Name + ": " + ex.Message + "\n\n" +
+                          "提示：如果是启动或媒体解码问题，可能是缺少 Windows App Runtime 或解码器扩展。";
+
             _ = MessageBoxW(IntPtr.Zero, message, caption,
                 0x00000010 /* MB_ICONERROR */ | 0x00040000 /* MB_SETFOREGROUND */);
+
+            Trace.TraceError(fullError);
         }
-        catch
+        catch (Exception handlerEx)
         {
-            Trace.TraceError($"Unhandled exception: {e.Exception}");
+            // 避免 handler 自身崩溃
+            Trace.TraceError($"Unhandled exception (secondary in handler): {handlerEx}\nOriginal: {e.Exception}");
         }
     }
 

@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
+using System.Diagnostics;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.Media.Playback;
@@ -305,57 +306,90 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
             // needs explicit UpdateMinimap calls).
             ApplyImageFitMode(ViewModel.IsFitMode);
 
-            // Video surface: reparent the single MediaPlayerElement
-            // between the Fit container (Grid) and the 1:1 container
-            // (ScrollViewer). The element's parent is what tells it
-            // how to lay out — a Grid gives a finite slot (Uniform
-            // works), a ScrollViewer offers infinite space (None works
-            // for the user's native-resolution scroll). One element
-            // + two hosts keeps the MediaPlayer reference stable
-            // across the toggle and avoids the v0.14.2 "ScrollViewer
-            // swallows PlayOverlay clicks" problem by hiding the
-            // ScrollViewer container itself when there's no player.
-            ApplyVideoFitMode(ViewModel.IsFitMode);
+            // Only reparent the MediaPlayerElement when the current item is a video.
+            // Toggling Fit/1:1 while viewing images should not touch the Player element
+            // at all (it was causing COMException on Children.Add in some states after
+            // previous 1:1 usage).
+            if (ViewModel.IsVideo)
+            {
+                ApplyVideoFitMode(ViewModel.IsFitMode);
+            }
         }
         else if (e.PropertyName == nameof(ImageViewModel.CurrentImage))
         {
-            // The IsFitMode state is per-VM, not per-item, so when
-            // the user navigates from an image (where 1:1 = the
-            // minimap) to a video (where 1:1 = the scrollable
-            // player) the IsFitMode property doesn't change but the
-            // Player still needs to be in the right container. The
-            // IsFitMode=true default + the XAML's initial Player
-            // placement in PlayerFitContainer covers the common path
-            // (Fit mode from the start), but if the user was in 1:1
-            // mode when navigating to a video, reparent now. This is
-            // a no-op when the Player is already in the right
-            // container (the early-return inside ApplyVideoFitMode).
-            ApplyVideoFitMode(ViewModel.IsFitMode);
+            // Only adjust the Player container when the current item is a video.
+            // This prevents unnecessary reparenting on every image-to-image navigation,
+            // which was causing COMException during repeated ApplyVideoFitMode calls
+            // (especially after Fit/1:1 toggles + flipping).
+            // The IsFitMode change handler and initial setup handle the layout host selection.
+            if (ViewModel.IsVideo)
+            {
+                ApplyVideoFitMode(ViewModel.IsFitMode);
+            }
         }
     }
 
     private void ApplyVideoFitMode(bool isFitMode)
     {
-        if (isFitMode)
+        if (Player == null) return;
+
+        // Only manage when relevant to video.
+        if (!ViewModel.IsVideo && ViewModel.MediaPlayer == null)
         {
-            // No-op if the element is already in the Fit host
-            // (the common case — the user just toggled back from 1:1
-            // and the element was last moved there).
-            if (Player.Parent == PlayerFitContainer) return;
-            DetachPlayerFromCurrentParent();
-            PlayerFitContainer.Children.Add(Player);
+            return;
         }
-        else
+
+        // Defer the actual reparent to the next dispatcher tick.
+        // Doing visual tree modifications (especially for MediaPlayerElement) synchronously
+        // from PropertyChanged or Click handlers can lead to COMExceptions like
+        // "No installed components were detected" during Children.Add / Content set.
+        DispatcherQueue.GetForCurrentThread()?.TryEnqueue(() =>
         {
-            // In 1:1 mode the Player lives inside PlayerScrollViewerInner
-            // (the inner ScrollViewer of the PlayerActualSizeContainer
-            // Grid). The outer Grid also has the pinned transport-
-            // controls strip in row 1, but the Player itself only
-            // occupies the ScrollViewer.
-            if (Player.Parent == PlayerScrollViewerInner) return;
-            DetachPlayerFromCurrentParent();
-            PlayerScrollViewerInner.Content = Player;
+            DoReparentPlayer(isFitMode);
+        });
+    }
+
+    private void DoReparentPlayer(bool isFitMode)
+    {
+        if (Player == null) return;
+
+        var attached = Player.MediaPlayer;
+        if (attached != null)
+        {
+            Player.SetMediaPlayer(null);
         }
+
+        try
+        {
+            if (isFitMode)
+            {
+                if (Player.Parent == PlayerFitContainer)
+                {
+                    return;
+                }
+                DetachPlayerFromCurrentParent();
+                PlayerFitContainer.Children.Add(Player);
+            }
+            else
+            {
+                if (Player.Parent == PlayerScrollViewerInner)
+                {
+                    return;
+                }
+                DetachPlayerFromCurrentParent();
+                PlayerScrollViewerInner.Content = Player;
+            }
+        }
+        finally
+        {
+            // Always attempt to restore the player, even if move had issues.
+            if (attached != null)
+            {
+                Player.SetMediaPlayer(attached);
+            }
+        }
+
+        Trace.TraceInformation($"[Viewer] Reparented Player to {(isFitMode ? "Fit" : "1:1")} container. Parent now: {Player.Parent?.GetType().Name}, IsVideo={ViewModel.IsVideo}, IsPlaying={ViewModel.IsVideoPlaying}");
     }
 
     /// <summary>
@@ -610,6 +644,20 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         ViewModel.NavigatePreviousCommand.NotifyCanExecuteChanged();
         ViewModel.NavigateNextCommand.NotifyCanExecuteChanged();
 
+        // Apply Fit/1:1 state after the visual tree is fully constructed and Loaded.
+        ApplyImageFitMode(ViewModel.IsFitMode);
+
+        // Guard: only touch Player container for video items.
+        if (ViewModel.IsVideo)
+        {
+            ApplyVideoFitMode(ViewModel.IsFitMode);
+        }
+
+        if (ViewModel?.IsFitMode == false)
+        {
+            UpdateMinimapDeferred();
+        }
+
         // 键盘处理统一在 MainWindow.RootGrid_KeyDown,见 MainWindow.xaml.cs。
     }
 
@@ -654,7 +702,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void UpdateMinimapDeferred()
     {
-        if (!ViewModel.IsFitMode)
+        if (ViewModel?.IsFitMode == false)
         {
             // Defer one dispatcher tick so the new image's layout pass
             // completes before we read ViewportWidth/Offset from the
@@ -667,6 +715,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void FitModeBtn_Click(object sender, RoutedEventArgs e)
     {
+        Trace.TraceInformation($"[Viewer] FitModeBtn_Click: current IsFitMode={ViewModel.IsFitMode}, IsVideo={ViewModel.IsVideo}");
         // The state now lives on the VM (IsFitMode). Toggling it fires
         // PropertyChanged, which OnViewModelPropertyChanged translates
         // into the actual UI mutations: ImageHost swaps FitContainer /
@@ -680,12 +729,15 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void ActualSizeContainer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
     {
-        UpdateMinimapViewport();
+        if (ViewModel?.IsFitMode == false)
+        {
+            UpdateMinimapViewport();
+        }
     }
 
     private void ActualSizeImage_Loaded(object sender, RoutedEventArgs e)
     {
-        if (!ViewModel.IsFitMode)
+        if (ViewModel?.IsFitMode == false)
         {
             UpdateMinimap();
         }
@@ -693,7 +745,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void ActualSizeContainer_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (!ViewModel.IsFitMode)
+        if (ViewModel?.IsFitMode == false)
         {
             UpdateMinimap();
         }
@@ -701,7 +753,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void ActualSizeImage_ImageOpened(object sender, RoutedEventArgs e)
     {
-        if (!ViewModel.IsFitMode)
+        if (ViewModel?.IsFitMode == false)
         {
             MinimapImage.Source = null;
             UpdateMinimap();
@@ -710,6 +762,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void UpdateMinimap()
     {
+        if (ViewModel?.IsFitMode != false) return;
         if (ActualSizeImage?.Source == null) return;
         var width = (double)ViewModel.DisplayActualWidth;
         var height = (double)ViewModel.DisplayActualHeight;
@@ -739,6 +792,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void UpdateMinimapViewport()
     {
+        if (ViewModel?.IsFitMode != false) return;
         if (_viewportRect == null || ActualSizeImage.Source == null) return;
 
         var imageWidth = (double)ViewModel.DisplayActualWidth;
@@ -754,8 +808,8 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
             var scaleX = _minimapWidth / imageWidth;
             var scaleY = _minimapHeight / imageHeight;
 
-            var rectWidth = viewWidth * scaleX;
-            var rectHeight = viewHeight * scaleY;
+            var rectWidth = (viewWidth > 0 ? viewWidth * scaleX : 0);
+            var rectHeight = (viewHeight > 0 ? viewHeight * scaleY : 0);
             var rectX = scrollX * scaleX;
             var rectY = scrollY * scaleY;
 
