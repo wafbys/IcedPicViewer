@@ -305,10 +305,8 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
             // needs explicit UpdateMinimap calls).
             ApplyImageFitMode(ViewModel.IsFitMode);
 
-            // Only reparent the MediaPlayerElement when the current item is a video.
-            // Toggling Fit/1:1 while viewing images should not touch the Player element
-            // at all (it was causing COMException on Children.Add in some states after
-            // previous 1:1 usage).
+            // Only reparent the MediaPlayerElement when viewing a video.
+            // For images, leave the Player element alone.
             if (ViewModel.IsVideo)
             {
                 ApplyVideoFitMode(ViewModel.IsFitMode);
@@ -316,11 +314,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         }
         else if (e.PropertyName == nameof(ImageViewModel.CurrentImage))
         {
-            // Only adjust the Player container when the current item is a video.
-            // This prevents unnecessary reparenting on every image-to-image navigation,
-            // which was causing COMException during repeated ApplyVideoFitMode calls
-            // (especially after Fit/1:1 toggles + flipping).
-            // The IsFitMode change handler and initial setup handle the layout host selection.
+            // Only adjust the Player container for video items.
             if (ViewModel.IsVideo)
             {
                 ApplyVideoFitMode(ViewModel.IsFitMode);
@@ -338,10 +332,8 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
             return;
         }
 
-        // Defer the actual reparent to the next dispatcher tick.
-        // Doing visual tree modifications (especially for MediaPlayerElement) synchronously
-        // from PropertyChanged or Click handlers can lead to COMExceptions like
-        // "No installed components were detected" during Children.Add / Content set.
+        // Defer reparenting to avoid modifying the visual tree synchronously from
+        // property change or click handlers.
         DispatcherQueue.GetForCurrentThread()?.TryEnqueue(() =>
         {
             DoReparentPlayer(isFitMode);
@@ -381,7 +373,6 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         }
         finally
         {
-            // Always attempt to restore the player, even if move had issues.
             if (attached != null)
             {
                 Player.SetMediaPlayer(attached);
@@ -644,7 +635,6 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         // Apply Fit/1:1 state after the visual tree is fully constructed and Loaded.
         ApplyImageFitMode(ViewModel.IsFitMode);
 
-        // Guard: only touch Player container for video items.
         if (ViewModel.IsVideo)
         {
             ApplyVideoFitMode(ViewModel.IsFitMode);

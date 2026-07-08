@@ -71,10 +71,6 @@ public partial class App : Application
 
     private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
-        // 错误报告策略：
-        // - 完整堆栈保存到日志文件（%LOCALAPPDATA%\IcedPicViewer\crash.log），用户可打开复制
-        // - 消息框只做展示 + 指引，简洁易读
-        // - 去掉自动剪贴板功能（用户反馈有时不生效）
         try
         {
             var ex = e.Exception;
@@ -96,13 +92,13 @@ public partial class App : Application
                          $"建议: 如果是组件/解码相关，可尝试安装 Windows App Runtime 2.2\n" +
                          $"下载: https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe";
 
-            // 尝试附加当前 viewer 状态（如果可用）
+            // Attach current viewer state if possible (for easier diagnosis)
             try
             {
-                var vm = IcedPicViewer.App.GetService<IcedPicViewer.ViewModels.ImageViewModel>();
+                var vm = App.GetService<ViewModels.ImageViewModel>();
                 if (vm != null)
                 {
-                    fullError += $"\n[ViewerState] IsVideo={vm.IsVideo}, IsFitMode={vm.IsFitMode}, IsVideoPlaying={vm.IsVideoPlaying}, HasMediaPlayer={vm.MediaPlayer != null}, CurrentItem={vm.CurrentImage?.Name ?? "null"}";
+                    fullError += $"\n[ViewerState] IsVideo={vm.IsVideo}, IsFitMode={vm.IsFitMode}, IsVideoPlaying={vm.IsVideoPlaying}, HasPlayer={vm.MediaPlayer != null}, Item={vm.CurrentImage?.Name ?? "null"}";
                 }
             }
             catch { }
@@ -118,15 +114,14 @@ public partial class App : Application
             }
             catch { /* 日志失败忽略 */ }
 
-            // 2. 显示用户友好的提示（展示 + 指引去日志文件）
+            // 2. 显示用户友好的提示
             var caption = "IcedPicViewer 发生错误";
             var message = "发生未处理异常。\n\n" +
-                          "✅ 完整错误信息（含堆栈）已保存到日志文件：\n" +
-                          "   %LOCALAPPDATA%\\IcedPicViewer\\crash.log\n\n" +
+                          "完整错误详情已写入：\n" +
+                          "%LOCALAPPDATA%\\IcedPicViewer\\crash.log\n\n" +
                           "请打开该文件复制堆栈给开发者。\n\n" +
-                          "摘要:\n" +
-                          ex.GetType().Name + ": " + ex.Message + "\n\n" +
-                          "提示：如果是启动或媒体解码问题，可能是缺少 Windows App Runtime 或解码器扩展。";
+                          "摘要：\n" +
+                          ex.GetType().Name + ": " + ex.Message;
 
             _ = MessageBoxW(IntPtr.Zero, message, caption,
                 0x00000010 /* MB_ICONERROR */ | 0x00040000 /* MB_SETFOREGROUND */);
