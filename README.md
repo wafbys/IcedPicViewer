@@ -71,7 +71,7 @@ dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c
 |------|---------|-------|-------|
 | **UI / 看图** | 开箱 | 开箱 | 开箱（需图形会话） |
 | **LibVLC 播放** | NuGet `VideoLAN.LibVLC.Windows` | NuGet `VideoLAN.LibVLC.Mac` | 系统安装，例如 `sudo apt install vlc libvlc-dev`；或设 `IPV_LIBVLC_ROOT` |
-| **FFmpeg 缩略图** | 仓库内 WinUI `runtimes/win-x64/native`，或 `tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` | `brew install ffmpeg` 或 `./tools/Fetch-FFmpegNatives.sh osx-arm64` | `./tools/Fetch-FFmpegNatives.sh linux-x64` 或安装 `libavcodec` 等开发包 |
+| **FFmpeg 缩略图** | `./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64`（**DLL 不进 git**） | `brew install ffmpeg` 或 `./tools/Fetch-FFmpegNatives.sh osx-arm64` | `./tools/Fetch-FFmpegNatives.sh linux-x64` 或 apt 安装 libav* |
 
 FFmpeg 拉取后位于 `src/native/ffmpeg/{rid}/`（不进 git，见该目录 README）。也可用环境变量：
 

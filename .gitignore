@@ -60,8 +60,13 @@ src/IcedPicViewer.WinUI/Generated/
 # Single executable deliverable folder (regenerated on publish)
 IcedPicViewer-x64/
 
-# FFmpeg shared natives (fetched by tools/Fetch-FFmpegNatives.*) — keep README only
+# FFmpeg / native video libs — never commit (GitHub 50MB+ warn; avcodec ~67MB)
+# Fetch: tools/Fetch-FFmpegNatives.ps1 | .sh  →  src/native/ffmpeg/{rid}/
 src/native/ffmpeg/**
 !src/native/ffmpeg/README.md
-!src/native/ffmpeg/**/
-!src/native/ffmpeg/**/SOURCE.txt
+src/IcedPicViewer.WinUI/runtimes/**/native/*.dll
+src/IcedPicViewer.WinUI/runtimes/**/native/*.so
+src/IcedPicViewer.WinUI/runtimes/**/native/*.so.*
+src/IcedPicViewer.WinUI/runtimes/**/native/*.dylib
+# Keep docs under native folders
+!src/IcedPicViewer.WinUI/runtimes/**/native/README.md

@@ -83,5 +83,13 @@ Get-ChildItem $libDir.FullName -File | Copy-Item -Destination $dest -Force
     "fetched=$(Get-Date -Format o)"
 ) | Set-Content (Join-Path $dest 'SOURCE.txt')
 
+# Convenience: mirror win-x64 into WinUI project path (build expects it there).
+if ($Rid -eq 'win-x64') {
+    $winuiNative = Join-Path $RepoRoot 'src/IcedPicViewer.WinUI/runtimes/win-x64/native'
+    New-Item -ItemType Directory -Force -Path $winuiNative | Out-Null
+    Get-ChildItem $dest -File -Filter '*.dll' | Copy-Item -Destination $winuiNative -Force
+    Write-Host "Also mirrored *.dll → $winuiNative"
+}
+
 Write-Host "Done. $(@(Get-ChildItem $dest -File).Count) files in $dest"
 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

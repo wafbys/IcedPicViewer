@@ -11,7 +11,7 @@
 | `src/IcedPicViewer.Core` | 平台无关：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI / Avalonia |
 | `src/IcedPicViewer.Avalonia` | **主交付**：浅色 Fluent 2 风 UI、图库/查看器、视频 LibVLC 软渲染、幻灯片、全屏热区 chrome |
 | `src/IcedPicViewer.WinUI` | 过渡期对照（WinUI 3 + WASDK，MSIX，x64） |
-| FFmpeg | Core `FFmpegBootstrap`：`IPV_FFMPEG_ROOT` → `runtimes/{rid}/native` → 系统路径；拉取脚本 `tools/Fetch-FFmpegNatives.*`；Win 可回落 WinUI 的 win-x64 DLL |
+| FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 会镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径 |
 | LibVLC | `LibVLCSharp` + `VideoLAN.LibVLC.Windows` + `VideoLAN.LibVLC.Mac`；**Linux 用系统 libvlc**（`apt install vlc libvlc-dev` 或 `IPV_LIBVLC_ROOT`）。**禁止** `LibVLCSharp.Avalonia.VideoView`（Avalonia 12 会崩） |
 
 - 基线 tag：`winui-baseline`（迁移前最后纯 WinUI 快照）。

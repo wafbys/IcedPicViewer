@@ -1,51 +1,28 @@
-# FFmpeg native runtime DLLs
+# FFmpeg native runtime DLLs (not in git)
 
-**Source**: https://github.com/BtbN/FFmpeg-Builds/releases/latest
-**Build**: `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` (BtbN auto-build, 2026-06-22)
-**License**: LGPL 2.1+ (LGPL shared build — uses the LGPL-compatible configuration: no non-free/encumbered code, distributed as dynamic libraries that the user can replace).
+**这些 `*.dll` 不再纳入版本库**（`avcodec` 约 67MB，会触发 GitHub 警告）。
 
-## Files
+## 如何获取
 
-| File | Purpose |
-|------|---------|
-| `avcodec-62.dll` | Codec encoder + decoder library (largest file: ~67 MB) |
-| `avformat-62.dll` | Container mux + demux |
-| `avutil-60.dll` | Core utilities |
-| `swresample-6.dll` | Audio resampling |
-| `swscale-9.dll` | Image scaling + colorspace conversion |
-| `avfilter-11.dll` | Filter graph (currently unused by IcedPicViewer) |
-| `avdevice-62.dll` | Input/output device abstraction (currently unused) |
-
-## LGPL compliance notes
-
-LGPL 2.1+ requires:
-1. **Source notice**: LGPL text accompanies the binaries (we will provide it in
-   `License\ffmpeg-LGPL.txt` when video support ships).
-2. **Reverse engineering for relinking**: the user must be able to swap the
-   LGPL DLLs. MSIX-packaged deployment satisfies this — the DLLs sit at a
-   predictable path inside the AppX package, and the user can replace them
-   in-place.
-3. **License prominence**: the app's AboutPage must credit FFmpeg + LGPL.
-   Tracked as TODO in the video support work.
-
-## Probe
-
-To verify these DLLs load correctly inside the MSIX-packaged app at runtime,
-set the env var before launching:
+在仓库根目录执行（推荐，写入统一目录再同步到此处）：
 
 ```powershell
-$env:IPV_FFMPEG_PROBE = '1'
-dotnet run -c Debug -p:Platform=x64
+./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64
+# 脚本会填充 src/native/ffmpeg/win-x64/
+# 若需要 WinUI 工程本地路径，再复制：
+Copy-Item src/native/ffmpeg/win-x64/*.dll src/IcedPicViewer.WinUI/runtimes/win-x64/native/ -Force
 ```
 
-For a deeper test (file probe + thumbnail decode):
+或从 [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases) 下载  
+`ffmpeg-n8.1-latest-win64-lgpl-shared-*.zip`，把 `bin\` 下 DLL 放进本目录。
 
-```powershell
-$env:IPV_FFMPEG_PROBE = '1'
-$env:IPV_FFMPEG_PROBE_VIDEO = 'C:\path\to\some.mp4'
-$env:IPV_FFMPEG_PROBE_THUMBNAIL = '1'
-dotnet run -c Debug -p:Platform=x64
-```
+需要的大致文件：`avcodec-*.dll`、`avformat-*.dll`、`avutil-*.dll`、`swresample-*.dll`、`swscale-*.dll`（以及可选的 avfilter / avdevice）。
 
-Output is written to `%LOCALAPPDATA%\IcedPicViewer\ffmpeg-probe.log`
-(thumbnail at `probe-thumb.jpg` in the same folder).
+## 用途
+
+- WinUI：`IcedPicViewer.csproj` 的 `Content` + `CopyFFmpegDllsToAppX` 会拷进 AppX 根目录供 `LoadLibrary` 使用。
+- Avalonia：优先 `src/native/ffmpeg/win-x64/`；若无则回落本目录（若本机已拷贝）。
+
+## License
+
+LGPL 2.1+ shared builds。见 `License/ffmpeg-LGPL.txt`。

@@ -35,10 +35,12 @@ src/native/ffmpeg/
 
 | Platform | Fallback if folder empty |
 |----------|---------------------------|
-| Windows x64 | `src/IcedPicViewer.WinUI/runtimes/win-x64/native` (already in repo) |
-| Linux | Distro packages, e.g. `sudo apt install libavcodec-dev libavformat-dev libavutil-dev libswscale-dev` (libs under `/usr/lib/...`) |
-| macOS | `brew install ffmpeg` → `/opt/homebrew/lib` or `/usr/local/lib` |
+| Windows x64 | 本地 `WinUI/runtimes/win-x64/native`（**不进 git**；Fetch 脚本会镜像 DLL 到该路径） |
+| Linux | Distro packages, e.g. `sudo apt install libavcodec-dev ...` |
+| macOS | `brew install ffmpeg` → `/opt/homebrew/lib` |
 | Any | Env `IPV_FFMPEG_ROOT` = directory containing avutil / libavutil |
+
+**DLL/so/dylib 均不提交到 Git。**
 
 ## License
 
