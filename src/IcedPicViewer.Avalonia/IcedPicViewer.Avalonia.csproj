@@ -1,11 +1,15 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <!-- WinExe on Windows (no console); Exe elsewhere so Linux/macOS start cleanly. -->
+    <OutputType Condition="$([MSBuild]::IsOSPlatform('Windows'))">WinExe</OutputType>
+    <OutputType Condition="!$([MSBuild]::IsOSPlatform('Windows'))">Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RootNamespace>IcedPicViewer.Avalonia</RootNamespace>
+    <!-- Allow multi-RID restore of platform natives when publishing. -->
+    <RuntimeIdentifiers>win-x64;win-arm64;osx-x64;osx-arm64;linux-x64;linux-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,9 +28,14 @@
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="LibVLCSharp" Version="3.9.3" />
-    <!-- EXIF AutoOrient + decode for thumbs/full image (platform-agnostic). -->
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+
+    <!--
+      LibVLC natives (NuGet ships Windows + macOS only; Linux uses distro packages).
+      Reference both so restore/publish from any host can include the right RID assets.
+    -->
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
+    <PackageReference Include="VideoLAN.LibVLC.Mac" Version="3.1.3.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,11 +43,50 @@
   </ItemGroup>
 
   <!--
-    FFmpeg native DLLs (shared with WinUI package). Copied next to the Avalonia
-    output under runtimes/win-x64/native so FFmpegBootstrap can find them.
+    FFmpeg shared libraries for video thumbnails (FFmpeg.AutoGen).
+    Priority:
+      1) src/native/ffmpeg/{rid}/  (from tools/Fetch-FFmpegNatives.*)
+      2) WinUI win-x64 drop-in (existing BtbN LGPL shared build)
+    Layout after copy: $(OutputDir)/runtimes/{rid}/native/*
   -->
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <None Include="..\IcedPicViewer.WinUI\runtimes\win-x64\native\*.dll" Link="runtimes\win-x64\native\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  <ItemGroup>
+    <None Include="..\native\ffmpeg\win-x64\*"
+          Condition="Exists('..\native\ffmpeg\win-x64')"
+          Link="runtimes\win-x64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <None Include="..\native\ffmpeg\win-arm64\*"
+          Condition="Exists('..\native\ffmpeg\win-arm64')"
+          Link="runtimes\win-arm64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <None Include="..\native\ffmpeg\linux-x64\*"
+          Condition="Exists('..\native\ffmpeg\linux-x64')"
+          Link="runtimes\linux-x64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <None Include="..\native\ffmpeg\linux-arm64\*"
+          Condition="Exists('..\native\ffmpeg\linux-arm64')"
+          Link="runtimes\linux-arm64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <None Include="..\native\ffmpeg\osx-x64\*"
+          Condition="Exists('..\native\ffmpeg\osx-x64')"
+          Link="runtimes\osx-x64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <None Include="..\native\ffmpeg\osx-arm64\*"
+          Condition="Exists('..\native\ffmpeg\osx-arm64')"
+          Link="runtimes\osx-arm64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
+  <!-- Fallback: existing WinUI BtbN win-x64 FFmpeg DLLs when src/native/ffmpeg/win-x64 is empty. -->
+  <ItemGroup Condition="!Exists('..\native\ffmpeg\win-x64\avutil-60.dll') and Exists('..\IcedPicViewer.WinUI\runtimes\win-x64\native\avutil-60.dll')">
+    <None Include="..\IcedPicViewer.WinUI\runtimes\win-x64\native\*.dll"
+          Link="runtimes\win-x64\native\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
   </ItemGroup>
 </Project>
-

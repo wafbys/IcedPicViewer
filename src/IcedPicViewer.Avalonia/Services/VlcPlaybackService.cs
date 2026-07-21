@@ -1,6 +1,7 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
 using LibVLCSharp.Shared;
@@ -10,6 +11,10 @@ namespace IcedPicViewer.Avalonia.Services;
 /// <summary>
 /// Owns process-wide LibVLC + a single <see cref="MediaPlayer"/> for the
 /// viewer. Resolves archive entries to temp files for playback.
+/// <para>
+/// Natives: Windows/macOS via NuGet (<c>VideoLAN.LibVLC.*</c>); Linux via
+/// distro packages (<c>libvlc</c>) or <c>IPV_LIBVLC_ROOT</c>.
+/// </para>
 /// </summary>
 public sealed class VlcPlaybackService : IDisposable
 {
@@ -32,6 +37,15 @@ public sealed class VlcPlaybackService : IDisposable
 
     public bool IsPlaying => _player?.IsPlaying == true;
 
+    public bool IsAvailable
+    {
+        get
+        {
+            EnsureInitialized();
+            return _player is not null;
+        }
+    }
+
     public event EventHandler? PlayingChanged;
 
     public void EnsureInitialized()
@@ -42,8 +56,7 @@ public sealed class VlcPlaybackService : IDisposable
             if (_initialized || _disposed) return;
             try
             {
-                // Fully-qualified: project root namespace is IcedPicViewer.Core.
-                LibVLCSharp.Shared.Core.Initialize();
+                InitializeLibVlcCore();
                 _libVlc = new LibVLC(
                     "--no-video-title-show",
                     "--quiet");
@@ -53,11 +66,71 @@ public sealed class VlcPlaybackService : IDisposable
                 _player.Stopped += (_, _) => PlayingChanged?.Invoke(this, EventArgs.Empty);
                 _player.EndReached += (_, _) => PlayingChanged?.Invoke(this, EventArgs.Empty);
                 _initialized = true;
+                Trace.TraceInformation("VlcPlaybackService: LibVLC ready");
             }
             catch (Exception ex)
             {
                 Trace.TraceError($"VlcPlaybackService init failed: {ex.Message}");
+                // Leave _initialized false so a later retry can succeed if libs appear.
             }
+        }
+    }
+
+    /// <summary>
+    /// Windows/macOS: NuGet packs natives and <see cref="Core.Initialize()"/> finds them.
+    /// Linux: prefer <c>IPV_LIBVLC_ROOT</c>, then common multiarch paths.
+    /// </summary>
+    private static void InitializeLibVlcCore()
+    {
+        var env = Environment.GetEnvironmentVariable("IPV_LIBVLC_ROOT");
+        if (!string.IsNullOrWhiteSpace(env) && Directory.Exists(env))
+        {
+            LibVLCSharp.Shared.Core.Initialize(env.Trim());
+            return;
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            foreach (var dir in LinuxLibVlcCandidates())
+            {
+                if (LooksLikeLibVlcDir(dir))
+                {
+                    LibVLCSharp.Shared.Core.Initialize(dir);
+                    Trace.TraceInformation($"VlcPlaybackService: using system LibVLC at {dir}");
+                    return;
+                }
+            }
+        }
+
+        // NuGet VideoLAN.LibVLC.Windows / .Mac, or default probe paths.
+        LibVLCSharp.Shared.Core.Initialize();
+    }
+
+    private static IEnumerable<string> LinuxLibVlcCandidates()
+    {
+        yield return "/usr/lib/x86_64-linux-gnu";
+        yield return "/usr/lib/aarch64-linux-gnu";
+        yield return "/usr/lib64";
+        yield return "/usr/lib";
+        yield return "/usr/local/lib";
+        // Flatpak / custom
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(home))
+            yield return Path.Combine(home, ".local", "lib");
+    }
+
+    private static bool LooksLikeLibVlcDir(string dir)
+    {
+        if (!Directory.Exists(dir)) return false;
+        try
+        {
+            return File.Exists(Path.Combine(dir, "libvlc.so"))
+                || File.Exists(Path.Combine(dir, "libvlc.so.5"))
+                || Directory.EnumerateFiles(dir, "libvlc.so*").Any();
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -72,10 +145,6 @@ public sealed class VlcPlaybackService : IDisposable
         }
     }
 
-    /// <summary>
-    /// Loads media for <paramref name="source"/> without auto-playing.
-    /// Returns false if the path cannot be resolved or VLC is unavailable.
-    /// </summary>
     public async Task<bool> LoadAsync(ImageSource source, CancellationToken ct = default)
     {
         EnsureInitialized();
@@ -137,9 +206,6 @@ public sealed class VlcPlaybackService : IDisposable
         CleanupTemp();
     }
 
-    /// <summary>
-    /// Seek to a fraction of the media [0,1].
-    /// </summary>
     public void SeekFraction(double fraction)
     {
         if (_player is null || !_player.IsSeekable) return;

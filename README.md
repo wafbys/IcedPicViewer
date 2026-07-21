@@ -58,15 +58,27 @@
 
 ### Avalonia（推荐）
 
-```powershell
+所有桌面平台命令相同（需安装 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)）：
+
+```bash
 dotnet build src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
 dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
 ```
 
-依赖：.NET 10。Windows 上 FFmpeg native 从 WinUI 工程 `runtimes/win-x64/native` 复制到输出；LibVLC 由 `VideoLAN.LibVLC.Windows` 带入。
+#### 平台 native（视频相关）
 
-设置文件：`%LOCALAPPDATA%\IcedPicViewer\settings.json`（幻灯片、音量、窗口几何等）。
+| 组件 | Windows | macOS | Linux |
+|------|---------|-------|-------|
+| **UI / 看图** | 开箱 | 开箱 | 开箱（需图形会话） |
+| **LibVLC 播放** | NuGet `VideoLAN.LibVLC.Windows` | NuGet `VideoLAN.LibVLC.Mac` | 系统安装，例如 `sudo apt install vlc libvlc-dev`；或设 `IPV_LIBVLC_ROOT` |
+| **FFmpeg 缩略图** | 仓库内 WinUI `runtimes/win-x64/native`，或 `tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` | `brew install ffmpeg` 或 `./tools/Fetch-FFmpegNatives.sh osx-arm64` | `./tools/Fetch-FFmpegNatives.sh linux-x64` 或安装 `libavcodec` 等开发包 |
 
+FFmpeg 拉取后位于 `src/native/ffmpeg/{rid}/`（不进 git，见该目录 README）。也可用环境变量：
+
+- `IPV_FFMPEG_ROOT` — 含 `avutil` / `libavutil` 的目录  
+- `IPV_LIBVLC_ROOT` — 含 `libvlc` 的目录（主要 Linux）
+
+设置文件：Windows `%LOCALAPPDATA%\IcedPicViewer\settings.json`；macOS `~/Library/Application Support/IcedPicViewer/` 对应 LocalApplicationData 路径。
 ### WinUI（对照，仅 Windows x64）
 
 ```powershell

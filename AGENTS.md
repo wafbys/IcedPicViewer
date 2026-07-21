@@ -11,8 +11,8 @@
 | `src/IcedPicViewer.Core` | 平台无关：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI / Avalonia |
 | `src/IcedPicViewer.Avalonia` | **主交付**：浅色 Fluent 2 风 UI、图库/查看器、视频 LibVLC 软渲染、幻灯片、全屏热区 chrome |
 | `src/IcedPicViewer.WinUI` | 过渡期对照（WinUI 3 + WASDK，MSIX，x64） |
-| FFmpeg | Core 抽帧 + Avalonia 从 `WinUI/runtimes/win-x64/native` Copy |
-| LibVLC | `LibVLCSharp` + `VideoLAN.LibVLC.Windows`（**不要**用与 Avalonia 12 不兼容的 `LibVLCSharp.Avalonia.VideoView`） |
+| FFmpeg | Core `FFmpegBootstrap`：`IPV_FFMPEG_ROOT` → `runtimes/{rid}/native` → 系统路径；拉取脚本 `tools/Fetch-FFmpegNatives.*`；Win 可回落 WinUI 的 win-x64 DLL |
+| LibVLC | `LibVLCSharp` + `VideoLAN.LibVLC.Windows` + `VideoLAN.LibVLC.Mac`；**Linux 用系统 libvlc**（`apt install vlc libvlc-dev` 或 `IPV_LIBVLC_ROOT`）。**禁止** `LibVLCSharp.Avalonia.VideoView`（Avalonia 12 会崩） |
 
 - 基线 tag：`winui-baseline`（迁移前最后纯 WinUI 快照）。
 - **MasonryPanel** 瀑布流：默认 **3 列铺满**（对齐 WinUI），非虚拟化，勿擅自改成虚拟化列表。
@@ -31,6 +31,8 @@ dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c
 ```
 
 全屏 chrome：仅顶/底热区显示工具栏；**翻图不得 PeekChrome**；Opacity 淡入淡出。
+
+跨平台视频：Linux 需本机 VLC/libvlc；macOS 用 NuGet Mac 包；FFmpeg 见 `src/native/ffmpeg/README.md`。
 
 ### WinUI（对照，仅 Windows x64）
 

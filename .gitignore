@@ -59,3 +59,9 @@ src/IcedPicViewer.WinUI/Generated/
 
 # Single executable deliverable folder (regenerated on publish)
 IcedPicViewer-x64/
+
+# FFmpeg shared natives (fetched by tools/Fetch-FFmpegNatives.*) — keep README only
+src/native/ffmpeg/**
+!src/native/ffmpeg/README.md
+!src/native/ffmpeg/**/
+!src/native/ffmpeg/**/SOURCE.txt
