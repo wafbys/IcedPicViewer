@@ -6,7 +6,7 @@
 |------|------|
 | `src/IcedPicViewer.Avalonia` | **主程序**（Win / macOS / Linux，.NET 10 + Avalonia 12） |
 | `src/IcedPicViewer.Core` | 平台无关：扫描、归档、设置、FFmpeg 抽帧等 |
-| `src/IcedPicViewer.WinUI` | 过渡期对照（WinUI 3 + WASDK，MSIX，x64） |
+| `src/IcedPicViewer.WinUI` | **并行跟进** 的 Windows 原生壳（WinUI 3 + WASDK 2.3，MSIX，x64） |
 
 迁移前纯 WinUI 快照 tag：`winui-baseline`。
 
@@ -79,16 +79,16 @@ FFmpeg 拉取后位于 `src/native/ffmpeg/{rid}/`（不进 git，见该目录 RE
 - `IPV_LIBVLC_ROOT` — 含 `libvlc` 的目录（主要 Linux）
 
 设置文件：Windows `%LOCALAPPDATA%\IcedPicViewer\settings.json`；macOS `~/Library/Application Support/IcedPicViewer/` 对应 LocalApplicationData 路径。
-### WinUI（对照，仅 Windows x64）
+### WinUI（并行跟进，仅 Windows x64）
 
 ```powershell
+./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64   # 首次 / 清仓后
 dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=x64
 dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=x64
 ```
 
-前置：.NET 10 Runtime + Windows App Runtime（MSIX 会拉 framework）。  
-**不要**直接双击 MSIX 产物里的 `.exe`（无 package identity 会 `REGDB_E_CLASSNOTREG`）。请用 `dotnet run`。
-
+前置：.NET 10 Runtime + **Windows App Runtime 2.3**（MSIX 会拉 framework）。  
+**不要**直接双击 MSIX 产物里的 `.exe`。请用 `dotnet run`。
 ## 版本
 
 - **v0.15.0** - Avalonia 跨平台主线：Core 抽离 + 图库/查看器/视频/幻灯片/全屏/Fluent 浅色 UI；WinUI 迁入 `src/` 作对照；基线 tag `winui-baseline`

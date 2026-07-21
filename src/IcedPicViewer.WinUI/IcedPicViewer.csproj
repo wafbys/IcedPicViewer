@@ -71,87 +71,48 @@
 
   <ItemGroup>
     <!--
-      固定版本号,严格遵循微软官方"SDK/runtime 版本必须严格对应"建议:
-      - Microsoft.WindowsAppSDK 2.2.0 ↔ 目标机必须装 Windows App Runtime 2.2 standalone
-      - 跨版本会启动报版本不匹配错误 (0x80004005 / "Microsoft.WindowsAppRuntime not found")
-      - 微软文档示例永远用固定版本号,不用 floating
+      固定版本号 — SDK/runtime 必须严格对应:
+      Microsoft.WindowsAppSDK 2.3.x ↔ 目标机 Windows App Runtime 2.3
+      (MSIX 会依赖 framework package；跨主版本会启动失败)
     -->
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
     <!--
-      Microsoft.Windows.SDK.BuildTools.WinApp (WinApp SDK BuildTools):
-      Adds first-class support for `dotnet run` on packaged WinUI apps.
-      It hooks the .NET CLI Run target to register a debug identity via
-      the winapp CLI and launch the app with package identity (AUMID).
-      Set <EnableWinAppRunSupport>false</EnableWinAppRunSupport> to opt out.
+      WinApp CLI: hooks `dotnet run` for packaged WinUI (debug package identity).
+      Bump when console prints "vX.Y is available" from winappcli.
     -->
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.4.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.5.0" />
+
+    <!-- Archive via Core (SharpCompress); no direct package needed here. -->
 
     <!--
-      Archive support: ZIP + RAR + 7Z (and tar/gz) read-only access for scanning
-      picture files inside archives. Pure managed, no native dependencies, so the
-      framework-dependent publish profile is unaffected. Per SharpCompress docs
-      we use ArchiveFactory.Open(ArchiveType) overloads or let the factory sniff.
-    -->
-    <PackageReference Include="SharpCompress" Version="0.49.1" />
-
-    <!--
-      FFmpeg.AutoGen (8.1.0):
-      Pure-managed C# bindings for FFmpeg 8.1 native libraries. The package
-      does NOT ship native binaries — we drop them at runtimes\win-x64\native\
-      below (BtbN FFmpeg-Builds, LGPL 2.1+ shared builds, see README in that
-      folder). This binding is MIT-licensed; the bundled FFmpeg DLLs retain
-      their original LGPL 2.1+ license and are surfaced to the user in
-      AboutPage + License\ffmpeg-LGPL.txt (TODO: when video support lands).
-
-      Currently used only by FFmpegProbeService (gated by IPV_FFMPEG_PROBE
-      env var) to verify native DLL loading + frame extraction works in
-      MSIX-packaged deployment. Will be wired into VideoMetadataService
-      once the probe passes.
+      FFmpeg.AutoGen: managed bindings only. Native DLLs are NOT in git —
+      run tools/Fetch-FFmpegNatives.ps1 -Rid win-x64 (fills src/native/ffmpeg/win-x64
+      and mirrors into runtimes/win-x64/native).
     -->
     <PackageReference Include="FFmpeg.AutoGen" Version="8.1.0" />
 
-    <!-- Static Analysis -->
-    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.301">
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.302">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Platform-agnostic models / settings (ImageSource, LoadingState, AppSettings, …). -->
     <ProjectReference Include="..\IcedPicViewer.Core\IcedPicViewer.Core.csproj" />
   </ItemGroup>
 
-  <!--
-    FFmpeg native runtime DLLs.
-    Sourced from BtbN/FFmpeg-Builds (LGPL 2.1+ shared builds):
-      https://github.com/BtbN/FFmpeg-Builds/releases/latest
-      (ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip)
-    See runtimes\win-x64\native\README.md for the exact source build hash and
-    license compliance notes (LGPL requires that the DLLs be replaceable by
-    the user — that's automatic when they sit in the AppX package).
-
-    The default .NET SDK globs (`**/*.dll` under project root, etc.) DO pull
-    in `runtimes/<rid>/native/*.dll` as native runtime assets, but they get
-    placed under `bin/.../runtimes/win-x64/native/` rather than the AppX
-    root. WinAppSDK's MSIX packaging knows to flatten them to the AppX root
-    so LoadLibrary("avcodec-62") resolves at runtime. The explicit
-    <Content> entries below make the build behaviour deterministic and
-    visible in build logs.
-
-    AlwaysCopyToPublishDirectory ensures the DLLs land in BOTH:
-      - `dotnet build`  → bin\...\AppX\runtimes\win-x64\native\ (appx layout)
-      - `dotnet publish`→ bin\...\AppPackages\...\runtimes\win-x64\native\
-        (MSIX staged source) — without this, the published .msix is missing
-        the DLLs and LoadLibrary fails at first user launch.
-  -->
+  <!-- Prefer shared fetch output; also accept local mirror under runtimes/. -->
   <ItemGroup>
-    <Content Include="runtimes\win-x64\native\*.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <Content Include="..\native\ffmpeg\win-x64\*.dll"
+             Condition="Exists('..\native\ffmpeg\win-x64\avutil-60.dll')"
+             Link="runtimes\win-x64\native\%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="runtimes\win-x64\native\*.dll"
+             Condition="!Exists('..\native\ffmpeg\win-x64\avutil-60.dll')"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!--
@@ -172,7 +133,7 @@
   </ItemGroup>
 
   <!--
-    CopyFFmpegDllsToAppX: WinAppSDK 2.2.x MSIX packaging does NOT pick up
+    CopyFFmpegDllsToAppX: WinAppSDK 2.x MSIX packaging does NOT pick up
     files placed under runtimes/<rid>/native/ as direct AppX payload. For
     MSIX-packaged deployment, FFmpeg's LoadLibrary("avcodec-62") must find
     the DLLs at the AppX package install directory root, not in a
@@ -186,21 +147,28 @@
     Skipped if WindowsPackageType is None (unpackaged) — the regular
     runtimes/<rid>/native/ convention works fine there.
   -->
+  <!-- Prefer shared natives, then project-local mirror. -->
   <Target Name="CopyFFmpegDllsToAppX" AfterTargets="Build" Condition="'$(WindowsPackageType)' != 'None' and '$(_DesignTimeBuild)' != 'true'">
     <PropertyGroup>
-      <_FFmpegSourceDir>$(MSBuildProjectDirectory)\runtimes\win-x64\native\</_FFmpegSourceDir>
+      <_FFmpegSharedDir>$(MSBuildProjectDirectory)\..\native\ffmpeg\win-x64\</_FFmpegSharedDir>
+      <_FFmpegLocalDir>$(MSBuildProjectDirectory)\runtimes\win-x64\native\</_FFmpegLocalDir>
+      <_FFmpegSourceDir Condition="Exists('$(_FFmpegSharedDir)avutil-60.dll')">$(_FFmpegSharedDir)</_FFmpegSourceDir>
+      <_FFmpegSourceDir Condition="'$(_FFmpegSourceDir)' == ''">$(_FFmpegLocalDir)</_FFmpegSourceDir>
       <_FFmpegAppXDir>$(OutDir)AppX\</_FFmpegAppXDir>
     </PropertyGroup>
     <ItemGroup>
       <_FFmpegDlls Include="$(_FFmpegSourceDir)*.dll" />
     </ItemGroup>
+    <Warning Code="IPV001"
+             Text="FFmpeg native DLLs not found under src/native/ffmpeg/win-x64 or runtimes/win-x64/native. Video thumbs/probe will fail. Run: ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64"
+             Condition="@(_FFmpegDlls) == ''" />
     <MakeDir Directories="$(_FFmpegAppXDir)" Condition="!Exists('$(_FFmpegAppXDir)')" />
-    <Copy SourceFiles="@(_FFmpegDlls)" DestinationFolder="$(_FFmpegAppXDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_FFmpegDlls)" DestinationFolder="$(_FFmpegAppXDir)" SkipUnchangedFiles="true" Condition="@(_FFmpegDlls) != ''" />
     <Message Text="CopyFFmpegDllsToAppX: copied @(_FFmpegDlls) -&gt; $(_FFmpegAppXDir)" Importance="high" Condition="@(_FFmpegDlls) != ''" />
   </Target>
 
   <!--
-    CopyLicenseToAppX: WinAppSDK 2.2.x MSIX layout only auto-includes
+    CopyLicenseToAppX: WinAppSDK 2.x MSIX layout only auto-includes
     well-known subdirectories (Assets/, Views/, runtimes/, Microsoft.UI.Xaml/).
     License\ — which holds the LGPL 2.1 text opened from the About page
     via ms-appx:///License/ffmpeg-LGPL.txt — would be silently dropped
@@ -233,10 +201,9 @@
 
   <!--
     IcedPicViewer is a MSIX-packaged WinUI 3 app (WindowsPackageType is unset
-    → defaults to MSIX). The Package.appxmanifest declares the framework
-    dependency on Microsoft.WindowsAppRuntime 2.2, which Windows resolves
-    automatically from the framework package — no standalone installer or
-    Bootstrapper registration needed on the target machine.
+    → defaults to MSIX). Package.appxmanifest + WASDK 2.3.x declare the
+    framework dependency on Microsoft.WindowsAppRuntime 2.3, which Windows
+    resolves from the framework package — no standalone installer needed.
 
     Build / Run / Publish flow:
       - `dotnet build -c Debug -p:Platform=x64` produces the AppX layout at
@@ -244,8 +211,7 @@
       - `dotnet run` (via Microsoft.Windows.SDK.BuildTools.WinApp, added above)
         registers a debug package identity (AUMID) and launches the app.
       - `dotnet publish -c Release -p:Platform=x64` produces a sideloadable
-        .msix under bin\...\AppPackages\IcedPicViewer_0.12.0.0_x64.msix (and
-        its dependency .msix files in the same folder).
+        .msix under bin\...\AppPackages\ (and dependency .msix files).
   -->
   <PropertyGroup>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
@@ -260,9 +226,8 @@
     to GetCopyToOutputDirectoryItems (build), not GetCopyToPublishDirectoryItems
     (publish). Without this, an unpackaged `dotnet publish` produces an exe
     that crashes on launch (0xC000027B) because it cannot find App.xbf /
-    MainWindow.xbf / Assets / Views. Verified still needed on WinAppSDK 2.2.0
-    (2026-06-15) — Microsoft has not fixed this in 2.2.0; this target is
-    required for any future unpackaged publish.
+    MainWindow.xbf / Assets / Views. Still needed on WinAppSDK 2.x for any
+    future unpackaged publish.
 
     IcedPicViewer is currently MSIX-packaged (WindowsPackageType unset),
     so this target is a no-op. Kept for the day someone needs an unpackaged

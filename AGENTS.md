@@ -10,7 +10,7 @@
 |------|------|
 | `src/IcedPicViewer.Core` | 平台无关：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI / Avalonia |
 | `src/IcedPicViewer.Avalonia` | **主交付**：浅色 Fluent 2 风 UI、图库/查看器、视频 LibVLC 软渲染、幻灯片、全屏热区 chrome |
-| `src/IcedPicViewer.WinUI` | 过渡期对照（WinUI 3 + WASDK，MSIX，x64） |
+| `src/IcedPicViewer.WinUI` | **并行跟进** 的 Windows 原生壳（WinUI 3 + WASDK 2.3，MSIX，x64）；与 Avalonia 对照，功能可继续演进 |
 | FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 会镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径 |
 | LibVLC | `LibVLCSharp` + `VideoLAN.LibVLC.Windows` + `VideoLAN.LibVLC.Mac`；**Linux 用系统 libvlc**（`apt install vlc libvlc-dev` 或 `IPV_LIBVLC_ROOT`）。**禁止** `LibVLCSharp.Avalonia.VideoView`（Avalonia 12 会崩） |
 
@@ -34,17 +34,21 @@ dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c
 
 跨平台视频：Linux 需本机 VLC/libvlc；macOS 用 NuGet Mac 包；FFmpeg 见 `src/native/ffmpeg/README.md`。
 
-### WinUI（对照，仅 Windows x64）
+### WinUI（并行跟进，仅 Windows x64）
 
 ```powershell
+# 视频 FFmpeg DLL（不进 git；缺了 build 会 IPV001 警告）
+./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64
+
 $Platform = 'x64'
 dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$Platform
 dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$Platform
 dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=$Platform
 ```
 
-⚠️ WinUI：**不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX packaged 需要 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。`dotnet run` 通过 `winapp.exe launch` 注册 debug identity 后启动。
-
+- WASDK **2.3.x** ↔ 目标机 Windows App Runtime **2.3**（MSIX 拉 framework；跨主版本会启动失败）。
+- WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
+- ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。
 ## 核心原则
 
 1. **用户意图优先**——规则和体验冲突时说出来讨论。
