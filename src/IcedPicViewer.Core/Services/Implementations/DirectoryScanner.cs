@@ -11,7 +11,7 @@ public class DirectoryScanner : IDirectoryScanner
     private static readonly HashSet<string> _recycleBinNames = new(
         ["$RECYCLE.BIN", "Recycler", "RECYCLED"], StringComparer.OrdinalIgnoreCase);
 
-    internal static bool IsRecycleBin(string path)
+    public static bool IsRecycleBin(string path)
     {
         var current = path;
         while (current != null)

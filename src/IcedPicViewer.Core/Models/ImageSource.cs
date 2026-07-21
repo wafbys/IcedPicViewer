@@ -6,8 +6,7 @@ namespace IcedPicViewer.Models;
 /// What kind of media a <see cref="ImageSource"/> points at. Populated by
 /// the directory scanner from the file extension; carried alongside the
 /// source through the gallery pipeline so the VM can dispatch each
-/// <see cref="MediaItem"/> to the right metadata extractor (BitmapDecoder
-/// for images, FFmpeg for videos) without re-sniffing the path.
+/// media item to the right metadata extractor without re-sniffing the path.
 /// </summary>
 public enum MediaKind
 {

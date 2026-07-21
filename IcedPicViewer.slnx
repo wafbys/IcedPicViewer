@@ -1,8 +1,17 @@
 <Solution>
   <Configurations>
     <Platform Name="x64" />
+    <Platform Name="Any CPU" />
   </Configurations>
-  <Project Path="IcedPicViewer\IcedPicViewer.csproj">
+  <Project Path="src/IcedPicViewer.Core/IcedPicViewer.Core.csproj">
+    <Platform Solution="*|x64" Project="Any CPU" />
+    <Platform Solution="*|Any CPU" Project="Any CPU" />
+  </Project>
+  <Project Path="src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj">
+    <Platform Solution="*|x64" Project="Any CPU" />
+    <Platform Solution="*|Any CPU" Project="Any CPU" />
+  </Project>
+  <Project Path="src/IcedPicViewer.WinUI/IcedPicViewer.csproj">
     <Platform Solution="*|x64" Project="x64" />
   </Project>
 </Solution>

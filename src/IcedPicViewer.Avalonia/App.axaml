@@ -1,0 +1,164 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="IcedPicViewer.Avalonia.App"
+             xmlns:local="using:IcedPicViewer.Avalonia"
+             RequestedThemeVariant="Light">
+
+    <Application.DataTemplates>
+        <local:ViewLocator />
+    </Application.DataTemplates>
+
+    <!--
+      Fluent 2–inspired light palette (aligned with WinUI Card / Accent naming intent).
+      Prefer ThemeResource-like keys so MainWindow can stay readable.
+    -->
+    <Application.Resources>
+        <!-- Surfaces -->
+        <Color x:Key="AppBgColor">#FFF3F3F3</Color>
+        <Color x:Key="AppChromeColor">#FFFAFAFA</Color>
+        <Color x:Key="AppChromeBorderColor">#0F000000</Color>
+        <Color x:Key="AppCardColor">#FFFFFFFF</Color>
+        <Color x:Key="AppCardStrokeColor">#0F000000</Color>
+        <Color x:Key="AppViewerBgColor">#FF1A1A1A</Color>
+
+        <!-- Text (Fluent light) -->
+        <Color x:Key="AppTextPrimary">#E4000000</Color>
+        <Color x:Key="AppTextSecondary">#9A000000</Color>
+        <Color x:Key="AppTextOnAccent">#FFFFFFFF</Color>
+
+        <!-- Accent — Fluent light default blue family -->
+        <Color x:Key="AppAccent">#FF0067C0</Color>
+        <Color x:Key="AppAccentHover">#FF005A9E</Color>
+        <Color x:Key="AppAccentSoft">#1A0067C0</Color>
+        <Color x:Key="AppDanger">#FFC42B1C</Color>
+        <Color x:Key="AppDangerSoft">#1AC42B1C</Color>
+        <Color x:Key="AppDangerFg">#FFC42B1C</Color>
+
+        <SolidColorBrush x:Key="AppBgBrush" Color="{StaticResource AppBgColor}" />
+        <SolidColorBrush x:Key="AppChromeBrush" Color="{StaticResource AppChromeColor}" />
+        <SolidColorBrush x:Key="AppChromeBorderBrush" Color="{StaticResource AppChromeBorderColor}" />
+        <SolidColorBrush x:Key="AppCardBrush" Color="{StaticResource AppCardColor}" />
+        <SolidColorBrush x:Key="AppCardStrokeBrush" Color="{StaticResource AppCardStrokeColor}" />
+        <SolidColorBrush x:Key="AppViewerBgBrush" Color="{StaticResource AppViewerBgColor}" />
+        <SolidColorBrush x:Key="AppTextPrimaryBrush" Color="{StaticResource AppTextPrimary}" />
+        <SolidColorBrush x:Key="AppTextSecondaryBrush" Color="{StaticResource AppTextSecondary}" />
+        <SolidColorBrush x:Key="AppTextOnAccentBrush" Color="{StaticResource AppTextOnAccent}" />
+        <SolidColorBrush x:Key="AppAccentBrush" Color="{StaticResource AppAccent}" />
+        <SolidColorBrush x:Key="AppAccentHoverBrush" Color="{StaticResource AppAccentHover}" />
+        <SolidColorBrush x:Key="AppAccentSoftBrush" Color="{StaticResource AppAccentSoft}" />
+        <SolidColorBrush x:Key="AppDangerBrush" Color="{StaticResource AppDanger}" />
+        <SolidColorBrush x:Key="AppDangerSoftBrush" Color="{StaticResource AppDangerSoft}" />
+        <SolidColorBrush x:Key="AppDangerFgBrush" Color="{StaticResource AppDangerFg}" />
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+
+        <!-- Subtle secondary button (Fluent 2–like) -->
+        <Style Selector="Button.toolbar">
+            <Setter Property="Background" Value="#0A000000" />
+            <Setter Property="Foreground" Value="{StaticResource AppTextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="#0F000000" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.toolbar:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#12000000" />
+            <Setter Property="BorderBrush" Value="#18000000" />
+        </Style>
+        <Style Selector="Button.toolbar:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#18000000" />
+        </Style>
+        <Style Selector="Button.toolbar:disabled">
+            <Setter Property="Opacity" Value="0.4" />
+        </Style>
+
+        <!-- Accent primary -->
+        <Style Selector="Button.toolbar-primary">
+            <Setter Property="Background" Value="{StaticResource AppAccentBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource AppTextOnAccentBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="MinHeight" Value="32" />
+        </Style>
+        <Style Selector="Button.toolbar-primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource AppAccentHoverBrush}" />
+        </Style>
+
+        <Style Selector="Button.toolbar-danger">
+            <Setter Property="Background" Value="{StaticResource AppDangerSoftBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource AppDangerFgBrush}" />
+            <Setter Property="BorderBrush" Value="#33C42B1C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="MinHeight" Value="32" />
+        </Style>
+        <Style Selector="Button.toolbar-danger:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#28C42B1C" />
+        </Style>
+
+        <Style Selector="ToggleButton.toolbar">
+            <Setter Property="Background" Value="#0A000000" />
+            <Setter Property="Foreground" Value="{StaticResource AppTextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="#0F000000" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="MinHeight" Value="32" />
+        </Style>
+        <Style Selector="ToggleButton.toolbar:checked">
+            <Setter Property="Background" Value="{StaticResource AppAccentSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource AppAccentBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource AppAccentBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.toolbar:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#12000000" />
+        </Style>
+
+        <Style Selector="TextBlock.chrome-title">
+            <Setter Property="Foreground" Value="{StaticResource AppTextPrimaryBrush}" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.chrome-subtle">
+            <Setter Property="Foreground" Value="{StaticResource AppTextSecondaryBrush}" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="TextBlock.card-caption">
+            <Setter Property="Foreground" Value="{StaticResource AppTextPrimaryBrush}" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style Selector="Slider.toolbar">
+            <Setter Property="Foreground" Value="{StaticResource AppAccentBrush}" />
+            <Setter Property="MinHeight" Value="32" />
+        </Style>
+
+        <!-- Gallery card hover: semi-transparent info strip (WinUI-like) -->
+        <Style Selector="Border.gallery-card Border.card-hover-info">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
+        <Style Selector="Border.gallery-card:pointerover Border.card-hover-info">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Border.gallery-card Border.card-hover-scrim">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
+        <Style Selector="Border.gallery-card:pointerover Border.card-hover-scrim">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+    </Application.Styles>
+</Application>

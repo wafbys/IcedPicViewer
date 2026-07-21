@@ -1,0 +1,320 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:IcedPicViewer.Avalonia.ViewModels"
+        xmlns:controls="using:IcedPicViewer.Avalonia.Controls"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="780"
+        x:Class="IcedPicViewer.Avalonia.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="IcedPicViewer"
+        Width="1200"
+        Height="780"
+        Background="{DynamicResource AppBgBrush}"
+        KeyDown="Window_KeyDown"
+        PointerMoved="Window_PointerMoved">
+
+    <Design.DataContext>
+        <vm:MainViewModel />
+    </Design.DataContext>
+
+    <!-- Content is always full-window; chrome overlays with opacity fade (no layout jump). -->
+    <Grid>
+        <!-- ========== Main content ========== -->
+        <Panel Background="{DynamicResource AppBgBrush}">
+            <!-- Gallery: top/bottom padding leaves room under chrome when visible -->
+            <ScrollViewer x:Name="GalleryScroll"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto"
+                          IsVisible="{Binding !IsViewerOpen}"
+                          ScrollChanged="GalleryScroll_ScrollChanged"
+                          Padding="0,56,0,40">
+                <ItemsControl x:Name="GalleryItems"
+                              ItemsSource="{Binding Items}"
+                              Margin="12,10,12,12">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <controls:MasonryPanel ColumnCount="3"
+                                                   ItemWidth="220"
+                                                   ItemSpacing="8" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:GalleryItemViewModel">
+                            <!-- WinUI-like card: hover shows dim + name/size/path strip -->
+                            <Border Classes="gallery-card"
+                                    Background="{DynamicResource AppCardBrush}"
+                                    BorderBrush="{DynamicResource AppCardStrokeBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="4"
+                                    Cursor="Hand"
+                                    ClipToBounds="True"
+                                    PointerPressed="Tile_PointerPressed">
+                                <ToolTip.Tip>
+                                    <StackPanel MaxWidth="300" Spacing="2">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding InfoLine}" FontSize="11" Opacity="0.85" />
+                                        <TextBlock Text="{Binding DisplayPath}" FontSize="11" Opacity="0.7"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </ToolTip.Tip>
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="打开文件位置" Click="RevealMenu_Click" />
+                                        <MenuItem Header="删除" Click="DeleteMenu_Click" />
+                                    </ContextMenu>
+                                </Border.ContextMenu>
+                                <Grid MinHeight="120">
+                                    <Image Source="{Binding Thumbnail}"
+                                           Stretch="Uniform"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                                    <TextBlock Text="加载中…"
+                                               Classes="chrome-subtle"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               IsVisible="{Binding IsThumbnailLoading}" />
+                                    <!-- Video badge (always on) -->
+                                    <Border Background="#CC000000"
+                                            CornerRadius="20"
+                                            Width="40" Height="40"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Bottom"
+                                            Margin="0,0,8,8"
+                                            IsVisible="{Binding IsVideo}">
+                                        <TextBlock Text="▶"
+                                                   Foreground="White"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="14" />
+                                    </Border>
+                                    <!-- Soft scrim on hover -->
+                                    <Border Classes="card-hover-scrim"
+                                            Background="#33000000"
+                                            CornerRadius="2"
+                                            IsHitTestVisible="False">
+                                        <Border.Transitions>
+                                            <Transitions>
+                                                <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                                            </Transitions>
+                                        </Border.Transitions>
+                                    </Border>
+                                    <!-- Bottom info strip on hover (WinUI: name + size · path) -->
+                                    <Border Classes="card-hover-info"
+                                            VerticalAlignment="Bottom"
+                                            Background="#CC000000"
+                                            Padding="8,6"
+                                            IsHitTestVisible="False">
+                                        <Border.Transitions>
+                                            <Transitions>
+                                                <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                                            </Transitions>
+                                        </Border.Transitions>
+                                        <StackPanel Spacing="1">
+                                            <TextBlock Text="{Binding Name}"
+                                                       Foreground="White"
+                                                       FontWeight="SemiBold"
+                                                       FontSize="12"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding InfoLine}"
+                                                       Foreground="#E0FFFFFF"
+                                                       FontSize="11"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding DisplayPath}"
+                                                       Foreground="#B3FFFFFF"
+                                                       FontSize="11"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- Viewer -->
+            <Panel IsVisible="{Binding IsViewerOpen}" Background="{DynamicResource AppViewerBgBrush}">
+                <Panel IsVisible="{Binding !IsVideoSelected}">
+                    <Image IsVisible="{Binding IsFitMode}"
+                           Source="{Binding SelectedItem.FullImage}"
+                           Stretch="Uniform"
+                           Margin="16"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+                    <Panel IsVisible="{Binding !IsFitMode}">
+                        <ScrollViewer x:Name="OneToOneScroll"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Auto"
+                                      SizeChanged="OneToOneScroll_SizeChanged">
+                            <Grid x:Name="OneToOneHost"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch">
+                                <Image Source="{Binding SelectedItem.FullImage}"
+                                       Stretch="None"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                            </Grid>
+                        </ScrollViewer>
+                        <controls:ImageMinimap Width="168" Height="126"
+                                               Margin="16"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Bottom"
+                                               Source="{Binding SelectedItem.FullImage}"
+                                               TargetScrollViewer="{Binding #OneToOneScroll}" />
+                    </Panel>
+                </Panel>
+
+                <Panel IsVisible="{Binding IsVideoSelected}">
+                    <controls:VlcBitmapSurface MediaPlayer="{Binding MediaPlayer}"
+                                               HorizontalAlignment="Stretch"
+                                               VerticalAlignment="Stretch" />
+                    <Image Source="{Binding SelectedItem.FullImage}"
+                           Stretch="Uniform"
+                           IsVisible="{Binding ShowVideoPoster}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Margin="16" />
+                    <Button Classes="toolbar-primary"
+                            Content="▶  播放"
+                            Command="{Binding PlayPauseVideoCommand}"
+                            IsVisible="{Binding ShowVideoPoster}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Padding="28,14"
+                            FontSize="16" />
+                </Panel>
+
+                <TextBlock Text="加载中…"
+                           Foreground="#B3FFFFFF"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           IsVisible="{Binding SelectedItem.IsFullImageLoading}"
+                           FontSize="16" />
+            </Panel>
+        </Panel>
+
+        <!-- ========== Overlay top chrome ========== -->
+        <Border VerticalAlignment="Top"
+                Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppChromeBorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="16,10"
+                Opacity="{Binding ChromeOpacity}"
+                IsHitTestVisible="{Binding IsChromeVisible}"
+                ZIndex="10">
+            <Border.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut" />
+                </Transitions>
+            </Border.Transitions>
+            <Panel>
+                <Grid ColumnDefinitions="Auto,*,Auto"
+                      IsVisible="{Binding !IsViewerOpen}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Classes="toolbar-primary" Content="打开文件夹" Command="{Binding OpenFolderCommand}" />
+                        <Button Classes="toolbar" Content="刷新" Command="{Binding RefreshCommand}" ToolTip.Tip="F5" />
+                        <Button Classes="toolbar" Content="加载更多" Command="{Binding LoadMoreCommand}"
+                                IsVisible="{Binding CanLoadMore}" />
+                        <Button Classes="toolbar" Content="幻灯片" Command="{Binding StartGallerySlideshowCommand}" />
+                        <Button Classes="toolbar" Content="全屏" Command="{Binding ToggleFullscreenCommand}" ToolTip.Tip="F11" />
+                        <Button Classes="toolbar" Content="关于" Command="{Binding ShowAboutCommand}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Vertical" Margin="20,0" VerticalAlignment="Center">
+                        <TextBlock Classes="chrome-title" Text="选择文件夹开始浏览"
+                                   IsVisible="{Binding FolderPath, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
+                        <TextBlock Classes="chrome-title" Text="{Binding FolderPath}" TextTrimming="CharacterEllipsis"
+                                   IsVisible="{Binding FolderPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock Classes="chrome-subtle" Margin="0,2,0,0"
+                                   IsVisible="{Binding FolderPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                            <Run Text="已发现 " /><Run Text="{Binding DiscoveredCount}" />
+                            <Run Text=" · 已显示 " /><Run Text="{Binding Items.Count}" />
+                        </TextBlock>
+                    </StackPanel>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsViewerOpen}">
+                    <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <TextBlock Classes="chrome-title" Text="{Binding SelectedItem.Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="chrome-subtle" Text="{Binding SelectedItem.DisplayPath}"
+                                   TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Disabled" MaxWidth="860">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Button Classes="toolbar" Content="‹" FontSize="16" FontWeight="Bold"
+                                    Command="{Binding NavigatePreviousCommand}" ToolTip.Tip="上一张 ←" />
+                            <Button Classes="toolbar" Content="›" FontSize="16" FontWeight="Bold"
+                                    Command="{Binding NavigateNextCommand}" ToolTip.Tip="下一张 →" />
+                            <Button Classes="toolbar" Content="适应 / 1:1" Command="{Binding ToggleFitModeCommand}"
+                                    IsVisible="{Binding !IsVideoSelected}" ToolTip.Tip="F" />
+                            <Button Classes="toolbar-primary" Content="{Binding PlayPauseLabel}"
+                                    Command="{Binding PlayPauseVideoCommand}"
+                                    IsVisible="{Binding IsVideoSelected}" ToolTip.Tip="Space" />
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                                        IsVisible="{Binding IsVideoSelected}" Margin="4,0">
+                                <TextBlock Classes="chrome-subtle" Text="音量" VerticalAlignment="Center" />
+                                <Slider Classes="toolbar" Width="110" Minimum="0" Maximum="1"
+                                        Value="{Binding Volume, Mode=TwoWay}" />
+                            </StackPanel>
+                            <Button Classes="toolbar" Content="{Binding SlideshowButtonLabel}"
+                                    Command="{Binding ToggleSlideshowCommand}"
+                                    IsVisible="{Binding !IsVideoSelected}" />
+                            <ToggleButton Classes="toolbar" Content="循环"
+                                          IsChecked="{Binding IsSlideshowLooping, Mode=TwoWay}" />
+                            <ToggleButton Classes="toolbar" Content="随机"
+                                          IsChecked="{Binding IsSlideshowShuffling, Mode=TwoWay}" />
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="4,0,0,0">
+                                <TextBlock Classes="chrome-subtle" Text="间隔" VerticalAlignment="Center" />
+                                <Slider Classes="toolbar" Width="100" Minimum="1" Maximum="30"
+                                        TickFrequency="0.5" IsSnapToTickEnabled="True"
+                                        Value="{Binding SlideshowInterval, Mode=TwoWay}" />
+                                <TextBlock Classes="chrome-subtle" MinWidth="32" VerticalAlignment="Center"
+                                           Text="{Binding SlideshowInterval, StringFormat='{}{0:0.#}s'}" />
+                            </StackPanel>
+                            <Button Classes="toolbar" Content="位置" Command="{Binding RevealSelectedCommand}" />
+                            <Button Classes="toolbar-danger" Content="删除" Command="{Binding DeleteSelectedCommand}"
+                                    ToolTip.Tip="Delete" />
+                            <Button Classes="toolbar" Content="全屏" Command="{Binding ToggleFullscreenCommand}"
+                                    ToolTip.Tip="F11" />
+                            <Button Classes="toolbar" Content="关闭" Command="{Binding CloseViewerCommand}"
+                                    ToolTip.Tip="Esc" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Panel>
+        </Border>
+
+        <!-- ========== Overlay status bar ========== -->
+        <Border VerticalAlignment="Bottom"
+                Background="{DynamicResource AppChromeBrush}"
+                BorderBrush="{DynamicResource AppChromeBorderBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="16,8"
+                Opacity="{Binding ChromeOpacity}"
+                IsHitTestVisible="{Binding IsChromeVisible}"
+                ZIndex="10">
+            <Border.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut" />
+                </Transitions>
+            </Border.Transitions>
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="chrome-subtle"
+                           Text="{Binding StatusText}"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1"
+                           Classes="chrome-subtle"
+                           VerticalAlignment="Center"
+                           Margin="16,0,0,0"
+                           IsVisible="{Binding IsViewerOpen}"
+                           Text="← → 切换  ·  F 适应  ·  Space  ·  F11 全屏  ·  Esc 关闭" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

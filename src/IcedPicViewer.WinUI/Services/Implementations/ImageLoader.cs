@@ -6,6 +6,7 @@ using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using System.Threading.Tasks;
+using IcedPicViewer.Core.Media;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -17,13 +18,6 @@ namespace IcedPicViewer.Services.Implementations;
 
 public class ImageLoader : IImageLoader
 {
-    private static readonly HashSet<string> _supportedExtensions =
-        [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
-         ".tiff", ".tif", ".ico", ".avif", ".heic"];
-
-    private static readonly HashSet<string> _supportedVideoExtensions =
-        [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"];
-
     private readonly IThumbnailCache _thumbnailCache;
 
     public ImageLoader(IThumbnailCache thumbnailCache)
@@ -31,38 +25,15 @@ public class ImageLoader : IImageLoader
         _thumbnailCache = thumbnailCache;
     }
 
-    public IEnumerable<string> SupportedExtensions => _supportedExtensions;
+    public IEnumerable<string> SupportedExtensions => MediaCatalog.ImageExtensions;
 
-    public IEnumerable<string> SupportedVideoExtensions => _supportedVideoExtensions;
+    public IEnumerable<string> SupportedVideoExtensions => MediaCatalog.VideoExtensions;
 
-    public IEnumerable<(string Extension, MediaKind Kind)> SupportedMedia { get; } =
-        BuildSupportedMedia(_supportedExtensions, _supportedVideoExtensions);
+    public IEnumerable<(string Extension, MediaKind Kind)> SupportedMedia => MediaCatalog.SupportedMedia;
 
-    private static IEnumerable<(string Extension, MediaKind Kind)> BuildSupportedMedia(
-        HashSet<string> images, HashSet<string> videos)
-    {
-        foreach (var ext in images)
-        {
-            yield return (ext, MediaKind.Image);
-        }
-        foreach (var ext in videos)
-        {
-            yield return (ext, MediaKind.Video);
-        }
-    }
+    public bool IsSupportedFormat(string path) => MediaCatalog.IsSupported(path);
 
-    public bool IsSupportedFormat(string path)
-    {
-        var ext = Path.GetExtension(path).ToLowerInvariant();
-        return _supportedExtensions.Contains(ext) || _supportedVideoExtensions.Contains(ext);
-    }
-
-    public MediaKind GetKindForFile(string path)
-    {
-        var ext = Path.GetExtension(path);
-        if (_supportedVideoExtensions.Contains(ext)) return MediaKind.Video;
-        return MediaKind.Image;
-    }
+    public MediaKind GetKindForFile(string path) => MediaCatalog.GetKind(path);
 
     public async Task<Stream?> LoadImageStreamAsync(ImageSource source, CancellationToken ct = default)
     {

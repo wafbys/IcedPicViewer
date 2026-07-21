@@ -4,29 +4,44 @@
 
 ## 项目背景
 
-基于 **WinUI 3 + Windows App SDK** 的图片查看器（MSIX 打包，x64，.NET 10）。
+本地媒体浏览器（图片 + 视频 + 压缩包展平）。**主交付为 Avalonia**（Win / macOS / Linux）；WinUI 3 保留为对照基线。
 
-- **MasonryPanel** 瀑布流布局（用户明确选择保留，不要改虚拟化列表）。
-- **混合加载模式**：边扫边灌到 200 张停 → scanner 继续后台跑但不再自动灌 → 用户点 "Load More" 或滚到底手动加载。
-- CommunityToolkit.Mvvm + Microsoft.Extensions.DependencyInjection。
+| 路径 | 角色 |
+|------|------|
+| `src/IcedPicViewer.Core` | 平台无关：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI / Avalonia |
+| `src/IcedPicViewer.Avalonia` | **主交付**：浅色 Fluent 2 风 UI、图库/查看器、视频 LibVLC 软渲染、幻灯片、全屏热区 chrome |
+| `src/IcedPicViewer.WinUI` | 过渡期对照（WinUI 3 + WASDK，MSIX，x64） |
+| FFmpeg | Core 抽帧 + Avalonia 从 `WinUI/runtimes/win-x64/native` Copy |
+| LibVLC | `LibVLCSharp` + `VideoLAN.LibVLC.Windows`（**不要**用与 Avalonia 12 不兼容的 `LibVLCSharp.Avalonia.VideoView`） |
+
+- 基线 tag：`winui-baseline`（迁移前最后纯 WinUI 快照）。
+- **MasonryPanel** 瀑布流：默认 **3 列铺满**（对齐 WinUI），非虚拟化，勿擅自改成虚拟化列表。
+- **混合加载**：边扫边灌到 200 停 → Load More / 滚底再灌。
+- **不**自动恢复上次打开的文件夹。
+- CommunityToolkit.Mvvm；WinUI 侧另有 DI Hosting。
 - 反对为了"正确"而过度设计。
 
 ## 构建与运行
 
+### Avalonia（主线）
+
 ```powershell
-$Platform = 'x64'
-
-# 构建
-dotnet build -c Debug -p:Platform=$Platform
-
-# 运行（唯一正确方式，不要直接双击 .exe）
-dotnet run -c Debug -p:Platform=$Platform
-
-# 发布
-dotnet publish -c Release -p:Platform=$Platform
+dotnet build src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
+dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
 ```
 
-⚠️ 不要直接双击 `bin\...\IcedPicViewer.exe`——MSIX packaged 需要 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。`dotnet run` 通过 `winapp.exe launch` 注册 debug identity 后启动。
+全屏 chrome：仅顶/底热区显示工具栏；**翻图不得 PeekChrome**；Opacity 淡入淡出。
+
+### WinUI（对照，仅 Windows x64）
+
+```powershell
+$Platform = 'x64'
+dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$Platform
+dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$Platform
+dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=$Platform
+```
+
+⚠️ WinUI：**不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX packaged 需要 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。`dotnet run` 通过 `winapp.exe launch` 注册 debug identity 后启动。
 
 ## 核心原则
 

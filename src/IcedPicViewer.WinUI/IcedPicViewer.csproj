@@ -120,6 +120,11 @@
     </PackageReference>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Platform-agnostic models / settings (ImageSource, LoadingState, AppSettings, …). -->
+    <ProjectReference Include="..\IcedPicViewer.Core\IcedPicViewer.Core.csproj" />
+  </ItemGroup>
+
   <!--
     FFmpeg native runtime DLLs.
     Sourced from BtbN/FFmpeg-Builds (LGPL 2.1+ shared builds):

@@ -1,5 +1,32 @@
 # 更新日志
 
+## v0.15.0 (2026-07-21)
+
+**主题：Avalonia 跨平台主线落地**
+
+### 背景
+
+以 `winui-baseline` 为纯 WinUI 快照，在同一仓库引入 `src/` 多项目结构，将产品主交付迁到 Avalonia 12 + .NET 10，WinUI 工程迁至 `src/IcedPicViewer.WinUI` 作行为对照。
+
+### 架构
+
+- `IcedPicViewer.Core`：扫描 / 归档 / 设置 / MediaCatalog / FFmpeg 抽帧 / Shell 抽象
+- `IcedPicViewer.Avalonia`：主 UI（浅色 Fluent 2 风、3 列瀑布流、查看器、视频、幻灯片、全屏）
+- 视频播放使用 LibVLC **软件回调 → WriteableBitmap**（避开 Avalonia 12 下 `LibVLCSharp.Avalonia.VideoView` 的 `VisualRoot` 崩溃）
+
+### 体验要点
+
+- 边扫边灌 200 + Load More / 滚底；悬停信息条；关查看器回滚到对应卡片
+- Fit / 1:1（小图居中 + minimap）、GIF 多帧、EXIF AutoOrient
+- 全屏：顶/底热区出工具栏，翻图不闪栏，Opacity 淡入淡出
+- **不**自动打开上次目录；窗口几何与幻灯片/音量仍写入 settings.json
+
+### 文档
+
+- `README.md` / `AGENTS.md` 以 Avalonia 为主线重写运行说明
+
+---
+
 ## v0.14.5 (2026-06-25)
 
 **主题: 全屏模式 + Slideshow 循环/乱序**

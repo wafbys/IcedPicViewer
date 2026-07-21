@@ -1,33 +1,19 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
-using System;
 using System.Collections.Generic;
+using IcedPicViewer.Core.Layout;
 
 namespace IcedPicViewer.Controls;
 
 /// <summary>
-/// Reusable static helpers for masonry (waterfall) layout calculations.
-/// This can be used by both the legacy MasonryPanel and future custom Layout implementations.
+/// Compatibility façade over <see cref="Core.Layout.MasonryLayoutEngine"/> so
+/// existing WinUI call sites keep the <c>IcedPicViewer.Controls</c> namespace.
 /// </summary>
 public static class MasonryLayoutEngine
 {
     public static int FindShortestColumn(double[] columnHeights)
-    {
-        if (columnHeights == null || columnHeights.Length == 0)
-            return 0;
+        => Core.Layout.MasonryLayoutEngine.FindShortestColumn(columnHeights);
 
-        int shortest = 0;
-        for (int i = 1; i < columnHeights.Length; i++)
-        {
-            if (columnHeights[i] < columnHeights[shortest])
-                shortest = i;
-        }
-        return shortest;
-    }
-
-    /// <summary>
-    /// Calculates column heights for a list of item heights using masonry layout.
-    /// </summary>
     public static double[] CalculateColumnHeights(IReadOnlyList<double> itemHeights, int columnCount, double spacing)
     {
         if (columnCount <= 0) columnCount = 1;
