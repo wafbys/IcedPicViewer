@@ -266,11 +266,15 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.Left when vm.IsViewerOpen:
+            case Key.PageUp when vm.IsViewerOpen:
+                // PageUp: same as ← — previous image (parity with WinUI).
                 if (vm.NavigatePreviousCommand.CanExecute(null))
                     vm.NavigatePreviousCommand.Execute(null);
                 e.Handled = true;
                 break;
             case Key.Right when vm.IsViewerOpen:
+            case Key.PageDown when vm.IsViewerOpen:
+                // PageDown: same as → — next image.
                 if (vm.NavigateNextCommand.CanExecute(null))
                     vm.NavigateNextCommand.Execute(null);
                 e.Handled = true;

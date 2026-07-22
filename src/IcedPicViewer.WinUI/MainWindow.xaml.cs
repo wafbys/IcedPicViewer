@@ -283,10 +283,14 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         switch (key)
         {
             case Windows.System.VirtualKey.Left:
+            case Windows.System.VirtualKey.PageUp:
+                // PageUp: same as ← — previous image (common image-viewer convention).
                 if (vm.NavigatePreviousCommand.CanExecute(null))
                     vm.NavigatePreviousCommand.Execute(null);
                 break;
             case Windows.System.VirtualKey.Right:
+            case Windows.System.VirtualKey.PageDown:
+                // PageDown: same as → — next image.
                 if (vm.NavigateNextCommand.CanExecute(null))
                     vm.NavigateNextCommand.Execute(null);
                 break;
