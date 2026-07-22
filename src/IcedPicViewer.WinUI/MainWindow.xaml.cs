@@ -274,6 +274,15 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             return;
         }
 
+        // PageUp / PageDown: scroll the masonry gallery by ~one viewport
+        // (not prev/next image — those stay on ← → only).
+        if (key is Windows.System.VirtualKey.PageUp or Windows.System.VirtualKey.PageDown)
+        {
+            if (RootFrame.Content is GalleryView gallery)
+                gallery.ScrollByPage(down: key == Windows.System.VirtualKey.PageDown);
+            return;
+        }
+
         // ImageViewerView binds via x:Bind to a ViewModel field on the code-behind
         // (not through DataContext), so DataContext is null here — read VM from
         // the typed ViewModel property exposed on the page.
@@ -283,14 +292,10 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         switch (key)
         {
             case Windows.System.VirtualKey.Left:
-            case Windows.System.VirtualKey.PageUp:
-                // PageUp: same as ← — previous image (common image-viewer convention).
                 if (vm.NavigatePreviousCommand.CanExecute(null))
                     vm.NavigatePreviousCommand.Execute(null);
                 break;
             case Windows.System.VirtualKey.Right:
-            case Windows.System.VirtualKey.PageDown:
-                // PageDown: same as → — next image.
                 if (vm.NavigateNextCommand.CanExecute(null))
                     vm.NavigateNextCommand.Execute(null);
                 break;

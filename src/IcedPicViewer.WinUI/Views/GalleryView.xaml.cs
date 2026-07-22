@@ -57,6 +57,25 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     // across the full spectrum from 600 px to 4K.
     private const double TargetCardsPerRow = 4.0;
 
+    /// <summary>
+    /// PageUp/PageDown: jump the masonry <see cref="MainScrollViewer"/> by
+    /// roughly one viewport (small overlap so the user keeps context).
+    /// Called from MainWindow WH_KEYBOARD when the gallery page is active.
+    /// </summary>
+    public void ScrollByPage(bool down)
+    {
+        var sv = MainScrollViewer;
+        var viewport = sv.ViewportHeight;
+        if (viewport <= 0) return;
+
+        var delta = viewport * 0.9;
+        var maxOffset = Math.Max(0, sv.ExtentHeight - viewport);
+        var target = down
+            ? Math.Min(maxOffset, sv.VerticalOffset + delta)
+            : Math.Max(0, sv.VerticalOffset - delta);
+        sv.ChangeView(null, target, null, disableAnimation: false);
+    }
+
     public GalleryView()
     {
         this.InitializeComponent();

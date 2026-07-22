@@ -265,16 +265,21 @@ public partial class MainWindow : Window
                 vm.CloseViewerCommand.Execute(null);
                 e.Handled = true;
                 break;
+            // Masonry gallery: page scroll (not prev/next image — those stay ← →).
+            case Key.PageUp when !vm.IsViewerOpen:
+                ScrollGalleryByPage(up: true);
+                e.Handled = true;
+                break;
+            case Key.PageDown when !vm.IsViewerOpen:
+                ScrollGalleryByPage(up: false);
+                e.Handled = true;
+                break;
             case Key.Left when vm.IsViewerOpen:
-            case Key.PageUp when vm.IsViewerOpen:
-                // PageUp: same as ← — previous image (parity with WinUI).
                 if (vm.NavigatePreviousCommand.CanExecute(null))
                     vm.NavigatePreviousCommand.Execute(null);
                 e.Handled = true;
                 break;
             case Key.Right when vm.IsViewerOpen:
-            case Key.PageDown when vm.IsViewerOpen:
-                // PageDown: same as → — next image.
                 if (vm.NavigateNextCommand.CanExecute(null))
                     vm.NavigateNextCommand.Execute(null);
                 e.Handled = true;
@@ -326,6 +331,23 @@ public partial class MainWindow : Window
         };
         if (digit < 0) return;
         vm.SeekVideoToPercent(digit * 10);
+    }
+
+    /// <summary>
+    /// PageUp/PageDown: jump the masonry gallery by ~one viewport (small overlap).
+    /// </summary>
+    private void ScrollGalleryByPage(bool up)
+    {
+        var sv = GalleryScroll;
+        var viewport = sv.Viewport.Height;
+        if (viewport <= 0) return;
+
+        var delta = viewport * 0.9;
+        var maxOffset = Math.Max(0, sv.Extent.Height - viewport);
+        var y = up
+            ? Math.Max(0, sv.Offset.Y - delta)
+            : Math.Min(maxOffset, sv.Offset.Y + delta);
+        sv.Offset = new Vector(sv.Offset.X, y);
     }
 
     private async void GalleryScroll_ScrollChanged(object? sender, ScrollChangedEventArgs e)
