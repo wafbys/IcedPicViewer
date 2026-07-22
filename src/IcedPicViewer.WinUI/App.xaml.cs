@@ -50,8 +50,8 @@ public partial class App : Application
         // Microsoft official guidance: rely on the auto-generated
         // WindowsAppSDK bootstrap initializer (driven by csproj's
         // WindowsAppSdkBootstrapInitialize=true). It pins the runtime to
-        // Microsoft.WindowsAppSDK 2.2.0 and the matching WindowsAppRuntime
-        // 2.2 package on the target machine. If the runtime is missing or
+        // Microsoft.WindowsAppSDK 2.3.x and the matching WindowsAppRuntime
+        // 2.3 package on the target machine. If the runtime is missing or
         // the wrong version, the bootstrap throws and the process aborts
         // BEFORE App() runs — we can't intercept that from here, but the
         // user gets a system-level error pointing at the package.
@@ -89,7 +89,7 @@ public partial class App : Application
             }
 
             fullError += $"\n原始 UnhandledException 消息: {e.Message}\n" +
-                         $"建议: 如果是组件/解码相关，可尝试安装 Windows App Runtime 2.2\n" +
+                         $"建议: 如果是组件/解码相关，可尝试安装 Windows App Runtime 2.3\n" +
                          $"下载: https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe";
 
             // Attach current viewer state if possible (for easier diagnosis)

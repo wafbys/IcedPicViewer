@@ -117,7 +117,13 @@ LoadThumbnailAsync (worker, 6 路 semaphore) ── BitmapImage ── item.Thum
 
 ### 键盘导航（WH_KEYBOARD thread-scope hook）
 
-最终方案在 `MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallKeyboardHook` / `KeyboardHookProc`）。
+最终方案在 `MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallKeyboardHook` / `KeyboardHookProc` / `UnhookWindowsHookEx`）。
+
+**为什么继续用 WH_KEYBOARD（不要换）**：
+- `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId` 在 WASDK 文档里仍是 **Experimental**（仅 experimental moniker），**不能**当作生产键盘方案替换 WH_KEYBOARD。
+- XAML `KeyDown` / `AddHandler(KeyDownEvent)` / `KeyboardAccelerator` 在 MSIX 下对**不依赖焦点**的查看器快捷键不可靠（焦点在 `Frame.Navigate` 后不稳定；Accelerator 文档写 global 仍常依赖焦点启动路由）。
+- `SetWindowSubclass` 拿到的 HWND 往往是 XAML island 子窗，不是真正收键盘的顶层 window——注册成功但 `WM_KEYDOWN` 不来。
+- 因此生产路径固定为 thread-scope `WH_KEYBOARD`；窗口关闭时在 `AppWindow_Closing` 里 `UnhookWindowsHookEx` 清理（`_hookHandle != IntPtr.Zero` 才卸，失败 `Trace.TraceError`，禁止空 catch）。
 
 **机制**：`SetWindowsHookEx(WH_KEYBOARD, ..., dwThreadId=GetCurrentThreadId())` 装到 UI thread message queue → 收到所有键盘事件（不依赖焦点/HWND/XAML 路由）→ 回调 `TryEnqueue` 投递 `HandleViewerKey`。
 
@@ -128,7 +134,7 @@ LoadThumbnailAsync (worker, 6 路 semaphore) ── BitmapImage ── item.Thum
 
 **易错点**：`HandleViewerKey` 从 `viewer.ViewModel` 拿 VM，不是 `viewer.DataContext`（`ImageViewerView` 用 `x:Bind`，DataContext 始终是 null）。
 
-**调试**：键盘 hook 问题可通过 crash.log（未处理异常）和 Trace 输出诊断。未来 WinAppSDK 升级后可以考虑 `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId(WindowId).KeyDown`。
+**调试**：键盘 hook 问题可通过 crash.log（未处理异常）和 Trace 输出诊断。
 
 ## 已知坑
 

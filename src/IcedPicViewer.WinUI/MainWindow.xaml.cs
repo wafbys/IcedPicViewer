@@ -181,6 +181,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         {
             var gle = Marshal.GetLastWin32Error();
             // Hook install failed — keyboard navigation will be broken.
+            Trace.TraceError($"InstallKeyboardHook: SetWindowsHookEx(WH_KEYBOARD) failed, Win32 error {gle}");
         }
         else
         {
@@ -373,6 +374,21 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
     private void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
     {
+        // Uninstall the thread-scope WH_KEYBOARD hook before the window
+        // tears down. Leaving it installed risks a dangling HOOKPROC
+        // (managed delegate) after the window is gone; UnhookWindowsHookEx
+        // is the documented cleanup for SetWindowsHookEx.
+        if (_hookHandle != IntPtr.Zero)
+        {
+            if (!UnhookWindowsHookEx(_hookHandle))
+            {
+                var gle = Marshal.GetLastWin32Error();
+                Trace.TraceError($"AppWindow_Closing: UnhookWindowsHookEx failed, Win32 error {gle}");
+            }
+            _hookHandle = IntPtr.Zero;
+            _hookInstalled = false;
+        }
+
         SaveWindowState();
     }
 
