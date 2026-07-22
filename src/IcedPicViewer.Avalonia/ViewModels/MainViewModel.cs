@@ -345,13 +345,25 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private async Task ShowAboutAsync()
     {
         if (ConfirmAsync is null) return;
-        await ConfirmAsync(
-            "About IcedPicViewer",
-            "IcedPicViewer (Avalonia)\n\n" +
-            "Cross-platform gallery: masonry, archives, EXIF, GIF, slideshow,\n" +
-            "video thumbs (FFmpeg) + playback (LibVLC).\n\n" +
-            "WinUI shell remains in-repo as the original Windows baseline.\n" +
-            "Settings: %LOCALAPPDATA%\\IcedPicViewer\\settings.json").ConfigureAwait(true);
+
+        var settingsDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IcedPicViewer");
+        var licensePath = Path.Combine(AppContext.BaseDirectory, "License", "ffmpeg-LGPL.txt");
+        var licenseLine = File.Exists(licensePath)
+            ? licensePath
+            : "License/ffmpeg-LGPL.txt (next to the executable after build)";
+
+        var body =
+            $"IcedPicViewer (Avalonia)  v0.15.0  ({IcedPicViewer.Avalonia.BuildInfo.CommitShort})\n\n" +
+            "Cross-platform gallery: masonry, archives (ZIP/RAR/tar.*), EXIF, GIF,\n" +
+            "slideshow, video thumbs (FFmpeg LGPL shared) + playback (LibVLC).\n\n" +
+            "Formats: see README — HEIC/AVIF need platform codecs; 7z is not supported.\n" +
+            "FFmpeg is LGPL 2.1+ (replaceable natives under runtimes/<rid>/native).\n" +
+            $"LGPL text:\n{licenseLine}\n\n" +
+            $"Settings:\n{Path.Combine(settingsDir, "settings.json")}";
+
+        await ConfirmAsync("About IcedPicViewer", body).ConfigureAwait(true);
     }
 
     /// <summary>View scrolls the gallery list to this item after leaving the viewer.</summary>
@@ -1133,16 +1145,22 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         int remaining;
         lock (_remainingLock) remaining = _remaining.Count;
         var err = _scanErrors > 0 ? $" · {_scanErrors} scan error(s)" : "";
+        var videos = Items.Count(i => i.IsVideo);
+        var images = Items.Count - videos;
+        // Match WinUI honesty: count only items currently in the gallery (loaded set).
+        var loaded = videos > 0
+            ? $"{images} images, {videos} videos"
+            : $"{images} image(s)";
 
         if (IsBusy || !_scanComplete)
         {
-            StatusText = $"Scanning… found {DiscoveredCount}, showing {Items.Count}{err}";
+            StatusText = $"Scanning… found {DiscoveredCount}, showing {loaded}{err}";
             return;
         }
 
         StatusText = remaining > 0
-            ? $"Showing {Items.Count} / {DiscoveredCount} ({remaining} more){err}"
-            : $"Loaded {Items.Count} item(s){err}";
+            ? $"Showing {loaded} / {DiscoveredCount} ({remaining} more){err}"
+            : $"Loaded {loaded}{err}";
     }
 
     private async Task LoadThumbnailFireAndForgetAsync(GalleryItemViewModel item, CancellationToken ct)
@@ -1158,12 +1176,12 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
         try
         {
-            // Images + videos share loader; original W×H used for hover info.
-            var (bmp, ow, oh) = await AvaloniaImageLoader.LoadThumbnailWithInfoAsync(
+            // Images + videos share loader; original W×H (+ video duration) for hover info.
+            var (bmp, ow, oh, duration) = await AvaloniaImageLoader.LoadThumbnailWithInfoAsync(
                     item.Source, ThumbMaxEdge, ct)
                 .ConfigureAwait(false);
 
-            await Dispatcher.UIThread.InvokeAsync(() => item.ApplyThumbnail(bmp, ow, oh));
+            await Dispatcher.UIThread.InvokeAsync(() => item.ApplyThumbnail(bmp, ow, oh, duration));
         }
         catch (OperationCanceledException)
         {

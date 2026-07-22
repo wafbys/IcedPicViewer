@@ -18,7 +18,7 @@ public interface IDirectoryScanner
 {
     /// <summary>
     /// Enumerates every supported media file in <paramref name="rootPath"/>,
-    /// both loose files and entries inside any archives (.zip / .rar / .7z / .tar).
+    /// both loose files and entries inside archives (.zip / .rar / .tar / tar.*).
     /// The caller-supplied <paramref name="extensions"/> filter is applied
     /// uniformly to both loose files and archive entries (archive entries
     /// are currently image-only — see <c>IImageLoader.SupportedExtensions</c>).

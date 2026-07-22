@@ -16,7 +16,7 @@ public enum MediaKind
 
 /// <summary>
 /// Identifies a single media file (image or video), which may live either
-/// on disk as a regular file or inside an archive (zip / rar / 7z / tar / gz).
+/// on disk as a regular file or inside an archive (zip / rar / tar / gz; not 7z).
 ///
 /// <para>
 /// <see cref="Path"/> is always the on-disk path: for a regular file, that's

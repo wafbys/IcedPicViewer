@@ -24,31 +24,34 @@ public static class AvaloniaImageLoader
 {
     public static async Task<AvBitmap?> LoadThumbnailAsync(ImageSource source, int maxEdge, CancellationToken ct)
     {
-        var (bmp, _, _) = await LoadThumbnailWithInfoAsync(source, maxEdge, ct).ConfigureAwait(false);
+        var (bmp, _, _, _) = await LoadThumbnailWithInfoAsync(source, maxEdge, ct).ConfigureAwait(false);
         return bmp;
     }
 
     /// <summary>
-    /// Thumbnail plus original pixel size (pre-scale) for gallery hover info.
+    /// Thumbnail plus original pixel size and optional video duration for gallery hover info.
     /// </summary>
-    public static async Task<(AvBitmap? Bitmap, int OriginalWidth, int OriginalHeight)> LoadThumbnailWithInfoAsync(
+    public static async Task<(AvBitmap? Bitmap, int OriginalWidth, int OriginalHeight, TimeSpan? Duration)> LoadThumbnailWithInfoAsync(
         ImageSource source, int maxEdge, CancellationToken ct)
     {
         if (source.Kind == MediaKind.Video)
         {
             var frame = await VideoFrameExtractor.ExtractAsync(source, maxEdge, ct).ConfigureAwait(false);
-            if (frame is null) return (null, 0, 0);
-            var (bgra, w, h) = frame.Value;
-            // Extractor returns scaled frame; use those dims as best-known size.
-            var bmp = await Task.Run(() => BgraToBitmap(bgra, w, h), ct).ConfigureAwait(false);
-            return (bmp, w, h);
+            if (frame is null) return (null, 0, 0, null);
+            var f = frame.Value;
+            var bmp = await Task.Run(() => BgraToBitmap(f.Bgra, f.FrameWidth, f.FrameHeight), ct)
+                .ConfigureAwait(false);
+            // Prefer container source size for InfoLine; fall back to scaled frame.
+            var ow = f.SourceWidth > 0 ? f.SourceWidth : f.FrameWidth;
+            var oh = f.SourceHeight > 0 ? f.SourceHeight : f.FrameHeight;
+            return (bmp, ow, oh, f.Duration);
         }
 
         ct.ThrowIfCancellationRequested();
         try
         {
             await using var stream = await OpenStreamAsync(source, ct).ConfigureAwait(false);
-            if (stream is null) return (null, 0, 0);
+            if (stream is null) return (null, 0, 0, null);
 
             return await Task.Run(() =>
             {
@@ -58,7 +61,7 @@ public static class AvaloniaImageLoader
                 var oh = info?.Height ?? 0;
                 if (stream.CanSeek) stream.Position = 0;
                 var bmp = DecodeWithExif(stream, maxEdge);
-                return (bmp, ow, oh);
+                return (bmp, ow, oh, (TimeSpan?)null);
             }, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -68,7 +71,7 @@ public static class AvaloniaImageLoader
         catch (Exception ex)
         {
             Trace.TraceError($"AvaloniaImageLoader thumb+info: {source}: {ex.Message}");
-            return (null, 0, 0);
+            return (null, 0, 0, null);
         }
     }
 
@@ -85,8 +88,9 @@ public static class AvaloniaImageLoader
         {
             var frame = await VideoFrameExtractor.ExtractAsync(source, maxEdge, ct).ConfigureAwait(false);
             if (frame is null) return null;
-            var (bgra, w, h) = frame.Value;
-            return await Task.Run(() => BgraToBitmap(bgra, w, h), ct).ConfigureAwait(false);
+            var f = frame.Value;
+            return await Task.Run(() => BgraToBitmap(f.Bgra, f.FrameWidth, f.FrameHeight), ct)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

@@ -12,16 +12,28 @@
 
 ## 功能（Avalonia 主线）
 
-- 打开文件夹 → 递归扫描；**ZIP / RAR / 7Z / tar.\*** 内媒体展平进同一瀑布流
+- 打开文件夹 → 递归扫描；**ZIP / RAR / tar.\*** 内媒体展平进同一瀑布流（**不含 7z**，见下）
 - **瀑布流**（3 列铺满宽度，间距 8，对齐原 WinUI 体感）
 - **混合加载**：边扫边灌到约 200 张停；Load More / 滚到底继续
-- 悬停卡片：半透明遮罩 + 文件名 / 尺寸·大小 / 位置（ToolTip 同步）
+- 悬停卡片：半透明遮罩 + 文件名 / 尺寸·时长·大小 / 位置（ToolTip 同步）
 - 查看器：Fit / 1:1（小图居中）、minimap、GIF 动画、EXIF 方向
 - 视频：FFmpeg 首帧缩略图 + LibVLC 播放（Space 播放/暂停，0–9 跳转）
 - 幻灯片：间隔 / 循环 / 随机；全屏 F11（顶/底热区出工具栏，淡入淡出）
 - 删除进回收站（网络路径确认；压缩包内不可删）；打开文件位置
-- 目录监控、Refresh（F5）、About、窗口几何记忆
+- 目录监控、Refresh（F5）、About（版本 / commit / FFmpeg LGPL）、窗口几何记忆
 - **不**自动打开上次目录，每次启动手动选择
+
+### 支持的格式（诚实版）
+
+| 类别 | 扩展名 | 实际能力 |
+|------|--------|----------|
+| **图片（解码）** | `.jpg` `.jpeg` `.png` `.gif` `.bmp` `.webp` `.tiff` `.tif` `.ico` | Avalonia：ImageSharp；WinUI：WIC |
+| **图片（扫描会进列表）** | 另含 `.heic` `.avif` | **扩展名会扫到**；Avalonia **无内置 HEIC/AVIF 解码**（缩略图/打开会失败）。WinUI 需系统/商店「HEIF Image Extension」「AV1 Video Extension」 |
+| **视频** | `.mp4` `.mkv` `.mov` `.avi` `.webm` `.flv` | 缩略图：FFmpeg；播放：LibVLC |
+| **压缩包内媒体** | `.zip` `.rar` `.tar` `.tgz` / `tar.gz` 等 | SharpCompress 可读 |
+| **7z** | — | **不支持**。扩展名若出现在扫描路径里会被跳过或记 scan error；不会展开 7z 内容 |
+
+扩展名清单以 `IcedPicViewer.Core` 的 `MediaCatalog` / `ArchiveHelper` 为准。
 
 ## 操作指南（Avalonia）
 
@@ -30,7 +42,7 @@
 | 操作 | 行为 |
 |------|------|
 | 单击图片 | 打开查看器 |
-| 鼠标悬停 | 遮罩 + 文件名 / 尺寸·大小 / 目录或压缩包名 |
+| 鼠标悬停 | 遮罩 + 文件名 / 尺寸·时长·大小 / 目录或压缩包名 |
 | 右键 | 打开文件位置 / 删除 |
 | 滚到底 /「加载更多」 | 继续加载 |
 | F5 | 刷新当前文件夹 |
@@ -92,6 +104,7 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 ## 版本
 
 - **v0.15.0** - Avalonia 跨平台主线：Core 抽离 + 图库/查看器/视频/幻灯片/全屏/Fluent 浅色 UI；WinUI 迁入 `src/` 作对照；基线 tag `winui-baseline`
+- **v0.15.x** - Avalonia 打磨：产品图标/About（版本·commit·LGPL）、状态栏图片/视频计数、悬停时长、格式说明诚实化
 - v0.14.7 - WinUI：Chrome 浮动 overlay、Load More 预加载、状态栏视频计数等
 - v0.14.x - 视频 / Slideshow / 全屏 / EXIF / archive 等（详见 `CHANGELOG.md`）
 - 更早版本见下方历史与 `CHANGELOG.md`
@@ -106,4 +119,5 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 
 ## 许可
 
-应用代码以仓库为准。捆绑 FFmpeg（LGPL 2.1+）与 LibVLC 遵循各自许可证；WinUI 包内见 `License/ffmpeg-LGPL.txt`。
+应用代码以仓库为准。捆绑 FFmpeg（LGPL 2.1+）与 LibVLC 遵循各自许可证。  
+LGPL 全文：`src/IcedPicViewer.Avalonia/License/ffmpeg-LGPL.txt` 与 `src/IcedPicViewer.WinUI/License/ffmpeg-LGPL.txt`（构建后复制到输出目录）。

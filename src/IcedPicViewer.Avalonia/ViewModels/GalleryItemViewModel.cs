@@ -51,19 +51,32 @@ public partial class GalleryItemViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(InfoLine))]
     public partial int PixelHeight { get; set; }
 
+    /// <summary>Video duration from FFmpeg container metadata (null for images / unknown).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(InfoLine))]
+    [NotifyPropertyChangedFor(nameof(DurationText))]
+    public partial TimeSpan? Duration { get; set; }
+
     /// <summary>e.g. "4032×3024" or empty until known.</summary>
     public string SizeText => PixelWidth > 0 && PixelHeight > 0
         ? $"{PixelWidth}×{PixelHeight}"
         : "";
 
-    /// <summary>Hover / tooltip second line: "W×H · 2.1 MB".</summary>
+    /// <summary>e.g. "1:23" or "1:02:03"; empty when unknown.</summary>
+    public string DurationText => FormatDuration(Duration);
+
+    /// <summary>Hover / tooltip second line: "W×H · m:ss · 2.1 MB" (video) or "W×H · 2.1 MB".</summary>
     public string InfoLine
     {
         get
         {
+            var parts = new List<string>(3);
             if (!string.IsNullOrEmpty(SizeText))
-                return $"{SizeText} · {FileSizeText}";
-            return FileSizeText;
+                parts.Add(SizeText);
+            if (!string.IsNullOrEmpty(DurationText))
+                parts.Add(DurationText);
+            parts.Add(FileSizeText);
+            return string.Join(" · ", parts);
         }
     }
 
@@ -115,9 +128,16 @@ public partial class GalleryItemViewModel : ViewModelBase
         return new GalleryItemViewModel(source, size);
     }
 
-    public void ApplyThumbnail(Bitmap? bitmap, int originalWidth = 0, int originalHeight = 0)
+    public void ApplyThumbnail(
+        Bitmap? bitmap,
+        int originalWidth = 0,
+        int originalHeight = 0,
+        TimeSpan? duration = null)
     {
         Thumbnail = bitmap;
+        if (duration is { } d && d > TimeSpan.Zero)
+            Duration = d;
+
         if (originalWidth > 0 && originalHeight > 0)
         {
             PixelWidth = originalWidth;
@@ -135,5 +155,14 @@ public partial class GalleryItemViewModel : ViewModelBase
             }
         }
         IsThumbnailLoading = false;
+    }
+
+    /// <summary>VLC/mpv-style short duration for hover (m:ss or h:mm:ss).</summary>
+    internal static string FormatDuration(TimeSpan? duration)
+    {
+        if (duration is not { } d || d <= TimeSpan.Zero) return "";
+        if (d.TotalHours >= 1)
+            return $"{(int)d.TotalHours}:{d.Minutes:D2}:{d.Seconds:D2}";
+        return $"{(int)d.TotalMinutes}:{d.Seconds:D2}";
     }
 }

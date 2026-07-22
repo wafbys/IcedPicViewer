@@ -7,7 +7,7 @@
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="780"
         x:Class="IcedPicViewer.Avalonia.Views.MainWindow"
         x:DataType="vm:MainViewModel"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/AppIcon.ico"
         Title="IcedPicViewer"
         Width="1200"
         Height="780"

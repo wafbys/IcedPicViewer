@@ -8,6 +8,17 @@ using IcedPicViewer.Services.Implementations;
 namespace IcedPicViewer.Core.Media;
 
 /// <summary>
+/// One scaled BGRA8 frame plus source metadata from a single FFmpeg open.
+/// </summary>
+public readonly record struct VideoFrameExtract(
+    byte[] Bgra,
+    int FrameWidth,
+    int FrameHeight,
+    int SourceWidth,
+    int SourceHeight,
+    TimeSpan? Duration);
+
+/// <summary>
 /// Platform-agnostic first-frame extraction via FFmpeg.AutoGen.
 /// Returns top-down BGRA8 pixels suitable for any UI shell.
 /// </summary>
@@ -15,14 +26,15 @@ public static class VideoFrameExtractor
 {
     /// <summary>
     /// Extracts one scaled frame. Returns null when FFmpeg is unavailable
-    /// or the file cannot be decoded.
+    /// or the file cannot be decoded. Duration is filled when the container
+    /// reports a positive <c>fmtCtx-&gt;duration</c> (same open as the frame).
     /// </summary>
-    public static Task<(byte[] Bgra, int Width, int Height)?> ExtractAsync(
+    public static Task<VideoFrameExtract?> ExtractAsync(
         ImageSource source, int maxEdge, CancellationToken ct = default)
     {
         FFmpegBootstrap.EnsureInitialized();
         if (!FFmpegBootstrap.IsReady || maxEdge < 1)
-            return Task.FromResult<(byte[] Bgra, int Width, int Height)?>(null);
+            return Task.FromResult<VideoFrameExtract?>(null);
 
         return Task.Run(() =>
         {
@@ -60,7 +72,7 @@ public static class VideoFrameExtractor
         }, ct);
     }
 
-    private static unsafe (byte[] Bgra, int Width, int Height)? ExtractAndScaleFrame(
+    private static unsafe VideoFrameExtract? ExtractAndScaleFrame(
         string path, int maxSize, CancellationToken ct)
     {
         AVFormatContext* fmtCtx = null;
@@ -75,6 +87,13 @@ public static class VideoFrameExtractor
             if (ffmpeg.avformat_open_input(&fmtCtx, path, null, null) < 0) return null;
             if (ffmpeg.avformat_find_stream_info(fmtCtx, null) < 0) return null;
             if (ct.IsCancellationRequested) return null;
+
+            TimeSpan? duration = null;
+            if (fmtCtx->duration > 0)
+            {
+                // AV_TIME_BASE ticks (microseconds-scale).
+                duration = TimeSpan.FromSeconds(fmtCtx->duration / (double)ffmpeg.AV_TIME_BASE);
+            }
 
             int videoStreamIdx = -1;
             for (var i = 0; i < (int)fmtCtx->nb_streams; i++)
@@ -167,7 +186,7 @@ public static class VideoFrameExtractor
             ffmpeg.av_free(bgraBuffer);
             bgraBuffer = null;
 
-            return (bgraManaged, outW, outH);
+            return new VideoFrameExtract(bgraManaged, outW, outH, srcW, srcH, duration);
         }
         catch (Exception ex)
         {

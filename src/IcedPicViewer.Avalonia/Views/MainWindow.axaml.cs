@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = $"IcedPicViewer ({IcedPicViewer.Avalonia.BuildInfo.CommitShort})";
         Opened += OnOpened;
         Closing += OnClosing;
     }

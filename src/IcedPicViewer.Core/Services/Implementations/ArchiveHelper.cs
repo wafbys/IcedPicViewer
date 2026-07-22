@@ -9,8 +9,9 @@ namespace IcedPicViewer.Services.Implementations;
 
 /// <summary>
 /// Lightweight wrapper around SharpCompress for reading image entries out of
-/// ZIP / RAR / 7Z / TAR archives. Deliberately read-only: we never modify the
-/// archive on disk, and we never persist extracted content.
+/// ZIP / RAR / TAR archives. Extension list still includes <c>.7z</c> for
+/// discovery, but SharpCompress cannot open real 7z containers (scan skips /
+/// errors). Deliberately read-only: we never modify the archive on disk.
 ///
 /// <para>
 /// All public methods are synchronous I/O — callers are expected to be on a
