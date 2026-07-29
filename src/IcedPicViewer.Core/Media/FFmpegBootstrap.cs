@@ -41,6 +41,13 @@ public static class FFmpegBootstrap
             ffmpeg.RootPath = dir;
             ResolvedRoot = dir;
             _ = ffmpeg.av_version_info();
+
+            // Default FFmpeg log level is INFO and dumps to stderr. Complex
+            // MKV (PGS subtitles, multi-audio, Dolby Vision) spam probesize /
+            // "could not find codec parameters" warnings on every thumb open.
+            // Keep ERROR+ only — real open/decode failures still surface.
+            ffmpeg.av_log_set_level(ffmpeg.AV_LOG_ERROR);
+
             IsReady = true;
             Trace.TraceInformation($"FFmpegBootstrap: ready from {dir} ({ffmpeg.av_version_info()})");
         }
