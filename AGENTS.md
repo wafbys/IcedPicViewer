@@ -113,16 +113,16 @@ dotnet test IcedPicViewer.slnx -c Debug
 | 当前项 | `SelectedItem` | 查看器/选中项（WinUI 查看器 VM 与 Avalonia 同名） |
 | 当前文件夹 | `FolderPath` | 正在浏览的目录 |
 | 剩余队列 | `_remainingSources` + `_remainingLock` | 已发现未入 `Items` 的 `ImageSource` |
-| 发现数 | `DiscoveredCount` | 扫描/入队累计，状态栏「共 N」 |
-| 加载态 | `LoadingState` + `IsScanning` | Core 枚举；`IsScanning == (LoadingState == Scanning)` |
+| 发现数 | `DiscoveredCount` | **扫描期唯一写源**：`IngestScanBatch` 绝对赋值 `DiscoveredCount = discovered`（禁止再叠加 Progress 计数）。监视器增删可 `++`/`--` |
+| 加载态 | `LoadingState` + `IsScanning` | Core：`Idle`/`Scanning`/`Error`/`Completed`；失败用 `Error` 非 `Completed` |
 | 自动灌 / Load More 块 | `PageSize = 200` | drain gate：`Items.Count < PageSize` |
 | scan 每轮 | `ScanPageSize = 30` | |
 | batch | `ScanBatchSize = 100` / `ScanBatchMs = 50` | |
 | flush 链 | `FlushScanBatch` → `IngestScanBatch` → `DrainPageFillAsync` | |
 | Load More | `LoadMoreAsync` / `LoadMoreCommand` + `CanLoadMore` / `IsLoadingMore` | |
 | 缩略图 | `LoadThumbnailAsync` + `_thumbnailLoadSemaphore`（`ThumbConcurrency = 6`） | |
-| 状态文案 | `StatusText` | 默认 `"Open a folder to start"` |
-| 查看器已加载数 | `ItemCount`（= `Items.Count`，仅查看器 chrome） | 勿与 `DiscoveredCount` 混淆 |
+| 状态文案 | `StatusText` + `UpdateStatus` | 默认 `"Open a folder to start"`；扫描中 WinUI 可另有 `UpdateScanningStatusText`（路径提示） |
+| 查看器已加载数 | WinUI：`ItemCount`（=`Items.Count`）；Avalonia：直接绑 `Items.Count` | 勿与 `DiscoveredCount` 混淆 |
 
 #### 仅平台差异（技术栈，不是第二套产品词）
 

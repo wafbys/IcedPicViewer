@@ -129,11 +129,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     public bool IsScanning => LoadingState == LoadingState.Scanning;
     public Visibility IsScanningVisibility => IsScanning ? Visibility.Visible : Visibility.Collapsed;
 
-    // Live count of image sources the scanner has discovered so far. Used
-    // by the status bar to show "Scanning... N images found" while a
-    // whole-drive scan is in progress. Updated via a throttled IProgress
-    // sink (see LoadDirectoryAsync) so a scan of tens of thousands of files
-    // does not raise a property change per file.
+    // Total media sources discovered for this folder session (absolute).
+    // Single writer during scan: IngestScanBatch sets DiscoveredCount = discovered
+    // (same as Avalonia). Watcher add/remove adjusts after scan. Do not also
+    // assign from scanner Progress — that double-counted with ingest.
     [ObservableProperty]
     public partial int DiscoveredCount { get; set; }
 
@@ -303,7 +302,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
     }
 
-    public bool RemoveImage(MediaItem item)
+    public bool RemoveItem(MediaItem item)
     {
         var index = Items.IndexOf(item);
         if (index >= 0)
@@ -390,7 +389,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             return;
         }
 
-        RemoveImage(item);
+        RemoveItem(item);
     }
 
     public async Task LoadDirectoryAsync(string path, CancellationToken ct = default)
@@ -432,20 +431,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // always run single-threaded. Both call into the same
             // UpdateScanningStatusText() so the displayed text is always
             // self-consistent regardless of which progress source fired last.
-            int lastReportedCount = 0;
-            long lastDiscoveredTick = 0;
-            var throttledScanProgress = new Progress<int>(count =>
-            {
-                var now = Environment.TickCount64;
-                if (count - lastReportedCount < 50 && now - lastDiscoveredTick < 200)
-                {
-                    return;
-                }
-                lastReportedCount = count;
-                lastDiscoveredTick = now;
-                DiscoveredCount = count;
-                UpdateScanningStatusText();
-            });
+            // DiscoveredCount is owned by IngestScanBatch (absolute assign), not
+            // scanner Progress — Progress used to set DiscoveredCount = count while
+            // ingest did += batch.Count and double-counted.
 
             long lastPathTick = 0;
             var throttledPathProgress = new Progress<string>(currentPath =>
@@ -471,7 +459,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // Run the scan on a worker thread so the UI thread can render
             // the first page as soon as the scanner yields PageSize sources.
             // The scanner runs to completion; while it runs, the page-fill
-            // timer is feeding _remainingSources into the gallery.
+            // IngestScanBatch is feeding _remainingSources into the gallery.
             //
             // Implemented as a named async method rather than a Task.Run
             // lambda because C# does not allow `yield return` / `yield break`
@@ -482,9 +470,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 () => RunScanAndBatchAsync(
                     path,
                     _scanErrorProgress,
-                    throttledScanProgress,
-                    throttledPathProgress,
-                    token),
+                    currentPathReporter: throttledPathProgress,
+                    token: token),
                 token);
 
             await scanTask;
@@ -494,17 +481,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            // Scan is done. Wait for the page-fill timer to drain the
-            // remaining sources before declaring the load complete. Poll
-            // lightly — 50 ms is fast enough to feel snappy on small
-            // folders and cheap enough not to matter on big ones.
-            // Wait for the scan-time page fill and any user-triggered
-            // "Load More" to settle before declaring Completed. We do NOT
-            // require _remainingSources to be empty here — the hybrid
-            // mode (边扫边灌到 200 张停) leaves the rest of the queue
-            // untouched for the user to pull manually. If the scan is
-            // still in flight we are also fine to declare Completed: the
-            // user has a full first page and a working Load More button.
+            // Scan is done. Wait for scan-time drain and any in-flight
+            // Load More to settle before declaring Completed. We do NOT
+            // require _remainingSources to be empty — hybrid mode
+            // (边扫边灌到 200 张停) leaves the rest for the user to pull.
+            // Poll 50 ms: snappy on small folders, cheap on large ones.
             while (_pageFillInFlight || IsLoadingMore)
             {
                 if (token.IsCancellationRequested) break;
@@ -513,12 +494,12 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
             StartWatching(path);
             LoadingState = LoadingState.Completed;
-            UpdateStatusText();
+            UpdateStatus();
         }
         catch (Exception ex)
         {
             Trace.TraceError($"LoadDirectoryAsync error: {ex}");
-            LoadingState = LoadingState.Completed;
+            LoadingState = LoadingState.Error;
             StatusText = $"Error: {ex.Message}";
         }
     }
@@ -539,8 +520,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private async Task RunScanAndBatchAsync(
         string path,
         IProgress<ScanError> errorReporter,
-        IProgress<int> discoveredReporter,
-        IProgress<string> currentPathReporter,
+        IProgress<string>? currentPathReporter,
         CancellationToken token)
     {
         var batch = new List<ImageSource>(ScanBatchSize);
@@ -552,29 +532,31 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         // the batch, not from scan start, so a slow scanner that yields
         // one source per 5 s still flushes within 50 ms of each yield.
         long batchStartTick = 0;
+        var discovered = 0;
         await foreach (var source in _scanner.ScanAsync(
             path,
             recursive: true,
             extensions: _imageLoader.SupportedMedia,
             errorReporter: errorReporter,
-            discoveredReporter: discoveredReporter,
+            discoveredReporter: null,
             currentPathReporter: currentPathReporter,
             ct: token))
         {
             if (token.IsCancellationRequested) break;
             if (batch.Count == 0) batchStartTick = Environment.TickCount64;
             batch.Add(source);
+            discovered++;
             var now = Environment.TickCount64;
             if (batch.Count >= ScanBatchSize || now - batchStartTick >= ScanBatchMs)
             {
-                FlushScanBatch(batch, token);
+                FlushScanBatch(batch, discovered, token);
                 batch = new List<ImageSource>(ScanBatchSize);
                 batchStartTick = 0;
             }
         }
         if (batch.Count > 0)
         {
-            FlushScanBatch(batch, token);
+            FlushScanBatch(batch, discovered, token);
         }
     }
 
@@ -586,41 +568,26 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// lambda, so the caller's local list can be reused for the next batch
     /// immediately after this call returns.
     /// </summary>
-    private void FlushScanBatch(List<ImageSource> batch, CancellationToken ct)
+    private void FlushScanBatch(List<ImageSource> batch, int discovered, CancellationToken ct)
     {
-        var b = batch;
-        _dispatcher.TryEnqueue(() => IngestScanBatch(b, ct));
+        if (ct.IsCancellationRequested || batch.Count == 0) return;
+        var snapshot = batch.ToList();
+        _dispatcher.TryEnqueue(() => IngestScanBatch(snapshot, discovered, ct));
     }
 
     /// <summary>
-    /// Runs on the UI thread. Adds the batched sources to the pending queue
-    /// (under <c>_remainingLock</c>) and bumps <see cref="DiscoveredCount"/>.
-    /// The first call after a quiescent period starts
-    /// <see cref="DrainPageFillAsync"/>; subsequent calls while the drain
-    /// loop is still running are no-ops (the drain loop polls the queue
-    /// itself). This is the only sane re-entry strategy: the fire-and-forget
-    /// path never sets <see cref="IsLoadingMore"/>, which is owned by
-    /// <c>LoadMoreAsync</c> and observed by the "Load More" button.
-    ///
-    /// We also gate the start on <c>Items.Count &lt; PageSize</c>: the
-    /// auto-fill only ever fills the first page (200 items by default).
-    /// Past that, the user pulls more manually via "Load More". This
-    /// restores the classic "first 200 + Load More" control feel that the
-    /// "边扫边灌到 200 张停" hybrid mode is built around — without it the
-    /// drain would auto-inject items into the gallery for the entire scan
-    /// and the user would never get a moment of stillness to look at what
-    /// they have. The scanner keeps running in the background and
-    /// continues to accumulate sources into <c>_remainingSources</c>;
-    /// only the auto-injection into <see cref="Items"/> stops.
+    /// UI thread: enqueue sources and set <see cref="DiscoveredCount"/> to the
+    /// absolute scan total (same contract as Avalonia). Starts
+    /// <see cref="DrainPageFillAsync"/> when under <see cref="PageSize"/>.
     /// </summary>
-    private void IngestScanBatch(List<ImageSource> batch, CancellationToken ct)
+    private void IngestScanBatch(List<ImageSource> batch, int discovered, CancellationToken ct)
     {
         if (ct.IsCancellationRequested) return;
         lock (_remainingLock)
         {
             _remainingSources.AddRange(batch);
         }
-        DiscoveredCount += batch.Count;
+        DiscoveredCount = discovered;
         UpdateScanningStatusText();
 
         if (!_pageFillInFlight && Items.Count < PageSize)
@@ -694,7 +661,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         try
         {
             await LoadNextPageAsync(linkedCts.Token);
-            UpdateStatusText();
+            UpdateStatus();
         }
         finally
         {
@@ -902,7 +869,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// files (typically a corrupt or unsupported archive), append a short
     /// summary so the user knows which file to investigate.
     /// </summary>
-    private void UpdateStatusText()
+    private void UpdateStatus()
     {
         var loaded = Items.Count;
         // Video count out of the loaded set. We don't have a separate
@@ -1033,12 +1000,12 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             if (error is not null)
             {
                 _scanErrors.Add(error);
-                UpdateStatusText();
+                UpdateStatus();
             }
             if (newItems.Count > 0)
             {
                 DiscoveredCount += newItems.Count;
-                UpdateStatusText();
+                UpdateStatus();
                 foreach (var newItem in newItems)
                 {
                     _ = LoadThumbnailAsync(newItem, CancellationToken.None);
@@ -1086,7 +1053,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
         Items.Add(item);
         DiscoveredCount++;
-        UpdateStatusText();
+        UpdateStatus();
         await LoadThumbnailAsync(item, CancellationToken.None);
     }
 
@@ -1202,7 +1169,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 _remainingSources.RemoveAll(s => s.ToString() == directId);
             }
             CanLoadMore = _remainingSources.Count > 0;
-            UpdateStatusText();
+            UpdateStatus();
             return;
         }
 
@@ -1219,7 +1186,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             Items.Remove(item);
         }
         if (DiscoveredCount >= toRemove.Count) DiscoveredCount -= toRemove.Count;
-        UpdateStatusText();
+        UpdateStatus();
     }
 
     private async Task HandleModifiedAsync(FileChangeInfo info, CancellationToken token)
@@ -1268,7 +1235,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                     _ = LoadThumbnailAsync(newItem, CancellationToken.None);
                 }
             }
-            UpdateStatusText();
+            UpdateStatus();
             return;
         }
 
@@ -1292,7 +1259,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         renamedItem.FullImage = null;
         await LoadThumbnailAsync(renamedItem, CancellationToken.None);
         if (token.IsCancellationRequested) return;
-        UpdateStatusText();
+        UpdateStatus();
     }
 
     private async Task LoadThumbnailAsync(MediaItem item, CancellationToken ct)
