@@ -3,8 +3,8 @@
 namespace IcedPicViewer.Core.Text;
 
 /// <summary>
-/// Shared status-bar copy for WinUI and Avalonia galleries.
-/// Keeps product wording consistent; shells only supply counts / paths.
+/// Shared status-bar copy for WinUI and Avalonia.
+/// Keeps product wording consistent; shells only supply counts / paths / names.
 /// </summary>
 public static class GalleryStatusFormatter
 {
@@ -17,6 +17,10 @@ public static class GalleryStatusFormatter
             return $"{imageCount} images, {videoCount} videos";
         return $"{imageCount} image(s)";
     }
+
+    /// <summary>LoadDirectory just started (before first batch lands).</summary>
+    public static string FormatScanningStarted()
+        => "Scanning…";
 
     /// <summary>
     /// While scanning. Prefer path form when <paramref name="currentPath"/> is set
@@ -51,7 +55,7 @@ public static class GalleryStatusFormatter
         return $"Loaded {itemBreakdown}{err}";
     }
 
-    /// <summary>In-flight Load More (optional; same shape as partial gallery).</summary>
+    /// <summary>In-flight Load More.</summary>
     public static string FormatLoadingMore(int loadedCount, int discoveredCount)
         => $"Loading {loadedCount} / {discoveredCount}…";
 
@@ -60,6 +64,38 @@ public static class GalleryStatusFormatter
 
     public static string FormatCancelled()
         => "Cancelled";
+
+    public static string FormatFolderPickerUnavailable()
+        => "Folder picker not wired";
+
+    public static string FormatWatchUnavailable(string message)
+        => $"File monitoring unavailable: {message}";
+
+    public static string FormatDeleteFailed(string error)
+        => $"Delete failed: {error}";
+
+    public static string FormatDeleted(string name, bool movedToTrash)
+        => movedToTrash ? $"Moved to trash: {name}" : $"Deleted: {name}";
+
+    public static string FormatArchiveDeleteNotSupported()
+        => "Cannot delete: media inside archives is not supported";
+
+    public static string FormatSlideshowActive(double intervalSeconds, bool looping, bool shuffling)
+    {
+        var text = $"Slideshow every {intervalSeconds:0.#}s";
+        if (looping) text += " · loop";
+        if (shuffling) text += " · shuffle";
+        return text;
+    }
+
+    public static string FormatSlideshowFinished()
+        => "Slideshow finished";
+
+    public static string FormatVideoLoadFailed()
+        => "Video load failed (codec / path)";
+
+    public static string FormatVideoError(string message)
+        => $"Video error: {message}";
 
     public static string FormatErrorSuffix(
         int scanErrorCount,

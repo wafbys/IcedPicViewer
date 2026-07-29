@@ -4,6 +4,7 @@ using System.Diagnostics;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Avalonia.Services;
+using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
 
@@ -64,9 +65,8 @@ public partial class MainViewModel
             OnSlideshowTick);
         _slideshowTimer.Start();
         IsSlideshowActive = true;
-        StatusText = $"Slideshow every {SlideshowInterval:0.#}s"
-            + (IsSlideshowLooping ? " · loop" : "")
-            + (IsSlideshowShuffling ? " · shuffle" : "");
+        StatusText = GalleryStatusFormatter.FormatSlideshowActive(
+            SlideshowInterval, IsSlideshowLooping, IsSlideshowShuffling);
     }
 
     public void StopSlideshow()
@@ -120,7 +120,7 @@ public partial class MainViewModel
             if (CanLoadMore)
                 return;
             StopSlideshow();
-            StatusText = "Slideshow finished";
+            StatusText = GalleryStatusFormatter.FormatSlideshowFinished();
             return;
         }
 
@@ -182,7 +182,7 @@ public partial class MainViewModel
             if (Items.Count <= countBefore || !CanLoadMore)
             {
                 StopSlideshow();
-                StatusText = "Slideshow finished";
+                StatusText = GalleryStatusFormatter.FormatSlideshowFinished();
             }
         }
         catch (Exception ex)
@@ -191,7 +191,7 @@ public partial class MainViewModel
             if (IsSlideshowActive)
             {
                 StopSlideshow();
-                StatusText = "Slideshow finished";
+                StatusText = GalleryStatusFormatter.FormatSlideshowFinished();
             }
         }
         finally
@@ -326,7 +326,7 @@ public partial class MainViewModel
 
         if (item.Source.IsInArchive)
         {
-            StatusText = "无法删除：压缩包内文件不支持删除";
+            StatusText = GalleryStatusFormatter.FormatArchiveDeleteNotSupported();
             if (ConfirmAsync is not null)
                 await ConfirmAsync("无法删除", "压缩包内的媒体不能从本应用删除。请在资源管理器中处理整个压缩包。").ConfigureAwait(true);
             return;
@@ -348,12 +348,12 @@ public partial class MainViewModel
 
         if (!_shell.TryDelete(path, preferTrash, out var error))
         {
-            StatusText = $"Delete failed: {error}";
+            StatusText = GalleryStatusFormatter.FormatDeleteFailed(error ?? "unknown");
             return;
         }
 
         RemoveItemEverywhere(item);
-        StatusText = preferTrash ? $"Moved to trash: {item.Name}" : $"Deleted: {item.Name}";
+        StatusText = GalleryStatusFormatter.FormatDeleted(item.Name, preferTrash);
     }
 
     [RelayCommand(CanExecute = nameof(CanDeleteSelected))]
@@ -408,12 +408,12 @@ public partial class MainViewModel
             var ok = await _vlc.LoadAsync(item.Source, _loadCts?.Token ?? CancellationToken.None)
                 .ConfigureAwait(true);
             if (!ok)
-                StatusText = "Video load failed (codec / path)";
+                StatusText = GalleryStatusFormatter.FormatVideoLoadFailed();
         }
         catch (Exception ex)
         {
             Trace.TraceError($"PrepareVideoAsync: {ex.Message}");
-            StatusText = $"Video error: {ex.Message}";
+            StatusText = GalleryStatusFormatter.FormatVideoError(ex.Message);
         }
     }
 

@@ -318,7 +318,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     {
         if (PickFolderAsync is null)
         {
-            StatusText = "Folder picker not wired";
+            StatusText = GalleryStatusFormatter.FormatFolderPickerUnavailable();
             return;
         }
 

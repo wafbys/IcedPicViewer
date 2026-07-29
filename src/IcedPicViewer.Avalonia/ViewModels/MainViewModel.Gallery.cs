@@ -40,7 +40,7 @@ public partial class MainViewModel
         _scanErrors = 0;
         lock (_remainingLock) _remainingSources = new List<ImageSource>();
         LoadingState = LoadingState.Scanning;
-        StatusText = "Scanning…";
+        StatusText = GalleryStatusFormatter.FormatScanningStarted();
         RefreshCommand.NotifyCanExecuteChanged();
         OpenFolderCommand.NotifyCanExecuteChanged();
 

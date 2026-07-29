@@ -47,4 +47,21 @@ public sealed class GalleryStatusFormatterTests
         => Assert.Equal(
             " — 1 file skipped (bad.zip: corrupt)",
             GalleryStatusFormatter.FormatErrorSuffix(1, "bad.zip", "corrupt"));
+
+    [Fact]
+    public void FormatSlideshowActive_WithFlags()
+        => Assert.Equal(
+            "Slideshow every 5s · loop · shuffle",
+            GalleryStatusFormatter.FormatSlideshowActive(5, looping: true, shuffling: true));
+
+    [Fact]
+    public void FormatDeleted_TrashAndPermanent()
+    {
+        Assert.Equal("Moved to trash: a.jpg", GalleryStatusFormatter.FormatDeleted("a.jpg", movedToTrash: true));
+        Assert.Equal("Deleted: a.jpg", GalleryStatusFormatter.FormatDeleted("a.jpg", movedToTrash: false));
+    }
+
+    [Fact]
+    public void FormatScanningStarted()
+        => Assert.Equal("Scanning…", GalleryStatusFormatter.FormatScanningStarted());
 }

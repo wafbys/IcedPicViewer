@@ -319,10 +319,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 CanLoadMore = _remainingSources.Count > 0;
             }
 
-            var loaded = Items.Count;
-            StatusText = (DiscoveredCount > 0 && DiscoveredCount != loaded)
-                ? $"Loaded {loaded} / {DiscoveredCount}"
-                : $"Loaded {loaded} images";
+            UpdateStatus();
             return true;
         }
         return false;
@@ -386,7 +383,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             Trace.TraceError($"DeleteItemAsync error: {ex}");
-            StatusText = $"Delete failed: {ex.Message}";
+            StatusText = GalleryStatusFormatter.FormatDeleteFailed(ex.Message);
             return;
         }
 
@@ -411,6 +408,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             var token = linkedCts.Token;
 
             LoadingState = LoadingState.Scanning;
+            StatusText = GalleryStatusFormatter.FormatScanningStarted();
             Items.Clear();
             lock (_remainingLock)
             {
@@ -931,7 +929,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // and keep the gallery working.
             _fileWatcher = null;
             Trace.TraceError($"StartWatching failed for {path}: {ex.Message}");
-            StatusText = $"File monitoring unavailable: {ex.Message}";
+            StatusText = GalleryStatusFormatter.FormatWatchUnavailable(ex.Message);
         }
     }
 
