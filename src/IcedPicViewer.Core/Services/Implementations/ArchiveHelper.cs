@@ -59,8 +59,19 @@ public static class ArchiveHelper
         {
             return ArchiveFactory.IsArchive(path, out _);
         }
-        catch (Exception ex)
+        catch (IOException ex)
         {
+            Trace.TraceError($"ArchiveHelper.IsArchive probe failed for {path}: {ex.Message}");
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Trace.TraceError($"ArchiveHelper.IsArchive probe failed for {path}: {ex.Message}");
+            return false;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // SharpCompress may throw NotSupportedException, InvalidDataException, etc.
             Trace.TraceError($"ArchiveHelper.IsArchive probe failed for {path}: {ex.Message}");
             return false;
         }
@@ -80,7 +91,7 @@ public static class ArchiveHelper
         HashSet<string>? extensionFilter)
     {
         using var fileStream = OpenArchiveFile(archivePath);
-        using var reader = ReaderFactory.OpenReader(fileStream);
+        using var reader = ReaderFactory.OpenReader(fileStream, new ReaderOptions { LeaveStreamOpen = true });
         while (reader.MoveToNextEntry())
         {
             ArchiveEntryInfo? info = null;
@@ -140,7 +151,7 @@ public static class ArchiveHelper
         var fileStream = OpenArchiveFile(archivePath);
         try
         {
-            using var reader = ReaderFactory.OpenReader(fileStream);
+            using var reader = ReaderFactory.OpenReader(fileStream, new ReaderOptions { LeaveStreamOpen = true });
             while (reader.MoveToNextEntry())
             {
                 if (reader.Entry is null) continue;

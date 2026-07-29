@@ -40,6 +40,9 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
         WriteIndented = true,
         PropertyNameCaseInsensitive = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        // AppSettings defaults WindowX/Y to NaN ("use platform default"); without this,
+        // SaveNow throws and the catch in WriteToDisk silently drops the entire save.
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
@@ -50,15 +53,33 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
 
     public AppSettings Current { get; private set; } = new();
 
+    /// <summary>Production path: <c>%LocalAppData%/IcedPicViewer/settings.json</c>.</summary>
     public JsonSettingsService()
+        : this(GetDefaultSettingsPath())
+    {
+    }
+
+    /// <summary>
+    /// Allows tests (and alternate hosts) to point at an isolated settings file
+    /// instead of the real user profile path.
+    /// </summary>
+    public JsonSettingsService(string settingsPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(settingsPath);
+        var dir = Path.GetDirectoryName(settingsPath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+        _settingsPath = settingsPath;
+        Load();
+    }
+
+    private static string GetDefaultSettingsPath()
     {
         var dir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "IcedPicViewer");
         Directory.CreateDirectory(dir);
-        _settingsPath = Path.Combine(dir, "settings.json");
-
-        Load();
+        return Path.Combine(dir, "settings.json");
     }
 
     public void Load()
@@ -108,7 +129,7 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
             _pendingSave = new CancellationTokenSource();
             if (oldCts is not null)
             {
-                try { oldCts.Cancel(); } catch { /* already disposed by something else */ }
+                try { oldCts.Cancel(); } catch (Exception ex) { Trace.TraceError($"JsonSettingsService: cancel old pending save failed: {ex.Message}"); }
                 oldCts.Dispose();
             }
             token = _pendingSave.Token;
@@ -130,7 +151,7 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
         {
             if (_pendingSave is not null)
             {
-                try { _pendingSave.Cancel(); } catch { /* ignore */ }
+                try { _pendingSave.Cancel(); } catch (Exception ex) { Trace.TraceError($"JsonSettingsService: cancel pending save failed: {ex.Message}"); }
                 _pendingSave.Dispose();
                 _pendingSave = null;
             }
@@ -156,13 +177,13 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
     {
         if (_disposed) return;
         // Flush so window geometry / last prefs are not lost on exit.
-        try { SaveNow(); } catch { /* best effort */ }
+        try { SaveNow(); } catch (Exception ex) { Trace.TraceError($"JsonSettingsService: dispose SaveNow failed: {ex.Message}"); }
         _disposed = true;
         lock (_saveLock)
         {
             if (_pendingSave is not null)
             {
-                try { _pendingSave.Cancel(); } catch { /* CTS may already be disposed during shutdown */ }
+                try { _pendingSave.Cancel(); } catch (Exception ex) { Trace.TraceError($"JsonSettingsService: dispose Cancel failed: {ex.Message}"); }
                 _pendingSave.Dispose();
                 _pendingSave = null;
             }

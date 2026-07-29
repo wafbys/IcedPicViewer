@@ -188,7 +188,7 @@ public static class VideoFrameExtractor
 
             return new VideoFrameExtract(bgraManaged, outW, outH, srcW, srcH, duration);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Trace.TraceError($"VideoFrameExtractor: {path}: {ex.Message}");
             return null;

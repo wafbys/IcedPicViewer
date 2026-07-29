@@ -117,8 +117,9 @@ public static class FFmpegBootstrap
             // Windows: avutil-60.dll; Linux: libavutil.so*; macOS: libavutil*.dylib
             return Directory.EnumerateFiles(dir, "*avutil*", SearchOption.TopDirectoryOnly).Any();
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceWarning($"FFmpegBootstrap.ContainsAvutil probe failed for {dir}: {ex.Message}");
             return false;
         }
     }

@@ -1,5 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using System.Diagnostics;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using IcedPicViewer.Models;
@@ -120,8 +121,9 @@ public partial class GalleryItemViewModel : ViewModelBase
                 size = new FileInfo(source.Path).Length;
             }
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceWarning($"GalleryItemViewModel.FromSource file size probe failed: {ex.Message}");
             size = 0;
         }
 

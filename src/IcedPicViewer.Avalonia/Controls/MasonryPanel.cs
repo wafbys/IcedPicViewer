@@ -79,6 +79,13 @@ public class MasonryPanel : Panel
         return (columns, actualItemWidth, spacing);
     }
 
+    private static double SanitizeHeight(double height, double fallback)
+    {
+        if (double.IsNaN(height) || height <= 0 || double.IsInfinity(height))
+            return fallback;
+        return height;
+    }
+
     protected override Size MeasureOverride(Size availableSize)
     {
         var (columns, actualItemWidth, spacing) = GetLayoutParams(availableSize.Width);
@@ -87,10 +94,7 @@ public class MasonryPanel : Panel
         foreach (var child in Children)
         {
             child.Measure(new Size(actualItemWidth, double.PositiveInfinity));
-            var desiredHeight = child.DesiredSize.Height;
-            if (double.IsNaN(desiredHeight) || desiredHeight <= 0 || double.IsInfinity(desiredHeight))
-                desiredHeight = actualItemWidth;
-
+            var desiredHeight = SanitizeHeight(child.DesiredSize.Height, actualItemWidth);
             var col = MasonryLayoutEngine.FindShortestColumn(columnHeights);
             columnHeights[col] += desiredHeight + spacing;
         }
@@ -123,9 +127,7 @@ public class MasonryPanel : Panel
             var col = MasonryLayoutEngine.FindShortestColumn(columnHeights);
             var x = columnX[col];
             var y = columnHeights[col];
-            var itemHeight = child.DesiredSize.Height;
-            if (double.IsNaN(itemHeight) || itemHeight <= 0 || double.IsInfinity(itemHeight))
-                itemHeight = actualItemWidth;
+            var itemHeight = SanitizeHeight(child.DesiredSize.Height, actualItemWidth);
 
             child.Arrange(new Rect(x, y, actualItemWidth, itemHeight));
             _itemTops.Add(y);

@@ -194,7 +194,7 @@ public class DirectoryScanner : IDirectoryScanner
         {
             yield break;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Trace.TraceError($"DirectoryScanner: failed to enumerate {archivePath}: {ex.Message}");
             errorReporter?.Report(new ScanError(archivePath, ClassifyArchiveError(ex)));

@@ -47,8 +47,10 @@ public sealed class DesktopShellService : IShellService
             }
 
             // Linux: open containing folder (select-in-folder is DE-specific).
+            // Use ArgumentList with xdg-open so paths containing spaces are
+            // passed as a single argument without shell interpretation.
             var folder = File.Exists(path) ? Path.GetDirectoryName(path) : path;
-            if (!string.IsNullOrEmpty(folder))
+            if (!string.IsNullOrEmpty(folder) && Directory.Exists(folder))
             {
                 Process.Start(new ProcessStartInfo
                 {
@@ -77,8 +79,9 @@ public sealed class DesktopShellService : IShellService
             var drive = new DriveInfo(root);
             return drive.DriveType is DriveType.Network;
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceWarning($"DesktopShellService.IsNetworkPath probe failed for {path}: {ex.Message}");
             return false;
         }
     }
@@ -213,8 +216,9 @@ public sealed class DesktopShellService : IShellService
             p.WaitForExit(10_000);
             return p.ExitCode == 0;
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceWarning($"DesktopShellService.TryRun failed for {fileName}: {ex.Message}");
             return false;
         }
     }

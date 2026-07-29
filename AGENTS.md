@@ -11,6 +11,7 @@
 | `src/IcedPicViewer.Core` | 平台无关：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI / Avalonia |
 | `src/IcedPicViewer.Avalonia` | **主交付**：浅色 Fluent 2 风 UI、图库/查看器、视频 LibVLC 软渲染、幻灯片、全屏热区 chrome |
 | `src/IcedPicViewer.WinUI` | **并行跟进** 的 Windows 原生壳（WinUI 3 + WASDK 2.3，MSIX，x64）；与 Avalonia 对照，功能可继续演进 |
+| `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit）。只引用 Core，不拉 UI / LibVLC。已进 `IcedPicViewer.slnx` |
 | FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 会镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径 |
 | LibVLC | `LibVLCSharp` + `VideoLAN.LibVLC.Windows` + `VideoLAN.LibVLC.Mac`；**Linux 用系统 libvlc**（`apt install vlc libvlc-dev` 或 `IPV_LIBVLC_ROOT`）。**禁止** `LibVLCSharp.Avalonia.VideoView`（Avalonia 12 会崩） |
 
@@ -49,11 +50,25 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 - WASDK **2.3.x** ↔ 目标机 Windows App Runtime **2.3**（MSIX 拉 framework；跨主版本会启动失败）。
 - WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
 - ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。
+
+### Core 测试
+
+```powershell
+dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c Debug
+# 或整 solution（含非测试项目 build）
+dotnet test IcedPicViewer.slnx -c Debug
+```
+
+改 Core 纯逻辑（scanner / archive / settings / catalog / layout 等）时：`dotnet build` **且** 相关测试通过。UI / 播放仍以手动验关键路径为主。
+
 ## 核心原则
 
 1. **用户意图优先**——规则和体验冲突时说出来讨论。
 2. **先查现有代码再动手**——能复用就复用，能小改就不大改。
-3. **手动验证为主**——项目无单元测试，改完 `dotnet build` 干净通过 + 手动验关键路径。不引入测试框架除非有真实痛点。
+3. **验证分层**——
+   - **Core**：有真实痛点就写测；默认只扩 `tests/IcedPicViewer.Core.Tests`。改完 `dotnet test` 绿。
+   - **Avalonia / WinUI / VLC / 图库 pipeline**：不堆 ViewModel 单测；`dotnet build` 0 warnings + **手动验关键路径**。
+   - 禁止为覆盖率写壳测试（如只测 `Math.Clamp`）；禁止测试写真实 `%LocalAppData%` 配置——用 temp 路径（见 `JsonSettingsService(string settingsPath)`）。
 4. **主动暴露权衡**——需求模糊或有风险直接说，不要硬做。
 5. **Commit 用中文**。
 
@@ -61,6 +76,7 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 
 ### 通用
 - `dotnet build` 0 errors / 0 warnings —— 底线。
+- 改动 Core 行为时：`dotnet test tests/IcedPicViewer.Core.Tests` 通过。
 - Commit message 中文。
 - IDisposable 必须正确释放（FileSystemWatcher、CancellationTokenSource、Stream）。
 - 禁止空 catch 吞异常，至少 `Trace.TraceError` 记录。

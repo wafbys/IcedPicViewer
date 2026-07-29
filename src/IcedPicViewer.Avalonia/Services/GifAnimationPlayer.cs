@@ -24,6 +24,9 @@ public sealed class GifAnimationPlayer : IDisposable
     private bool _disposed;
     private Action<Bitmap?>? _onFrame;
 
+    /// <summary>Hard cap to prevent unbounded memory use on pathological GIFs.</summary>
+    private const int MaxFrames = 200;
+
     public bool HasAnimation => _frames.Count > 1;
 
     public Bitmap? FirstFrame => _frames.Count > 0 ? _frames[0].Frame : null;
@@ -77,26 +80,48 @@ public sealed class GifAnimationPlayer : IDisposable
             return player;
         }
 
+        // Decimate when frame count exceeds the safety cap.
+        var step = 1;
+        if (frameCount > MaxFrames)
+        {
+            step = (int)Math.Ceiling((double)frameCount / MaxFrames);
+            Trace.TraceWarning($"GifAnimationPlayer: {frameCount} frames, decimating by {step}x to stay under {MaxFrames}");
+        }
+
+        // When decimating, accumulate delays of skipped frames into the next kept
+        // frame so total playback duration stays roughly correct (not N× faster).
+        var pendingDelayMs = 0;
         for (var i = 0; i < frameCount; i++)
         {
+            var frameDelayMs = 100;
+            try
+            {
+                // Read delay from the source frame metadata without cloning when skipped.
+                var metaFrame = image.Frames[i];
+                var gif = metaFrame.Metadata.GetGifMetadata();
+                // FrameDelay is in hundredths of a second.
+                if (gif.FrameDelay > 0)
+                    frameDelayMs = Math.Max(20, gif.FrameDelay * 10);
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning($"GifAnimationPlayer frame metadata: {ex.Message}");
+            }
+
+            if (i % step != 0)
+            {
+                pendingDelayMs += frameDelayMs;
+                continue;
+            }
+
             using var frameImage = image.Frames.CloneFrame(i);
             if (scale < 1.0)
                 frameImage.Mutate(ctx => ctx.Resize(tw, th));
 
-            var delay = 100;
-            try
-            {
-                var gif = frameImage.Frames.RootFrame.Metadata.GetGifMetadata();
-                // FrameDelay is in hundredths of a second.
-                if (gif.FrameDelay > 0)
-                    delay = Math.Max(20, gif.FrameDelay * 10);
-            }
-            catch
-            {
-                // Non-GIF animation metadata — default delay.
-            }
-
+            var delay = Math.Max(20, frameDelayMs + pendingDelayMs);
+            pendingDelayMs = 0;
             player._frames.Add((ToBitmap(frameImage), delay));
+            if (player._frames.Count >= MaxFrames) break;
         }
 
         return player;
@@ -124,8 +149,10 @@ public sealed class GifAnimationPlayer : IDisposable
         onFrame(_frames[0].Frame);
         if (_frames.Count == 1) return;
 
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(_frames[0].DelayMs) };
-        _timer.Tick += OnTick;
+        _timer = new DispatcherTimer(
+            TimeSpan.FromMilliseconds(_frames[0].DelayMs),
+            DispatcherPriority.Normal,
+            OnTick);
         _timer.Start();
     }
 

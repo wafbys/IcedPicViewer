@@ -14,4 +14,8 @@
   <Project Path="src/IcedPicViewer.WinUI/IcedPicViewer.csproj">
     <Platform Solution="*|x64" Project="x64" />
   </Project>
+  <Project Path="tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj">
+    <Platform Solution="*|x64" Project="Any CPU" />
+    <Platform Solution="*|Any CPU" Project="Any CPU" />
+  </Project>
 </Solution>

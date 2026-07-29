@@ -128,8 +128,9 @@ public sealed class VlcPlaybackService : IDisposable
                 || File.Exists(Path.Combine(dir, "libvlc.so.5"))
                 || Directory.EnumerateFiles(dir, "libvlc.so*").Any();
         }
-        catch
+        catch (Exception ex)
         {
+            Trace.TraceWarning($"VlcPlaybackService.LooksLikeLibVlcDir probe failed for {dir}: {ex.Message}");
             return false;
         }
     }

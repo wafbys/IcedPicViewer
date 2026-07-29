@@ -97,9 +97,12 @@ public sealed class VlcBitmapSurface : Control, IDisposable
         pitches = (uint)_pitch;
         lines = (uint)_height;
 
-        FreeBuffer();
-        _buffer = new byte[_pitch * _height];
-        _bufferHandle = GCHandle.Alloc(_buffer, GCHandleType.Pinned);
+        lock (_frameLock)
+        {
+            FreeBufferCore();
+            _buffer = new byte[_pitch * _height];
+            _bufferHandle = GCHandle.Alloc(_buffer, GCHandleType.Pinned);
+        }
 
         Dispatcher.UIThread.Post(() =>
         {
@@ -125,10 +128,13 @@ public sealed class VlcBitmapSurface : Control, IDisposable
 
     private IntPtr Lock(IntPtr opaque, IntPtr planes)
     {
-        if (!_bufferHandle.IsAllocated)
+        lock (_frameLock)
+        {
+            if (!_bufferHandle.IsAllocated || _buffer is null)
+                return IntPtr.Zero;
+            Marshal.WriteIntPtr(planes, _bufferHandle.AddrOfPinnedObject());
             return IntPtr.Zero;
-        Marshal.WriteIntPtr(planes, _bufferHandle.AddrOfPinnedObject());
-        return IntPtr.Zero;
+        }
     }
 
     private void Display(IntPtr opaque, IntPtr picture)
@@ -190,10 +196,15 @@ public sealed class VlcBitmapSurface : Control, IDisposable
     {
         lock (_frameLock)
         {
-            if (_bufferHandle.IsAllocated)
-                _bufferHandle.Free();
-            _buffer = null;
+            FreeBufferCore();
         }
+    }
+
+    private void FreeBufferCore()
+    {
+        if (_bufferHandle.IsAllocated)
+            _bufferHandle.Free();
+        _buffer = null;
     }
 
     public override void Render(DrawingContext context)
