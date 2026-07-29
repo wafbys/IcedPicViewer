@@ -12,13 +12,14 @@
 | `src/IcedPicViewer.Avalonia` | **主交付**：浅色 Fluent 2 风 UI、图库/查看器、视频 LibVLC 软渲染、幻灯片、全屏热区 chrome |
 | `src/IcedPicViewer.WinUI` | **并行跟进** 的 Windows 原生壳（WinUI 3 + WASDK 2.3，MSIX，x64）；与 Avalonia 对照，功能可继续演进 |
 | `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit）。只引用 Core，不拉 UI / LibVLC。已进 `IcedPicViewer.slnx` |
-| FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 会镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径 |
-| LibVLC | `LibVLCSharp` + `VideoLAN.LibVLC.Windows` + `VideoLAN.LibVLC.Mac`；**Linux 用系统 libvlc**（`apt install vlc libvlc-dev` 或 `IPV_LIBVLC_ROOT`）。**禁止** `LibVLCSharp.Avalonia.VideoView`（Avalonia 12 会崩） |
+| FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 会镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`，避免 MKV/PGS/DV 探测 WARNING 刷屏 |
+| LibVLC | `LibVLCSharp` + `VideoLAN.LibVLC.Windows` + `VideoLAN.LibVLC.Mac`；**Linux 用系统 libvlc**（`apt install vlc libvlc-dev` 或 `IPV_LIBVLC_ROOT`）。**禁止** `LibVLCSharp.Avalonia.VideoView`（Avalonia 12 会崩）；用自研 `VlcBitmapSurface` 软渲染 |
 
 - 基线 tag：`winui-baseline`（迁移前最后纯 WinUI 快照）。
 - **MasonryPanel** 瀑布流：默认 **3 列铺满**（对齐 WinUI），非虚拟化，勿擅自改成虚拟化列表。
 - **混合加载**：边扫边灌到 200 停 → Load More / 滚底再灌。
 - **不**自动恢复上次打开的文件夹。
+- Avalonia `MainViewModel` 为 partial：`MainViewModel.cs`（字段/属性/设置/chrome）+ `MainViewModel.Gallery.cs`（扫描/drain/watcher）+ `MainViewModel.SlideshowViewer.cs`（查看器/幻灯片/视频/GIF/缩略图）。
 - CommunityToolkit.Mvvm；WinUI 侧另有 DI Hosting。
 - 反对为了"正确"而过度设计。
 
@@ -89,47 +90,66 @@ dotnet test IcedPicViewer.slnx -c Debug
 
 ### Gallery 扫描/加载 pipeline 不变量
 
-核心：**边扫边灌到 200 张停**。scanner → worker thread yield source → 50ms batch flush → UI thread 灌入 → 满 200 张后 drain 退出，scanner 继续跑 TotalCount 但不自动灌。
+核心（**两壳相同语义**）：**边扫边灌到 200 张停**。scanner 在 worker thread yield → 50ms / ≤100 条 batch flush 到 UI → drain 灌到 200 停；scanner 继续累计发现数，但不自动再灌。
+
+**命名对照**（改代码时按壳找符号，勿混用）：
+
+| 概念 | Avalonia（主线，`MainViewModel.Gallery`） | WinUI（`GalleryViewModel`） |
+|------|------------------------------------------|----------------------------|
+| 集合 | `Items` | `Images` |
+| 剩余队列 | `_remaining` | `_remainingFilePaths` |
+| 发现计数 | `DiscoveredCount` | `TotalCount`（及上报逻辑） |
+| 自动灌上限 | `AutoCap = 200`（drain gate） | `PageSize = 200`（drain gate） |
+| Load More 块 | `PageSize = 200` | `PageSize = 200` |
+| scan 灌块 | `ScanPageSize = 30` | `ScanPageSize = 30` |
+| batch | `ScanBatchSize=100` / `ScanBatchMs=50` | 同语义（WinUI 实现内常量） |
+| flush → UI | `FlushBatch` → `Post` 入队 + `DrainPageFillAsync` | `IngestScanBatch` / 等价路径 |
+| drain | `DrainPageFillAsync` 内直接 `Items.Add` | `DrainPageFillAsync` → `LoadNextPageAsync` |
+| 缩略图并发 | `_thumbSemaphore`（6）`LoadThumbnailFireAndForgetAsync` | `_sizeFetchSemaphore`（6）+ `LoadThumbnailAsync` / `GetImageSizeAsync` |
+| UI marshal | `Dispatcher.UIThread.InvokeAsync` | `dispatcher.TryEnqueue` |
+
+**Avalonia 主线流程**（符号以代码为准）：
 
 ```
-scanner (worker thread)
+scanner (worker thread, Task.Run(RunScanAndBatchAsync))
     │ yield source
     ▼
-RunScanAndBatchAsync ── batch ≤100 或 50ms batchStartTick ── FlushScanBatch
-    │ dispatcher TryEnqueue
+RunScanAndBatchAsync ── batch ≤100 或 50ms batchStartTick ── FlushBatch
+    │ Dispatcher.UIThread.Post
     ▼
-IngestScanBatch (UI) ── _remainingFilePaths.AddRange + TotalCount++ → 触发 DrainPageFillAsync
-    │ (fire-and-forget, 单一消费者循环)
+FlushBatch (UI) ── _remaining.AddRange + DiscoveredCount ── 触发 DrainPageFillAsync
+    │ (fire-and-forget, 单一消费者；_pageFillInFlight)
     ▼
-DrainPageFillAsync ── 串行 LoadNextPageAsync(≤30) ── 6 路 fetchahead ── Images.Add
-    │ 直到 Images.Count ≥ 200 或 queue 空
+DrainPageFillAsync ── 每轮 ≤ScanPageSize(30) ── Items.Add + LoadThumbnailFireAndForgetAsync
+    │ 直到 Items.Count ≥ AutoCap(200) 或 queue 空
     ▼
-LoadThumbnailAsync (worker, 6 路 semaphore) ── BitmapImage ── item.Thumbnail
+LoadThumbnailFireAndForgetAsync (worker, 6 路 _thumbSemaphore)
+    ── AvaloniaImageLoader ── Dispatcher 回写 ApplyThumbnail / IsThumbnailLoading
 ```
 
-**不变量清单**：
+**不变量清单**（语义；符号见表）：
 
 | 规则 | 说明 |
 |------|------|
-| scanner 永远在 worker thread | `Task.Run(RunScanAndBatchAsync)` 包住整个 `await foreach`，yield 不走 UI 同步上下文 |
+| scanner 永远在 worker thread | `Task.Run` 包住整个 `await foreach`，yield 不走 UI 同步上下文 |
 | `batchStartTick` 锚点 | batch 空时设 `batchStartTick = now`，保证第一张 source 50ms 内必 flush |
-| 单一 consumer `DrainPageFillAsync` | `_pageFillInFlight` flag 保证同时只有一个 drain 循环，串行 `await LoadNextPageAsync` |
-| `_pageFillInFlight` ≠ `IsLoadingMore` | fire-and-forget 路径用 `_pageFillInFlight`，`IsLoadingMore` 归 Load More 按钮 |
-| `ScanPageSize=30` / `PageSize=200` | scan-time 用 30（避免 layout 卡死），Load More 用 200 |
-| drain gate: `Images.Count < PageSize` | 满 200 张后不再自动触发 drain |
-| 轮询完成条件 | `!_pageFillInFlight && !IsLoadingMore`（不等 `_remainingFilePaths.Count == 0`，drain 提前退会留 source） |
-| 6 路 `_sizeFetchSemaphore` | `GetImageSizeAsync` 必须限流，WinRT BitmapDecoder 是 STA-bound |
-| `IsThumbnailLoading` setter | 必须经 `dispatcher.TryEnqueue`，不能 worker thread 直接写 |
-| ctor 设 `IsThumbnailLoading = true` | 外层 try/finally 保证所有出口都 `= false`（cache 命中/取消/解码成功/失败） |
+| 单一 consumer drain | `_pageFillInFlight` 保证同时只有一个 drain 循环 |
+| `_pageFillInFlight` ≠ `IsLoadingMore` | fire-and-forget 用前者；Load More 按钮用后者 |
+| `ScanPageSize=30` / 自动灌 200 / Load More 200 | scan-time 小块避免 layout 卡死；自动灌与 Load More 上限均为 200 |
+| drain gate | Avalonia：`Items.Count < AutoCap`；WinUI：`Images.Count < PageSize`。满 200 后不再自动 drain |
+| 完成条件 | 不以「剩余队列为空」单独作为扫描结束；drain 提前退会留 source 给 Load More |
+| 缩略图 6 路限流 | 必须 semaphore；WinUI 另限流 `GetImageSizeAsync`（WinRT STA） |
+| 缩略图状态回写 | 必须经 UI dispatcher；禁止 worker 直接写 `IsThumbnailLoading` / Thumbnail |
+| 切目录取消 | 旧 cts `Cancel`+`Dispose`；flush/drain/thumb 检查 token，避免旧 session 灌入新目录 |
 
 **绝对不要做的事**：
 - 把 `await foreach` 同步吞光再统一 Load（用户看空白几十秒）
 - 加回 page fill timer（已删，fire-and-forget 是正解）
 - 把 `ScanPageSize` 调到 150（150 次 layout pass 卡死 UI）
-- `GetImageSizeAsync` 不做限流全并发（marshal 100+ 次压垮 UI thread）
-- `LoadThumbnailAsync` 内直接 `item.IsThumbnailLoading = false`（跨线程 COMException）
+- 缩略图/尺寸探测全并发无 semaphore
+- worker 线程直接写绑定属性（跨线程异常）
 
-**取消语义**：切目录时旧 cts `Cancel()`+`Dispose()` → scanner 退出 await foreach → 旧 batch 检查 token 直接 return → LoadNextPageAsync 内 await 期间早退。
+**取消语义**：切目录时旧 cts `Cancel()`+`Dispose()` → scanner 退出 await foreach → 旧 batch 检查 token 直接 return → drain/LoadMore 内 `Items.Add` 前检查 token 早退。
 
 ### 键盘导航（WH_KEYBOARD thread-scope hook）
 

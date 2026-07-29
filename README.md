@@ -7,8 +7,9 @@
 | `src/IcedPicViewer.Avalonia` | **主程序**（Win / macOS / Linux，.NET 10 + Avalonia 12） |
 | `src/IcedPicViewer.Core` | 平台无关：扫描、归档、设置、FFmpeg 抽帧等 |
 | `src/IcedPicViewer.WinUI` | **并行跟进** 的 Windows 原生壳（WinUI 3 + WASDK 2.3，MSIX，x64） |
+| `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit；已进 solution） |
 
-迁移前纯 WinUI 快照 tag：`winui-baseline`。
+迁移前纯 WinUI 快照 tag：`winui-baseline`。协作约定见 `AGENTS.md`。
 
 ## 功能（Avalonia 主线）
 
@@ -77,6 +78,14 @@
 dotnet build src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
 dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
 ```
+
+### Core 测试
+
+```bash
+dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c Debug
+```
+
+改 Core 纯逻辑时 build + 上述测试应通过。UI / 播放仍以手动验证为主（详见 `AGENTS.md`）。
 
 #### 平台 native（视频相关）
 
