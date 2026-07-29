@@ -53,7 +53,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     // ── Properties ───────────────────────────────────────────────────
 
-    public ObservableCollection<GalleryItemViewModel> Items { get; } = new();
+    public ObservableCollection<MediaItemViewModel> Items { get; } = new();
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
@@ -87,7 +87,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     [NotifyCanExecuteChangedFor(nameof(NavigateNextCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(RevealSelectedCommand))]
-    public partial GalleryItemViewModel? SelectedItem { get; set; }
+    public partial MediaItemViewModel? SelectedItem { get; set; }
 
     [ObservableProperty]
     public partial bool IsViewerOpen { get; set; }
@@ -143,7 +143,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     public Action<bool>? ApplyFullscreen { get; set; }
 
-    public Action<GalleryItemViewModel>? RequestScrollToItem { get; set; }
+    public Action<MediaItemViewModel>? RequestScrollToItem { get; set; }
 
     public JsonSettingsService Settings => _settings;
 

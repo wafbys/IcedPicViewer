@@ -134,7 +134,7 @@ public partial class MainViewModel
         await Task.CompletedTask;
     }
 
-    private GalleryItemViewModel? PickSequentialNext()
+    private MediaItemViewModel? PickSequentialNext()
     {
         if (Items.Count == 0) return null;
 
@@ -200,7 +200,7 @@ public partial class MainViewModel
         }
     }
 
-    private GalleryItemViewModel? PickShuffleNext()
+    private MediaItemViewModel? PickShuffleNext()
     {
         if (_shuffleQueue.Count == 0)
             RefillShuffleQueue();
@@ -306,7 +306,7 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
-    private void RevealItem(GalleryItemViewModel? item)
+    private void RevealItem(MediaItemViewModel? item)
     {
         item ??= SelectedItem;
         if (item is null) return;
@@ -319,7 +319,7 @@ public partial class MainViewModel
     private bool CanRevealSelected() => SelectedItem is not null;
 
     [RelayCommand]
-    private async Task DeleteItemAsync(GalleryItemViewModel? item)
+    private async Task DeleteItemAsync(MediaItemViewModel? item)
     {
         item ??= SelectedItem;
         if (item is null) return;
@@ -369,7 +369,7 @@ public partial class MainViewModel
 
     // ── Open item & full‑image loading ───────────────────────────────
 
-    public void OpenItem(GalleryItemViewModel item)
+    public void OpenItem(MediaItemViewModel item)
     {
         if (SelectedItem is not null && !ReferenceEquals(SelectedItem, item))
         {
@@ -386,7 +386,7 @@ public partial class MainViewModel
         DeleteSelectedCommand.NotifyCanExecuteChanged();
         RevealSelectedCommand.NotifyCanExecuteChanged();
         StartGallerySlideshowCommand.NotifyCanExecuteChanged();
-        _ = LoadFullImageAsync(item);
+        _ = LoadFullAsync(item);
         if (item.IsVideo)
             _ = PrepareVideoAsync(item);
     }
@@ -404,7 +404,7 @@ public partial class MainViewModel
         return Path.GetExtension(name).Equals(".gif", StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task PrepareVideoAsync(GalleryItemViewModel item)
+    private async Task PrepareVideoAsync(MediaItemViewModel item)
     {
         try
         {
@@ -459,7 +459,7 @@ public partial class MainViewModel
 
     // ── Full‑image async loading ─────────────────────────────────────
 
-    private async Task LoadThumbnailAsync(GalleryItemViewModel item, CancellationToken ct)
+    private async Task LoadThumbnailAsync(MediaItemViewModel item, CancellationToken ct)
     {
         try
         {
@@ -492,7 +492,7 @@ public partial class MainViewModel
         }
     }
 
-    private async Task LoadFullImageAsync(GalleryItemViewModel item)
+    private async Task LoadFullAsync(MediaItemViewModel item)
     {
         var isGif = IsGifMedia(item.Media);
         if (item.FullImage is not null && !isGif && item.Media.Kind != MediaKind.Video)
@@ -529,7 +529,7 @@ public partial class MainViewModel
         }
     }
 
-    private async Task LoadGifAsync(GalleryItemViewModel item, CancellationToken ct)
+    private async Task LoadGifAsync(MediaItemViewModel item, CancellationToken ct)
     {
         await using var stream = await OpenMediaStreamAsync(item.Media, ct).ConfigureAwait(false);
         if (stream is null)

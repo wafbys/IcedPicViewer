@@ -42,7 +42,7 @@ public interface IMediaLoader
     /// Returns null if the source does not exist or cannot be opened.
     /// </summary>
     /// <remarks>
-    /// Prefer <see cref="LoadFullImageAsync"/> over this method for
+    /// Prefer <see cref="LoadFullAsync"/> over this method for
     /// actual rendering — this raw stream does not apply EXIF
     /// orientation, so a portrait photo shot with EXIF Rotation=6
     /// would be returned sideways. Kept for callers that need the
@@ -60,7 +60,7 @@ public interface IMediaLoader
     /// work from these values without any extra logic. Returns null
     /// if the source can't be opened or decoded.
     /// </summary>
-    Task<WinImageSource?> LoadFullImageAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default);
+    Task<WinImageSource?> LoadFullAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default);
 
     Task<BitmapImage?> LoadThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default);
 

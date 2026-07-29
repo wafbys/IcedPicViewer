@@ -3,13 +3,20 @@
 using System.Diagnostics;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
 
 namespace IcedPicViewer.Avalonia.ViewModels;
 
-public partial class GalleryItemViewModel : ViewModelBase
+/// <summary>
+/// Avalonia gallery row. Implements shared <see cref="IMediaEntry"/>;
+/// bitmaps stay Avalonia-specific.
+/// </summary>
+public partial class MediaItemViewModel : ViewModelBase, IMediaEntry
 {
     public MediaRef Media { get; }
+
+    public string Id => Media.ToString();
 
     public string Name { get; }
 
@@ -20,15 +27,7 @@ public partial class GalleryItemViewModel : ViewModelBase
 
     public long FileSize { get; }
 
-    public string FileSizeText
-    {
-        get
-        {
-            if (FileSize < 1024) return $"{FileSize} B";
-            if (FileSize < 1024 * 1024) return $"{FileSize / 1024.0:F1} KB";
-            return $"{FileSize / (1024.0 * 1024.0):F1} MB";
-        }
-    }
+    public string FileSizeText => MediaDisplay.FormatFileSize(FileSize);
 
     /// <summary>
     /// Preferred tile height for masonry before/after thumbnail decode.
@@ -58,28 +57,11 @@ public partial class GalleryItemViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(DurationText))]
     public partial TimeSpan? Duration { get; set; }
 
-    /// <summary>e.g. "4032×3024" or empty until known.</summary>
-    public string SizeText => PixelWidth > 0 && PixelHeight > 0
-        ? $"{PixelWidth}×{PixelHeight}"
-        : "";
+    public string SizeText => MediaDisplay.FormatPixelSize(PixelWidth, PixelHeight);
 
-    /// <summary>e.g. "1:23" or "1:02:03"; empty when unknown.</summary>
-    public string DurationText => FormatDuration(Duration);
+    public string DurationText => MediaDisplay.FormatDuration(Duration);
 
-    /// <summary>Hover / tooltip second line: "W×H · m:ss · 2.1 MB" (video) or "W×H · 2.1 MB".</summary>
-    public string InfoLine
-    {
-        get
-        {
-            var parts = new List<string>(3);
-            if (!string.IsNullOrEmpty(SizeText))
-                parts.Add(SizeText);
-            if (!string.IsNullOrEmpty(DurationText))
-                parts.Add(DurationText);
-            parts.Add(FileSizeText);
-            return string.Join(" · ", parts);
-        }
-    }
+    public string InfoLine => MediaDisplay.FormatInfoLine(SizeText, DurationText, FileSizeText);
 
     [ObservableProperty]
     public partial Bitmap? Thumbnail { get; set; }
@@ -93,7 +75,7 @@ public partial class GalleryItemViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool IsFullImageLoading { get; set; }
 
-    public GalleryItemViewModel(MediaRef media, long fileSize = 0)
+    public MediaItemViewModel(MediaRef media, long fileSize = 0)
     {
         Media = media;
         FileSize = fileSize;
@@ -105,14 +87,13 @@ public partial class GalleryItemViewModel : ViewModelBase
             : (Path.GetDirectoryName(media.Path) ?? media.Path);
     }
 
-    public static GalleryItemViewModel FromMedia(MediaRef media)
+    public static MediaItemViewModel FromMedia(MediaRef media)
     {
         long size = 0;
         try
         {
             if (media.IsInArchive)
             {
-                // Best-effort: archive file size as stand-in when entry size unknown.
                 if (File.Exists(media.Path))
                     size = new FileInfo(media.Path).Length;
             }
@@ -123,11 +104,11 @@ public partial class GalleryItemViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning($"GalleryItemViewModel.FromMedia file size probe failed: {ex.Message}");
+            Trace.TraceWarning($"MediaItemViewModel.FromMedia file size probe failed: {ex.Message}");
             size = 0;
         }
 
-        return new GalleryItemViewModel(media, size);
+        return new MediaItemViewModel(media, size);
     }
 
     public void ApplyThumbnail(
@@ -148,7 +129,6 @@ public partial class GalleryItemViewModel : ViewModelBase
         }
         else if (bitmap is not null && bitmap.PixelSize.Width > 0)
         {
-            // Fallback aspect from thumb pixels only (not for SizeText if already set).
             AspectRatio = bitmap.PixelSize.Height / (double)bitmap.PixelSize.Width;
             if (PixelWidth <= 0)
             {
@@ -157,14 +137,5 @@ public partial class GalleryItemViewModel : ViewModelBase
             }
         }
         IsThumbnailLoading = false;
-    }
-
-    /// <summary>VLC/mpv-style short duration for hover (m:ss or h:mm:ss).</summary>
-    internal static string FormatDuration(TimeSpan? duration)
-    {
-        if (duration is not { } d || d <= TimeSpan.Zero) return "";
-        if (d.TotalHours >= 1)
-            return $"{(int)d.TotalHours}:{d.Minutes:D2}:{d.Seconds:D2}";
-        return $"{(int)d.TotalMinutes}:{d.Seconds:D2}";
     }
 }

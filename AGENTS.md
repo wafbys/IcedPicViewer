@@ -22,8 +22,9 @@
 - **混合加载**（产品语义两壳一致）：边扫边灌到 200 停 → Load More / 滚底再灌。
 - **不**自动恢复上次打开的文件夹（两壳）。
 - **VM 布局**：
-  - WinUI：`GalleryViewModel` + `ViewerViewModel` + 页 `ViewerView`；项 `MediaItem` / `ImageItem` / `VideoItem`；加载 `IMediaLoader` / `MediaLoader`。
-  - Avalonia：`MainViewModel` partial（`.cs` / `.Gallery` / `.SlideshowViewer`）；项 `GalleryItemViewModel`；加载 `AvaloniaMediaLoader`；小地图 `ViewerMinimap`。
+  - 共享项契约：Core `IMediaEntry` + `MediaDisplay` 格式化。
+  - WinUI：`GalleryViewModel` + `ViewerViewModel` + 页 `ViewerView`；项 `MediaItem`:`IMediaEntry`（`ImageItem`/`VideoItem`）；加载 `IMediaLoader`/`MediaLoader`。
+  - Avalonia：`MainViewModel` partial；项 `MediaItemViewModel`:`IMediaEntry`；加载 `AvaloniaMediaLoader`；小地图 `ViewerMinimap`。
 - CommunityToolkit.Mvvm（两壳）。
 - 改共享行为动 **Core**，并确认 **WinUI 与 Avalonia** 仍符合约定；改壳特有交互只动对应工程。反对过度设计。
 
@@ -130,7 +131,7 @@ dotnet test IcedPicViewer.slnx -c Debug
 | 点 | WinUI | Avalonia |
 |----|-------|----------|
 | VM 拆分 | `GalleryViewModel` + `ViewerViewModel` | `MainViewModel` partials |
-| 项类型 | `MediaItem` / `ImageItem` / `VideoItem` | `GalleryItemViewModel` |
+| 项类型 | `MediaItem` / `ImageItem` / `VideoItem` | `MediaItemViewModel` |
 | drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` | 随缩略图/解码 |
 | UI marshal | `DispatcherQueue.TryEnqueue` | `Dispatcher.UIThread` |
 | 解码 / 播放 | WIC / `MediaPlayerElement` | ImageSharp / LibVLC |
@@ -210,7 +211,7 @@ Avalonia 12 会 `MissingMethodException`。视频表面用 `VlcBitmapSurface`（
 
 #### 2. 缩略图 / FullImage 必须 UI 线程赋值
 
-worker 解码后 `Dispatcher.UIThread.InvokeAsync` 再写 `GalleryItemViewModel` 绑定属性。
+worker 解码后 `Dispatcher.UIThread.InvokeAsync` 再写 `MediaItemViewModel` 绑定属性。
 
 #### 3. Linux 视频依赖系统 libvlc
 

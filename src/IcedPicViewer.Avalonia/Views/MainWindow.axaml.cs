@@ -49,7 +49,7 @@ public partial class MainWindow : Window
     /// After leaving the viewer, scroll the masonry gallery so the last-viewed
     /// card is near the top of the viewport (WinUI-like resume).
     /// </summary>
-    private void ScrollGalleryToItem(GalleryItemViewModel item)
+    private void ScrollGalleryToItem(MediaItemViewModel item)
     {
         if (DataContext is not MainViewModel vm) return;
         var index = vm.Items.IndexOf(item);
@@ -172,7 +172,7 @@ public partial class MainWindow : Window
 
     private void Tile_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (sender is not Control { DataContext: GalleryItemViewModel item })
+        if (sender is not Control { DataContext: MediaItemViewModel item })
             return;
         if (DataContext is not MainViewModel vm)
             return;
@@ -197,12 +197,12 @@ public partial class MainWindow : Window
             await vm.DeleteItemCommand.ExecuteAsync(item).ConfigureAwait(true);
     }
 
-    private static GalleryItemViewModel? TryGetMenuItem(object? sender)
+    private static MediaItemViewModel? TryGetMenuItem(object? sender)
     {
         if (sender is not Control start) return null;
         for (Control? c = start; c is not null; c = c.Parent as Control)
         {
-            if (c.DataContext is GalleryItemViewModel item)
+            if (c.DataContext is MediaItemViewModel item)
                 return item;
         }
         return null;

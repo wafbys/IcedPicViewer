@@ -41,7 +41,7 @@
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:GalleryItemViewModel">
+                        <DataTemplate x:DataType="vm:MediaItemViewModel">
                             <!-- WinUI-like card: hover shows dim + name/size/path strip -->
                             <Border Classes="gallery-card"
                                     Background="{DynamicResource AppCardBrush}"

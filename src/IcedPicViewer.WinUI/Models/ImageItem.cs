@@ -1,5 +1,7 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using IcedPicViewer.Core.Text;
+
 namespace IcedPicViewer.Models;
 
 public sealed partial class ImageItem : MediaItem
@@ -20,7 +22,12 @@ public sealed partial class ImageItem : MediaItem
     /// Avoids the misleading "0×0" you would get from binding OriginalWidth/Height
     /// directly when the metadata is missing.
     /// </summary>
-    public override string OriginalSizeText => OriginalWidth > 0 && OriginalHeight > 0
-        ? $"{OriginalWidth}×{OriginalHeight}"
-        : "Unknown";
+    public override string OriginalSizeText
+    {
+        get
+        {
+            var size = MediaDisplay.FormatPixelSize(OriginalWidth, OriginalHeight);
+            return string.IsNullOrEmpty(size) ? "Unknown" : size;
+        }
+    }
 }

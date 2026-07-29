@@ -185,7 +185,7 @@ public partial class MainViewModel
         _lastShuffleIndex = -1;
     }
 
-    private void RemoveItemEverywhere(GalleryItemViewModel item)
+    private void RemoveItemEverywhere(MediaItemViewModel item)
     {
         var idx = Items.IndexOf(item);
         if (idx >= 0) Items.RemoveAt(idx);
@@ -330,7 +330,7 @@ public partial class MainViewModel
                 {
                     // Directory switch cancels ct and clears Items; stop adding stale sources.
                     if (ct.IsCancellationRequested) return;
-                    var item = GalleryItemViewModel.FromMedia(media);
+                    var item = MediaItemViewModel.FromMedia(media);
                     Items.Add(item);
                     _ = LoadThumbnailAsync(item, ct);
                 }
@@ -374,7 +374,7 @@ public partial class MainViewModel
             foreach (var media in chunk)
             {
                 if (ct.IsCancellationRequested) return;
-                var item = GalleryItemViewModel.FromMedia(media);
+                var item = MediaItemViewModel.FromMedia(media);
                 Items.Add(item);
                 _ = LoadThumbnailAsync(item, ct);
             }

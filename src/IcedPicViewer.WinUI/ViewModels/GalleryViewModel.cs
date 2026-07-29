@@ -1235,7 +1235,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         var oldId = MediaRef.FromFile(info.OldPath, _imageLoader.GetKindForFile(info.OldPath)).ToString();
         if (!_imageIndex.TryGetValue(oldId, out var renamedItem)) return;
 
-        // UpdateSource carries the new path. Preserve the existing kind
+        // UpdateMedia carries the new path. Preserve the existing kind
         // because the rename didn't change the file type — if the user
         // renames foo.mp4 to bar.mp4 the new id must still match a
         // video, not an image. The new path's GetKindForFile would

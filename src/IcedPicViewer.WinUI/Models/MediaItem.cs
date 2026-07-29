@@ -2,6 +2,7 @@
 
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcedPicViewer.Core.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using WinImageSource = Microsoft.UI.Xaml.Media.ImageSource;
@@ -32,7 +33,7 @@ namespace IcedPicViewer.Models;
 /// <see cref="IsVideoVisibility"/> to toggle the &gt; overlay.
 /// </para>
 /// </summary>
-public abstract partial class MediaItem : ObservableObject
+public abstract partial class MediaItem : ObservableObject, IMediaEntry
 {
     public MediaRef Media { get; protected set; }
     public string Id { get; protected set; }
@@ -98,15 +99,7 @@ public abstract partial class MediaItem : ObservableObject
         IsThumbnailLoading = true;
     }
 
-    public string FileSizeText
-    {
-        get
-        {
-            if (FileSize < 1024) return $"{FileSize} B";
-            if (FileSize < 1024 * 1024) return $"{FileSize / 1024.0:F1} KB";
-            return $"{FileSize / (1024.0 * 1024.0):F1} MB";
-        }
-    }
+    public string FileSizeText => MediaDisplay.FormatFileSize(FileSize);
 
     /// <summary>
     /// Subtitle text shown on the gallery card — for images this is
@@ -150,14 +143,14 @@ public abstract partial class MediaItem : ObservableObject
     /// identity, name, and media. Callers are responsible for re-inserting
     /// the item into any collection so indexes refresh.
     /// </summary>
-    public virtual void UpdateMedia(MediaRef newSource)
+    public virtual void UpdateMedia(MediaRef media)
     {
-        var kindChanged = Media.Kind != newMedia.Kind;
-        Media = newSource;
-        Id = newSource.ToString();
-        Name = newMedia.IsInArchive
-            ? Path.GetFileName(newMedia.ArchiveEntry!)
-            : Path.GetFileName(newMedia.Path);
+        var kindChanged = Media.Kind != media.Kind;
+        Media = media;
+        Id = media.ToString();
+        Name = media.IsInArchive
+            ? Path.GetFileName(media.ArchiveEntry!)
+            : Path.GetFileName(media.Path);
         if (kindChanged)
         {
             OnPropertyChanged(nameof(IsVideo));

@@ -1,5 +1,7 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using IcedPicViewer.Core.Text;
+
 namespace IcedPicViewer.Models;
 
 public sealed partial class VideoItem : MediaItem
@@ -47,28 +49,13 @@ public sealed partial class VideoItem : MediaItem
     {
         get
         {
-            var size = OriginalWidth > 0 && OriginalHeight > 0
-                ? $"{OriginalWidth}×{OriginalHeight}"
-                : "Unknown";
+            var size = MediaDisplay.FormatPixelSize(OriginalWidth, OriginalHeight);
+            if (string.IsNullOrEmpty(size)) size = "Unknown";
             if (Duration > TimeSpan.Zero)
-            {
-                return $"{size} · {FormatDuration(Duration)}";
-            }
+                return $"{size} · {MediaDisplay.FormatDuration(Duration)}";
             return size;
         }
     }
 
-    public string DurationText => FormatDuration(Duration);
-
-    private static string FormatDuration(TimeSpan d)
-    {
-        // m:ss for < 1h, h:mm:ss otherwise. Avoids Locale formatting
-        // surprises (commas / decimal points) — these tiles are too small
-        // for an invariant-only format to look out of place.
-        if (d.TotalHours >= 1)
-        {
-            return $"{(int)d.TotalHours}:{d.Minutes:D2}:{d.Seconds:D2}";
-        }
-        return $"{(int)d.TotalMinutes}:{d.Seconds:D2}";
-    }
+    public string DurationText => MediaDisplay.FormatDuration(Duration);
 }

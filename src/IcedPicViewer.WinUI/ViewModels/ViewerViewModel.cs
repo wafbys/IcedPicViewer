@@ -495,7 +495,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     {
         try
         {
-            var source = await _imageLoader.LoadFullImageAsync(item.Media, targetMaxSize: null, ct);
+            var source = await _imageLoader.LoadFullAsync(item.Media, targetMaxSize: null, ct);
             if (ct.IsCancellationRequested) return;
 
             if (source != null)
@@ -1241,7 +1241,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         StopAndDisposePlayer();
         ResetLoadCts();
         var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
-        await LoadFullImageAsync(SelectedItem, fitTargetSize, _loadCts!.Token);
+        await LoadFullAsync(SelectedItem, fitTargetSize, _loadCts!.Token);
         SchedulePreload();
     }
 
@@ -1263,11 +1263,11 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         ItemCount = Items.Count;
 
         var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
-        await LoadFullImageAsync(item, fitTargetSize, _loadCts!.Token);
+        await LoadFullAsync(item, fitTargetSize, _loadCts!.Token);
         SchedulePreload();
     }
 
-    private async Task LoadFullImageAsync(MediaItem item, int? targetMaxSize, CancellationToken ct)
+    private async Task LoadFullAsync(MediaItem item, int? targetMaxSize, CancellationToken ct)
     {
         if (ct.IsCancellationRequested) return;
 
@@ -1280,7 +1280,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         IsLoading = true;
         try
         {
-            var source = await _imageLoader.LoadFullImageAsync(item.Media, targetMaxSize, ct);
+            var source = await _imageLoader.LoadFullAsync(item.Media, targetMaxSize, ct);
 
             if (ct.IsCancellationRequested)
             {
@@ -1301,7 +1301,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"LoadFullImageAsync error for {item?.Id}: {ex.Message}");
+            Trace.TraceError($"LoadFullAsync error for {item?.Id}: {ex.Message}");
         }
         finally
         {
@@ -1330,7 +1330,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             SelectedItem = Items[CurrentIndex];
             ResetLoadCts();
             var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
-            await LoadFullImageAsync(SelectedItem, fitTargetSize, _loadCts!.Token);
+            await LoadFullAsync(SelectedItem, fitTargetSize, _loadCts!.Token);
             SchedulePreload();
         }
     }
@@ -1378,7 +1378,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         if (ct.IsCancellationRequested || item.FullImage != null) return;
         try
         {
-            var source = await _imageLoader.LoadFullImageAsync(item.Media, FullImageMaxSize, ct);
+            var source = await _imageLoader.LoadFullAsync(item.Media, FullImageMaxSize, ct);
             if (!ct.IsCancellationRequested && source != null)
             {
                 // Do not overwrite a full-res version (from 1:1 visit) with a capped preload result.
@@ -1407,7 +1407,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     /// <summary>
     /// Cancels any in-flight full-image load and swaps in a fresh cts. Callers
     /// must read <c>_loadCts.Token</c> immediately after (use null-forgiving),
-    /// then pass it to <see cref="LoadFullImageAsync"/>. <see cref="Close"/>
+    /// then pass it to <see cref="LoadFullAsync"/>. <see cref="Close"/>
     /// uses a different destroy-then-null pattern because it tears the VM
     /// down entirely.
     /// </summary>

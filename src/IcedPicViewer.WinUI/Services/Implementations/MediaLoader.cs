@@ -110,7 +110,7 @@ public class MediaLoader : IMediaLoader
         return await GetSizeFromFileAsync(media.Path, ct);
     }
 
-    public async Task<WinImageSource?> LoadFullImageAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default)
+    public async Task<WinImageSource?> LoadFullAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default)
     {
         try
         {
@@ -164,7 +164,7 @@ public class MediaLoader : IMediaLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"LoadFullImageAsync error for {media}: {ex.Message}");
+            Trace.TraceError($"LoadFullAsync error for {media}: {ex.Message}");
             return null;
         }
     }
