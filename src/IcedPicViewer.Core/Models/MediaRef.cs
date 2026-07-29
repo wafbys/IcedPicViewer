@@ -3,18 +3,6 @@
 namespace IcedPicViewer.Models;
 
 /// <summary>
-/// What kind of media a <see cref="MediaRef"/> points at. Populated by
-/// the directory scanner from the file extension; carried alongside the
-/// source through the gallery pipeline so the VM can dispatch each
-/// media item to the right metadata extractor without re-sniffing the path.
-/// </summary>
-public enum MediaKind
-{
-    Image,
-    Video
-}
-
-/// <summary>
 /// Identifies a single media file (image or video), which may live either
 /// on disk as a regular file or inside an archive (zip / rar / tar / gz; not 7z).
 ///

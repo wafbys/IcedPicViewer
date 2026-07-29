@@ -9,7 +9,18 @@
 | `src/IcedPicViewer.Avalonia` | 跨平台 UI（Win / macOS / Linux，.NET 10 + Avalonia 12） |
 | `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit；已进 solution） |
 
-tag `winui-baseline`：迁移前纯 WinUI 快照，仅供历史 diff。协作约定见 `AGENTS.md`。
+tag `winui-baseline`：迁移前纯 WinUI 快照，仅供历史 diff。协作约定与**定稿架构**见 `AGENTS.md`。
+
+### 定稿命名（摘录）
+
+| 概念 | 代码 |
+|------|------|
+| 媒体定位 | `MediaRef` + `MediaKind` |
+| 图库项契约 | `IMediaEntry`（WinUI `MediaItem` / Avalonia `MediaItemViewModel`） |
+| 图库集合 | `Items` |
+| 查看器 | WinUI：`ViewerView` + `ViewerViewModel` |
+| 加载 | `IMediaLoader` / `AvaloniaMediaLoader` |
+| 文案 | `GalleryStatusFormatter` / `UiCopy`（中文） |
 
 ## 功能（产品能力；WinUI / Avalonia 对齐）
 

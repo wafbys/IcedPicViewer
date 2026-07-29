@@ -110,8 +110,11 @@ dotnet test IcedPicViewer.slnx -c Debug
 
 | 术语 | 代码名 | 含义 |
 |------|--------|------|
+| 媒体定位 | `MediaRef` | 文件或压缩包条目（**不是**平台图形 `ImageSource`） |
+| 媒体种类 | `MediaKind` | `Image` / `Video` |
+| 项契约 | `IMediaEntry` | `Id`/`Media`/`Name`/`IsVideo`/`FileSize`；WinUI=`MediaItem`，Avalonia=`MediaItemViewModel` |
 | 图库集合 | `Items` | 已灌入瀑布流的媒体项 |
-| 当前项 | `SelectedItem` | 查看器/选中项（WinUI 查看器 VM 与 Avalonia 同名） |
+| 当前项 | `SelectedItem` | 查看器/选中项（两壳同名） |
 | 当前文件夹 | `FolderPath` | 正在浏览的目录 |
 | 剩余队列 | `_remainingSources` + `_remainingLock` | 已发现未入 `Items` 的 `MediaRef` |
 | 发现数 | `DiscoveredCount` | **扫描期唯一写源**：`IngestScanBatch` 绝对赋值 `DiscoveredCount = discovered`（禁止再叠加 Progress 计数）。监视器增删可 `++`/`--` |
@@ -126,17 +129,19 @@ dotnet test IcedPicViewer.slnx -c Debug
 | 对话框 / 工具栏 | `UiCopy` | **中文**公共文案（删除确认、打开文件夹、加载更多…）；壳 XAML 与 VM 标签对齐 |
 | 查看器已加载数 | WinUI：`ItemCount`（=`Items.Count`）；Avalonia：直接绑 `Items.Count` | 勿与 `DiscoveredCount` 混淆 |
 
-#### 仅平台差异（技术栈，不是第二套产品词）
+#### 仅平台差异（技术栈，**不是**第二套产品词；勿再统一）
 
 | 点 | WinUI | Avalonia |
 |----|-------|----------|
-| VM 拆分 | `GalleryViewModel` + `ViewerViewModel` | `MainViewModel` partials |
-| 项类型 | `MediaItem` / `ImageItem` / `VideoItem` | `MediaItemViewModel` |
+| VM 拆分 | `GalleryViewModel` + `ViewerViewModel` + `ViewerView` | `MainViewModel` partials（单 Window） |
+| 项实现 | `MediaItem` + `ImageItem`/`VideoItem` | `MediaItemViewModel`（单类） |
+| 缩略图/全图像素类型 | `BitmapImage` / `WinImageSource` | Avalonia `Bitmap` |
+| 加载器 | `IMediaLoader` / `MediaLoader` | `AvaloniaMediaLoader` |
 | drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` | 随缩略图/解码 |
 | UI marshal | `DispatcherQueue.TryEnqueue` | `Dispatcher.UIThread` |
-| 解码 / 播放 | WIC / `MediaPlayerElement` | ImageSharp / LibVLC |
+| 解码 / 播放 | WIC / `MediaPlayerElement` | ImageSharp / LibVLC + `VlcBitmapSurface` |
 | 键盘 | `WH_KEYBOARD` | 窗口 `KeyDown` |
-| 扫描路径提示 | `CurrentScanningPath`（可选 UI） | 可无 |
+| 扫描路径提示 | `CurrentScanningPath` | 无 |
 
 **共用流程**：
 
@@ -149,7 +154,37 @@ RunScanAndBatchAsync ── ScanBatchSize/ScanBatchMs ── FlushScanBatch
 
 **不变量**：scanner 在 worker；`batchStartTick`；`_pageFillInFlight` ≠ `IsLoadingMore`；drain gate `Items.Count < PageSize`；缩略图经 UI 线程回写；切目录取消 CTS。
 
-**禁止**：`Images` / `AutoCap` / `_remainingFilePaths` / `CurrentFolderPath` / `IsBusy`（作加载态）/ `LoadMoreImages*` / `CurrentImage` / Gallery 级 `TotalCount` 等旧名重现。
+**禁止**：`Images` / `AutoCap` / `_remainingFilePaths` / `CurrentFolderPath` / `IsBusy`（作加载态）/ `LoadMoreImages*` / `CurrentImage` / Gallery 级 `TotalCount` / 领域模型 `ImageSource` / `ImageViewerView` / `ImageViewModel` / `GalleryItemViewModel` / `IImageLoader` 等旧名重现。
+
+## 定稿架构（终点站）
+
+以下为 **一致性工作的终点**。达到即收手；**不要**再为「更统一」做下列之外的重构。
+
+### 已定稿（必须保持）
+
+1. **三工程平等**：Core / WinUI / Avalonia。
+2. **领域命名**：`MediaRef`、`MediaKind`、`IMediaEntry`、`Items`、`SelectedItem`、`FolderPath`、`DiscoveredCount`、`LoadingState`、`PageSize`/`ScanPageSize`/`ScanBatch*`、flush 链、`LoadMore*`、`LoadThumbnailAsync`、`_remainingSources`、`_thumbnailLoadSemaphore`。
+3. **中文 UI 文案**：状态栏 `GalleryStatusFormatter`；对话框/按钮 `UiCopy`；About `AboutCopy`；WinUI 视频错误 `VideoPlaybackCopy`。
+4. **展示格式**：`MediaDisplay`（大小/时长/像素/InfoLine）。
+5. **壳入口命名**：WinUI `ViewerView` + `ViewerViewModel` + `IMediaLoader`；Avalonia `MediaItemViewModel` + `AvaloniaMediaLoader` + `ViewerMinimap`。
+6. **图库 pipeline 语义**两壳一致（边扫边灌 200）；`DiscoveredCount` 扫描期单写源。
+
+### 永久分叉（禁止再「统一」）
+
+| 分叉 | 原因 |
+|------|------|
+| 位图 / 控件类型（`Bitmap` vs `BitmapImage`） | 平台 API |
+| 项实现形状（`MediaItem` 继承树 vs `MediaItemViewModel` 单类） | 契约 `IMediaEntry` 已统一；实现可不同 |
+| 播放栈（MF vs LibVLC） | 平台能力 |
+| 键盘（hook vs KeyDown） | WinUI 生产约束 |
+| `ImageItem` 类名 | 表示 `MediaKind.Image` 子类，不是历史误名 |
+| CHANGELOG 历史旧名 | 历史记录，不改 |
+
+### 收手判据
+
+- `src/` 无上表「禁止」旧名（CHANGELOG / AGENTS 禁词列表除外）。
+- Avalonia `dotnet build` 0/0；`dotnet test` Core 测试绿。
+- 新功能：产品语义与术语表对齐；平台差异只进「永久分叉」表。
 
 ### 键盘导航（WinUI：`WH_KEYBOARD` thread-scope hook）
 
