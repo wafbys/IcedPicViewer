@@ -4,28 +4,30 @@
 
 ## 项目背景
 
-本地媒体浏览器（图片 + 视频 + 压缩包展平）。**主交付为 Avalonia**（Win / macOS / Linux）；WinUI 3 保留为对照基线。
+本地媒体浏览器（图片 + 视频 + 压缩包展平）。**共享 Core + 两套一等公民 UI 壳**：
 
 | 路径 | 角色 |
 |------|------|
 | `src/IcedPicViewer.Core` | 平台无关：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI / Avalonia |
-| `src/IcedPicViewer.Avalonia` | **主交付**：浅色 Fluent 2 风 UI、图库/查看器、视频 LibVLC 软渲染、幻灯片、全屏热区 chrome |
-| `src/IcedPicViewer.WinUI` | **并行跟进** 的 Windows 原生壳（WinUI 3 + WASDK 2.3，MSIX，x64）；与 Avalonia 对照，功能可继续演进 |
-| `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit）。只引用 Core，不拉 UI / LibVLC。已进 `IcedPicViewer.slnx` |
-| FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 会镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`，避免 MKV/PGS/DV 探测 WARNING 刷屏 |
-| LibVLC | `LibVLCSharp` + `VideoLAN.LibVLC.Windows` + `VideoLAN.LibVLC.Mac`；**Linux 用系统 libvlc**（`apt install vlc libvlc-dev` 或 `IPV_LIBVLC_ROOT`）。**禁止** `LibVLCSharp.Avalonia.VideoView`（Avalonia 12 会崩）；用自研 `VlcBitmapSurface` 软渲染 |
+| `src/IcedPicViewer.Avalonia` | **跨平台壳**（Win / macOS / Linux）：Fluent 浅色 UI、图库/查看器、**LibVLC** 软渲染（`VlcBitmapSurface`）、幻灯片、全屏热区 chrome |
+| `src/IcedPicViewer.WinUI` | **Windows 原生壳**（WinUI 3 + WASDK 2.3，MSIX，**x64 only**）：图库/查看器、**MediaPlayerElement** 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘。功能继续演进，与 Avalonia **并行维护**，不是只读基线 |
+| `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit）。只引用 Core，不拉任一 UI 壳。已进 `IcedPicViewer.slnx` |
+| FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 会镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`（两壳共用 Core 抽帧） |
+| 视频播放 | **Avalonia**：LibVLC（Windows/Mac NuGet；Linux 系统 libvlc 或 `IPV_LIBVLC_ROOT`）。**禁止** `LibVLCSharp.Avalonia.VideoView`。**WinUI**：`MediaPlayerElement` + 系统编解码；部分容器走 FFmpeg remux（见 `VideoMetadataService`） |
 
-- 基线 tag：`winui-baseline`（迁移前最后纯 WinUI 快照）。
-- **MasonryPanel** 瀑布流：默认 **3 列铺满**（对齐 WinUI），非虚拟化，勿擅自改成虚拟化列表。
-- **混合加载**：边扫边灌到 200 停 → Load More / 滚底再灌。
-- **不**自动恢复上次打开的文件夹。
-- Avalonia `MainViewModel` 为 partial：`MainViewModel.cs`（字段/属性/设置/chrome）+ `MainViewModel.Gallery.cs`（扫描/drain/watcher）+ `MainViewModel.SlideshowViewer.cs`（查看器/幻灯片/视频/GIF/缩略图）。
-- CommunityToolkit.Mvvm；WinUI 侧另有 DI Hosting。
-- 反对为了"正确"而过度设计。
+- 基线 tag：`winui-baseline`（迁移前最后纯 WinUI 快照，便于 diff；**当前** WinUI 仍在 `src/IcedPicViewer.WinUI` 活跃开发）。
+- **MasonryPanel** 瀑布流（两壳各有控件实现）：默认 **3 列铺满**，非虚拟化，勿擅自改成虚拟化列表。
+- **混合加载**（两壳同一产品语义）：边扫边灌到 200 停 → Load More / 滚底再灌。
+- **不**自动恢复上次打开的文件夹（两壳）。
+- **VM 布局**：
+  - Avalonia：`MainViewModel` partial — `MainViewModel.cs` + `MainViewModel.Gallery.cs` + `MainViewModel.SlideshowViewer.cs`；项模型 `GalleryItemViewModel`。
+  - WinUI：`GalleryViewModel` + `ImageViewModel`（查看器）；项模型 `MediaItem` / `ImageItem` / `VideoItem`；DI Hosting。
+- CommunityToolkit.Mvvm（两壳）。
+- 反对为了"正确"而过度设计。改共享行为优先动 **Core**；改交互/壳特有路径分别动对应工程。
 
 ## 构建与运行
 
-### Avalonia（主线）
+### Avalonia（跨平台）
 
 ```powershell
 dotnet build src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
@@ -36,7 +38,7 @@ dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c
 
 跨平台视频：Linux 需本机 VLC/libvlc；macOS 用 NuGet Mac 包；FFmpeg 见 `src/native/ffmpeg/README.md`。
 
-### WinUI（并行跟进，仅 Windows x64）
+### WinUI（Windows x64）
 
 ```powershell
 # 视频 FFmpeg DLL（不进 git；缺了 build 会 IPV001 警告）
@@ -51,6 +53,7 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 - WASDK **2.3.x** ↔ 目标机 Windows App Runtime **2.3**（MSIX 拉 framework；跨主版本会启动失败）。
 - WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
 - ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。
+- 平台固定 **x64**（`Platform=x64`）；solution 里 WinUI 仅映射 x64。
 
 ### Core 测试
 
@@ -90,70 +93,92 @@ dotnet test IcedPicViewer.slnx -c Debug
 
 ### Gallery 扫描/加载 pipeline 不变量
 
-核心（**两壳相同语义**）：**边扫边灌到 200 张停**。scanner 在 worker thread yield → 50ms / ≤100 条 batch flush 到 UI → drain 灌到 200 停；scanner 继续累计发现数，但不自动再灌。
+**产品语义（两壳必须一致）**：**边扫边灌到 200 张停**。scanner 在 worker thread yield → 50ms / ≤100 条 batch flush 到 UI → drain 灌到 200 停；scanner 可继续累计发现数，但不自动再灌；用户 Load More / 滚底再取。
 
-**命名对照**（改代码时按壳找符号，勿混用）：
+**命名对照**（改代码时按壳找符号，**禁止**跨壳复制粘贴符号名）：
 
-| 概念 | Avalonia（主线，`MainViewModel.Gallery`） | WinUI（`GalleryViewModel`） |
-|------|------------------------------------------|----------------------------|
+| 概念 | Avalonia `MainViewModel.Gallery` | WinUI `GalleryViewModel` |
+|------|----------------------------------|--------------------------|
 | 集合 | `Items` | `Images` |
 | 剩余队列 | `_remaining` | `_remainingFilePaths` |
-| 发现计数 | `DiscoveredCount` | `TotalCount`（及上报逻辑） |
-| 自动灌上限 | `AutoCap = 200`（drain gate） | `PageSize = 200`（drain gate） |
+| 发现/入队计数 | `DiscoveredCount` | `DiscoveredCount`（节流上报）+ `TotalCount`（入队累计） |
+| 加载态 | `IsBusy` 等 | `LoadingState`（`Scanning` / `Completed` …） |
+| 自动灌上限 | `AutoCap = 200` | `PageSize = 200`（兼 Load More 块大小） |
 | Load More 块 | `PageSize = 200` | `PageSize = 200` |
-| scan 灌块 | `ScanPageSize = 30` | `ScanPageSize = 30` |
-| batch | `ScanBatchSize=100` / `ScanBatchMs=50` | 同语义（WinUI 实现内常量） |
-| flush → UI | `FlushBatch` → `Post` 入队 + `DrainPageFillAsync` | `IngestScanBatch` / 等价路径 |
+| scan 每轮灌入 | `ScanPageSize = 30` | `ScanPageSize = 30` |
+| batch 常量 | `ScanBatchSize=100` / `ScanBatchMs=50` | `ScanBatchSize=100` / 时间阈值 `50` |
+| flush API | `FlushBatch` → `Dispatcher.UIThread.Post` | `FlushScanBatch` → `TryEnqueue(IngestScanBatch)` |
 | drain | `DrainPageFillAsync` 内直接 `Items.Add` | `DrainPageFillAsync` → `LoadNextPageAsync` |
-| 缩略图并发 | `_thumbSemaphore`（6）`LoadThumbnailFireAndForgetAsync` | `_sizeFetchSemaphore`（6）+ `LoadThumbnailAsync` / `GetImageSizeAsync` |
-| UI marshal | `Dispatcher.UIThread.InvokeAsync` | `dispatcher.TryEnqueue` |
+| 缩略图 | `_thumbSemaphore`(6) + `LoadThumbnailFireAndForgetAsync` | `_thumbnailLoadSemaphore`(6) + `LoadThumbnailAsync`；尺寸另有 `_sizeFetchSemaphore`(6) + `GetImageSizeAsync` |
+| UI marshal | `Dispatcher.UIThread` | `DispatcherQueue.TryEnqueue` |
 
-**Avalonia 主线流程**（符号以代码为准）：
+**Avalonia 流程**（`MainViewModel.Gallery.cs`）：
 
 ```
-scanner (worker thread, Task.Run(RunScanAndBatchAsync))
+scanner (worker, Task.Run(RunScanAndBatchAsync))
     │ yield source
     ▼
-RunScanAndBatchAsync ── batch ≤100 或 50ms batchStartTick ── FlushBatch
+RunScanAndBatchAsync ── ≤100 或 50ms batchStartTick ── FlushBatch
     │ Dispatcher.UIThread.Post
     ▼
-FlushBatch (UI) ── _remaining.AddRange + DiscoveredCount ── 触发 DrainPageFillAsync
-    │ (fire-and-forget, 单一消费者；_pageFillInFlight)
+FlushBatch ── _remaining.AddRange + DiscoveredCount ── DrainPageFillAsync
+    │ _pageFillInFlight 单消费者
     ▼
-DrainPageFillAsync ── 每轮 ≤ScanPageSize(30) ── Items.Add + LoadThumbnailFireAndForgetAsync
+DrainPageFillAsync ── ≤ScanPageSize(30) ── Items.Add + LoadThumbnailFireAndForgetAsync
     │ 直到 Items.Count ≥ AutoCap(200) 或 queue 空
     ▼
-LoadThumbnailFireAndForgetAsync (worker, 6 路 _thumbSemaphore)
-    ── AvaloniaImageLoader ── Dispatcher 回写 ApplyThumbnail / IsThumbnailLoading
+_thumbSemaphore(6) ── AvaloniaImageLoader ── UI 回写 ApplyThumbnail / IsThumbnailLoading
 ```
 
-**不变量清单**（语义；符号见表）：
+**WinUI 流程**（`GalleryViewModel.cs`）：
+
+```
+scanner (worker, Task.Run(RunScanAndBatchAsync))
+    │ yield source
+    ▼
+RunScanAndBatchAsync ── ≤100 或 50ms batchStartTick ── FlushScanBatch
+    │ DispatcherQueue.TryEnqueue
+    ▼
+IngestScanBatch ── _remainingFilePaths.AddRange + TotalCount++ ── DrainPageFillAsync
+    │ 仅当 !_pageFillInFlight && Images.Count < PageSize
+    ▼
+DrainPageFillAsync ── await LoadNextPageAsync(≤ScanPageSize) ── Images.Add
+    │ 直到 Images.Count ≥ PageSize(200) 或 queue 空
+    ▼
+LoadNextPageAsync ── _sizeFetchSemaphore 取尺寸 ── LoadThumbnailAsync(_thumbnailLoadSemaphore)
+    ── TryEnqueue 回写 Thumbnail / IsThumbnailLoading
+```
+
+**不变量清单**（语义共用；符号见表）：
 
 | 规则 | 说明 |
 |------|------|
 | scanner 永远在 worker thread | `Task.Run` 包住整个 `await foreach`，yield 不走 UI 同步上下文 |
 | `batchStartTick` 锚点 | batch 空时设 `batchStartTick = now`，保证第一张 source 50ms 内必 flush |
 | 单一 consumer drain | `_pageFillInFlight` 保证同时只有一个 drain 循环 |
-| `_pageFillInFlight` ≠ `IsLoadingMore` | fire-and-forget 用前者；Load More 按钮用后者 |
-| `ScanPageSize=30` / 自动灌 200 / Load More 200 | scan-time 小块避免 layout 卡死；自动灌与 Load More 上限均为 200 |
-| drain gate | Avalonia：`Items.Count < AutoCap`；WinUI：`Images.Count < PageSize`。满 200 后不再自动 drain |
-| 完成条件 | 不以「剩余队列为空」单独作为扫描结束；drain 提前退会留 source 给 Load More |
-| 缩略图 6 路限流 | 必须 semaphore；WinUI 另限流 `GetImageSizeAsync`（WinRT STA） |
-| 缩略图状态回写 | 必须经 UI dispatcher；禁止 worker 直接写 `IsThumbnailLoading` / Thumbnail |
-| 切目录取消 | 旧 cts `Cancel`+`Dispose`；flush/drain/thumb 检查 token，避免旧 session 灌入新目录 |
+| `_pageFillInFlight` ≠ `IsLoadingMore` | 自动灌用前者；Load More 按钮用后者 |
+| `ScanPageSize=30` / 自动灌 200 / Load More 200 | scan-time 小块避免 layout 卡死 |
+| drain gate | Avalonia：`Items.Count < AutoCap`；WinUI：`Images.Count < PageSize` |
+| 扫描完成等待（WinUI） | `LoadDirectoryAsync` 轮询 `!_pageFillInFlight && !IsLoadingMore` 再 `LoadingState=Completed`；**不**要求剩余队列为空 |
+| 缩略图 / 尺寸 6 路限流 | 必须 semaphore；WinUI 的 `GetImageSizeAsync` 尤忌全并发（WinRT STA） |
+| 缩略图状态回写 | 必须经 UI dispatcher；禁止 worker 直接写绑定属性 |
+| 切目录取消 | 旧 cts `Cancel`+`Dispose`；flush/drain/thumb 检查 token |
 
-**绝对不要做的事**：
-- 把 `await foreach` 同步吞光再统一 Load（用户看空白几十秒）
-- 加回 page fill timer（已删，fire-and-forget 是正解）
-- 把 `ScanPageSize` 调到 150（150 次 layout pass 卡死 UI）
-- 缩略图/尺寸探测全并发无 semaphore
-- worker 线程直接写绑定属性（跨线程异常）
+**绝对不要做的事**（两壳）：
+- 把 `await foreach` 同步吞光再统一 Load
+- 加回 page fill timer
+- 把 `ScanPageSize` 调到 150
+- 缩略图/尺寸探测无 semaphore 全并发
+- worker 线程直接写绑定属性
+- 只改一壳的 hybrid 语义却不改另一壳（产品行为应对齐；符号可不同）
 
-**取消语义**：切目录时旧 cts `Cancel()`+`Dispose()` → scanner 退出 await foreach → 旧 batch 检查 token 直接 return → drain/LoadMore 内 `Items.Add` 前检查 token 早退。
+**取消语义**：切目录时旧 cts `Cancel()`+`Dispose()` → scanner 退出 await foreach → 旧 batch 检查 token 直接 return → drain / LoadMore 内加项前检查 token 早退。
 
-### 键盘导航（WH_KEYBOARD thread-scope hook）
+### 键盘导航（WinUI：`WH_KEYBOARD` thread-scope hook）
 
-最终方案在 `MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallKeyboardHook` / `KeyboardHookProc` / `UnhookWindowsHookEx`）。
+> **仅 WinUI。** Avalonia 用窗口 `KeyDown` / 命令绑定，不适用本节。
+
+最终方案在 `src/IcedPicViewer.WinUI/MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallKeyboardHook` / `KeyboardHookProc` / `UnhookWindowsHookEx`）。
 
 **为什么继续用 WH_KEYBOARD（不要换）**：
 - `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId` 在 WASDK 文档里仍是 **Experimental**（仅 experimental moniker），**不能**当作生产键盘方案替换 WH_KEYBOARD。
@@ -174,9 +199,11 @@ LoadThumbnailFireAndForgetAsync (worker, 6 路 _thumbSemaphore)
 
 ## 已知坑
 
-### 1. `App.SetMainWindow` 必须早于 ctor 内 Navigate
+### WinUI
 
-MainWindow ctor 第一行就调 `SetMainWindow(this)`，再走 `InitializeComponent` + Navigate。否则 page ctor 内读 `App.MainWindow` 是 null——订阅静默跳过。
+#### 1. `App.SetMainWindow` 必须早于 ctor 内 Navigate
+
+`MainWindow` ctor 第一行就调 `SetMainWindow(this)`，再走 `InitializeComponent` + Navigate。否则 page ctor 内读 `App.MainWindow` 是 null——订阅静默跳过。
 
 ```csharp
 // MainWindow.xaml.cs ctor
@@ -187,16 +214,36 @@ public MainWindow() {
 }
 ```
 
-### 2. `XamlControlsResources` 不能删
+#### 2. `XamlControlsResources` 不能删
 
 `App.xaml` 必须显式 merge `<controls:XamlControlsResources />`。删了会导致 `TitleBar` 等控件 default style 找不到 `TabViewButtonBackground` 等 theme resource，启动时 `XamlParseException`。
 
-### 3. `x:Bind` 页面的 VM 在 `page.ViewModel` 字段
+#### 3. `x:Bind` 页面的 VM 在 `page.ViewModel` 字段
 
 `{x:Bind}` 风格的 page 不设 `DataContext`。拿 VM 走 `page.ViewModel` property，不要用 `page.DataContext is XxxViewModel`（永远 false）。
 
+#### 4. 直接跑 unpackaged `.exe` 会炸
+
+MSIX package identity 缺失 → `REGDB_E_CLASSNOTREG`。只用 `dotnet run` / 正确部署路径。
+
+### Avalonia
+
+#### 1. 禁止 `LibVLCSharp.Avalonia.VideoView`
+
+Avalonia 12 会 `MissingMethodException`。视频表面用 `VlcBitmapSurface`（软渲染回调）。
+
+#### 2. 缩略图 / FullImage 必须 UI 线程赋值
+
+worker 解码后 `Dispatcher.UIThread.InvokeAsync` 再写 `GalleryItemViewModel` 绑定属性。
+
+#### 3. Linux 视频依赖系统 libvlc
+
+无 NuGet 自带 Linux LibVLC；缺库时播放失败，缩略图仍可走 FFmpeg。
+
 ## 常见 AI 易犯错误
 
+- 只改 Avalonia 或只改 WinUI，却假设另一壳自动对齐（共享语义要两边都看）。
+- 把 WinUI 当「只读对照」而不修 bug / 不同步 pipeline 不变量。
 - 看到问题就自己发明新抽象或新服务。
 - 为了"最佳实践"大幅改动用户明确不想改的地方（如 MasonryPanel）。
 - 写了一堆代码才发现项目里早有类似实现。
@@ -205,4 +252,4 @@ public MainWindow() {
 
 ---
 
-**最后**：这套规则的核心是**高效 + 靠谱 + 尊重用户真实需求**。觉得某条规则在当前任务中不合适，随时说出来一起调整。
+**最后**：两壳并行、Core 共享；规则服务**高效 + 靠谱 + 尊重真实需求**。觉得某条在当前任务中不合适，随时说出来一起调整。
