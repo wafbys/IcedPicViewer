@@ -1,17 +1,17 @@
 # IcedPicViewer
 
-本地图片 / 视频查看器。**一套 Core + 两套 UI 壳（并行维护）**：
+本地图片 / 视频查看器。**Core、WinUI、Avalonia 三者平等**（无主次交付）：
 
 | 路径 | 说明 |
 |------|------|
-| `src/IcedPicViewer.Core` | 平台无关：扫描、归档、设置、FFmpeg 抽帧等 |
-| `src/IcedPicViewer.Avalonia` | **跨平台壳**（Win / macOS / Linux，.NET 10 + Avalonia 12） |
-| `src/IcedPicViewer.WinUI` | **Windows 原生壳**（WinUI 3 + WASDK 2.3，MSIX，x64） |
+| `src/IcedPicViewer.Core` | 平台无关库：扫描、归档、设置、FFmpeg 抽帧等（两壳共用，同等维护） |
+| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.3，MSIX，x64） |
+| `src/IcedPicViewer.Avalonia` | 跨平台 UI（Win / macOS / Linux，.NET 10 + Avalonia 12） |
 | `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit；已进 solution） |
 
-迁移前纯 WinUI 快照 tag：`winui-baseline`（便于 diff；**不代表** WinUI 已停更）。协作约定见 `AGENTS.md`。
+tag `winui-baseline`：迁移前纯 WinUI 快照，仅供历史 diff。协作约定见 `AGENTS.md`。
 
-## 功能（两壳共用产品能力）
+## 功能（产品能力；WinUI / Avalonia 对齐）
 
 - 打开文件夹 → 递归扫描；**ZIP / RAR / tar.\*** 内媒体展平进同一瀑布流（**不含 7z**，见下）
 - **瀑布流**（3 列铺满宽度，间距 8）
@@ -22,15 +22,15 @@
 - 目录监控、Refresh、About（含 FFmpeg LGPL 说明）、窗口几何记忆
 - **不**自动打开上次目录
 
-### 壳差异（实现路径不同）
+### 实现差异（能力对等，技术栈不同）
 
-| 能力 | Avalonia | WinUI |
-|------|----------|--------|
-| 平台 | Win / macOS / Linux | Windows x64（MSIX） |
-| 图片解码 | ImageSharp | WIC |
-| 视频播放 | LibVLC + `VlcBitmapSurface` | `MediaPlayerElement`（系统编解码；部分 remux） |
-| 键盘全局路径 | 窗口 KeyDown / 命令 | `WH_KEYBOARD` hook（见 `AGENTS.md`） |
-| GIF | 自研 `GifAnimationPlayer` | 平台 / 查看器路径 |
+| 能力 | WinUI | Avalonia |
+|------|-------|----------|
+| 平台 | Windows x64（MSIX） | Win / macOS / Linux |
+| 图片解码 | WIC | ImageSharp |
+| 视频播放 | `MediaPlayerElement`（系统编解码；部分 remux） | LibVLC + `VlcBitmapSurface` |
+| 键盘全局路径 | `WH_KEYBOARD` hook（见 `AGENTS.md`） | 窗口 KeyDown / 命令 |
+| GIF | 平台 / 查看器路径 | 自研 `GifAnimationPlayer` |
 
 ### 支持的格式（诚实版）
 
@@ -44,7 +44,7 @@
 
 扩展名清单以 `IcedPicViewer.Core` 的 `MediaCatalog` / `ArchiveHelper` 为准。
 
-## 操作指南（两壳大体相同）
+## 操作指南（WinUI / Avalonia 大体相同）
 
 | 操作 | 行为 |
 |------|------|
@@ -59,28 +59,20 @@
 | 0–9 | 视频 seek 0%…90% |
 | Delete | 本地→回收站；网络路径确认后永久删；**压缩包内不可删** |
 
-Avalonia 全屏：仅顶/底热区出工具栏。WinUI 全屏 chrome 见该工程实现。
+全屏 chrome：WinUI / Avalonia 各自实现（Avalonia 为顶/底热区）。
 
 ## 构建与运行
 
 需 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)。
 
-### Avalonia（跨平台）
+### Core
 
 ```bash
-dotnet build src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
-dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
+dotnet build src/IcedPicViewer.Core/IcedPicViewer.Core.csproj -c Debug
+dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c Debug
 ```
 
-#### Avalonia 平台 native（视频）
-
-| 组件 | Windows | macOS | Linux |
-|------|---------|-------|-------|
-| **UI / 看图** | 开箱 | 开箱 | 开箱（需图形会话） |
-| **LibVLC 播放** | NuGet `VideoLAN.LibVLC.Windows` | NuGet `VideoLAN.LibVLC.Mac` | 系统 `vlc`/`libvlc-dev` 或 `IPV_LIBVLC_ROOT` |
-| **FFmpeg 缩略图** | `./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` | `brew install ffmpeg` 或 Fetch script | Fetch script 或 apt libav* |
-
-### WinUI（仅 Windows x64）
+### WinUI（Windows x64）
 
 ```powershell
 ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64   # 首次 / 清仓后
@@ -92,30 +84,42 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 前置：.NET 10 + **Windows App Runtime 2.3**。  
 **不要**直接双击 MSIX 产物里的 `.exe`（需 package identity）。请用 `dotnet run`。
 
-### Core 测试
+### Avalonia（Win / macOS / Linux）
 
 ```bash
-dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c Debug
+dotnet build src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
+dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
 ```
 
-改 Core 时 build + 测试应通过。**两壳 UI** 以手动验关键路径为主（见 `AGENTS.md`）。
+#### Avalonia 视频相关 native
+
+| 组件 | Windows | macOS | Linux |
+|------|---------|-------|-------|
+| **UI / 看图** | 开箱 | 开箱 | 开箱（需图形会话） |
+| **LibVLC 播放** | NuGet `VideoLAN.LibVLC.Windows` | NuGet `VideoLAN.LibVLC.Mac` | 系统 `vlc`/`libvlc-dev` 或 `IPV_LIBVLC_ROOT` |
+| **FFmpeg 缩略图** | `./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` | `brew install ffmpeg` 或 Fetch script | Fetch script 或 apt libav* |
+
+### 验证约定
+
+- 改 **Core**：build + `dotnet test` 绿。
+- 改 **WinUI / Avalonia**：对应工程 build 干净 + 手动验关键路径；共享语义两边都验。
+- 详见 `AGENTS.md`。
 
 ### 环境变量 / 设置
 
-- `IPV_FFMPEG_ROOT` — 含 `avutil` / `libavutil` 的目录（两壳 FFmpeg 抽帧）
-- `IPV_LIBVLC_ROOT` — 含 `libvlc` 的目录（**主要 Avalonia/Linux**）
+- `IPV_FFMPEG_ROOT` — 含 `avutil` / `libavutil` 的目录（Core 抽帧，WinUI / Avalonia 共用）
+- `IPV_LIBVLC_ROOT` — 含 `libvlc` 的目录（**Avalonia/Linux**）
 - 设置文件：`%LocalApplicationData%/IcedPicViewer/settings.json`（Windows 即 `%LOCALAPPDATA%\…`）
 
 FFmpeg 拉取产物在 `src/native/ffmpeg/{rid}/`（**不进 git**）。
 
 ## 版本
 
-- **v0.15.0** - Core 抽离 + Avalonia 跨平台壳；WinUI 迁入 `src/` **并行维护**；基线 tag `winui-baseline`
-- **v0.15.x** - Avalonia 打磨（图标/About/状态栏等）；Core 测试与加固；两壳 PageUp/PageDown 瀑布流翻页等
+- **v0.15.0** - Core 抽离；WinUI 与 Avalonia 同仓平等维护；tag `winui-baseline`
+- **v0.15.x** - 两壳能力对齐与打磨；Core 测试与加固；PageUp/PageDown 瀑布流翻页等
 - v0.14.7 - WinUI：Chrome 浮动 overlay、Load More 预加载、状态栏视频计数等
 - v0.14.x - 视频 / Slideshow / 全屏 / EXIF / archive 等（详见 `CHANGELOG.md`）
 - 更早版本见 `CHANGELOG.md`
-
 ## 许可
 
 应用代码以仓库为准。捆绑 FFmpeg（LGPL 2.1+）与 LibVLC 遵循各自许可证。  
