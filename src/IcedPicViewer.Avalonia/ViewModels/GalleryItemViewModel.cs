@@ -9,14 +9,14 @@ namespace IcedPicViewer.Avalonia.ViewModels;
 
 public partial class GalleryItemViewModel : ViewModelBase
 {
-    public ImageSource Source { get; }
+    public MediaRef Media { get; }
 
     public string Name { get; }
 
     /// <summary>Loose file: parent dir; archive entry: archive file name.</summary>
     public string DisplayPath { get; }
 
-    public bool IsVideo => Source.Kind == MediaKind.Video;
+    public bool IsVideo => Media.Kind == MediaKind.Video;
 
     public long FileSize { get; }
 
@@ -93,41 +93,41 @@ public partial class GalleryItemViewModel : ViewModelBase
     [ObservableProperty]
     public partial bool IsFullImageLoading { get; set; }
 
-    public GalleryItemViewModel(ImageSource source, long fileSize = 0)
+    public GalleryItemViewModel(MediaRef media, long fileSize = 0)
     {
-        Source = source;
+        Media = media;
         FileSize = fileSize;
-        Name = source.IsInArchive
-            ? Path.GetFileName(source.ArchiveEntry!)
-            : Path.GetFileName(source.Path);
-        DisplayPath = source.IsInArchive
-            ? Path.GetFileName(source.Path)
-            : (Path.GetDirectoryName(source.Path) ?? source.Path);
+        Name = media.IsInArchive
+            ? Path.GetFileName(media.ArchiveEntry!)
+            : Path.GetFileName(media.Path);
+        DisplayPath = media.IsInArchive
+            ? Path.GetFileName(media.Path)
+            : (Path.GetDirectoryName(media.Path) ?? media.Path);
     }
 
-    public static GalleryItemViewModel FromSource(ImageSource source)
+    public static GalleryItemViewModel FromMedia(MediaRef media)
     {
         long size = 0;
         try
         {
-            if (source.IsInArchive)
+            if (media.IsInArchive)
             {
                 // Best-effort: archive file size as stand-in when entry size unknown.
-                if (File.Exists(source.Path))
-                    size = new FileInfo(source.Path).Length;
+                if (File.Exists(media.Path))
+                    size = new FileInfo(media.Path).Length;
             }
-            else if (File.Exists(source.Path))
+            else if (File.Exists(media.Path))
             {
-                size = new FileInfo(source.Path).Length;
+                size = new FileInfo(media.Path).Length;
             }
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning($"GalleryItemViewModel.FromSource file size probe failed: {ex.Message}");
+            Trace.TraceWarning($"GalleryItemViewModel.FromMedia file size probe failed: {ex.Message}");
             size = 0;
         }
 
-        return new GalleryItemViewModel(source, size);
+        return new GalleryItemViewModel(media, size);
     }
 
     public void ApplyThumbnail(

@@ -48,7 +48,7 @@ public interface IMediaLoader
     /// would be returned sideways. Kept for callers that need the
     /// un-rotated pixel data (e.g., for hashing or file copy).
     /// </remarks>
-    Task<Stream?> LoadImageStreamAsync(ImageSource source, CancellationToken ct = default);
+    Task<Stream?> LoadImageStreamAsync(MediaRef media, CancellationToken ct = default);
 
     /// <summary>
     /// Loads a full-resolution <see cref="BitmapImage"/> for the source,
@@ -60,16 +60,16 @@ public interface IMediaLoader
     /// work from these values without any extra logic. Returns null
     /// if the source can't be opened or decoded.
     /// </summary>
-    Task<WinImageSource?> LoadFullImageAsync(ImageSource source, int? targetMaxSize = 5120, CancellationToken ct = default);
+    Task<WinImageSource?> LoadFullImageAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default);
 
-    Task<BitmapImage?> LoadThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default);
+    Task<BitmapImage?> LoadThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default);
 
     /// <summary>
     /// Returns the (oriented) pixel dimensions of the source. EXIF
     /// rotation is applied: a 4000x3000 EXIF-6 photo reports 3000x4000
     /// here. Returns null if the source can't be opened or decoded.
     /// </summary>
-    Task<(int Width, int Height)?> GetImageSizeAsync(ImageSource source, CancellationToken ct = default);
+    Task<(int Width, int Height)?> GetImageSizeAsync(MediaRef media, CancellationToken ct = default);
 
     bool IsSupportedFormat(string path);
 

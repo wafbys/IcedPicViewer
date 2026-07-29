@@ -35,28 +35,28 @@ public class MediaLoader : IMediaLoader
 
     public MediaKind GetKindForFile(string path) => MediaCatalog.GetKind(path);
 
-    public async Task<Stream?> LoadImageStreamAsync(ImageSource source, CancellationToken ct = default)
+    public async Task<Stream?> LoadImageStreamAsync(MediaRef media, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
-        if (source.IsInArchive)
+        if (media.IsInArchive)
         {
             try
             {
-                return ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
+                return ArchiveHelper.OpenEntryStream(media.Path, media.ArchiveEntry!);
             }
             catch (Exception ex)
             {
-                Trace.TraceError($"LoadImageStreamAsync archive error for {source}: {ex.Message}");
+                Trace.TraceError($"LoadImageStreamAsync archive error for {media}: {ex.Message}");
                 return null;
             }
         }
 
-        if (!File.Exists(source.Path)) return null;
+        if (!File.Exists(media.Path)) return null;
         try
         {
             var fileStream = new FileStream(
-                source.Path,
+                media.Path,
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
@@ -66,14 +66,14 @@ public class MediaLoader : IMediaLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"LoadImageStreamAsync error for {source}: {ex.Message}");
+            Trace.TraceError($"LoadImageStreamAsync error for {media}: {ex.Message}");
             return null;
         }
     }
 
-    public async Task<BitmapImage?> LoadThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default)
+    public async Task<BitmapImage?> LoadThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default)
     {
-        var cacheKey = $"{source}|{maxSize}|{source.Kind}";
+        var cacheKey = $"{media}|{maxSize}|{media.Kind}";
         if (_thumbnailCache.TryGet(cacheKey, out var cached))
         {
             return cached;
@@ -81,14 +81,14 @@ public class MediaLoader : IMediaLoader
 
         ct.ThrowIfCancellationRequested();
         BitmapImage? bitmapImage;
-        if (source.IsInArchive)
+        if (media.IsInArchive)
         {
-            bitmapImage = await LoadThumbnailFromArchiveAsync(source, maxSize, ct);
+            bitmapImage = await LoadThumbnailFromArchiveAsync(media, maxSize, ct);
         }
         else
         {
-            if (!File.Exists(source.Path)) return null;
-            bitmapImage = await LoadThumbnailFromFileAsync(source.Path, maxSize, ct);
+            if (!File.Exists(media.Path)) return null;
+            bitmapImage = await LoadThumbnailFromFileAsync(media.Path, maxSize, ct);
         }
         if (bitmapImage != null)
         {
@@ -97,43 +97,43 @@ public class MediaLoader : IMediaLoader
         return bitmapImage;
     }
 
-    public async Task<(int Width, int Height)?> GetImageSizeAsync(ImageSource source, CancellationToken ct = default)
+    public async Task<(int Width, int Height)?> GetImageSizeAsync(MediaRef media, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
-        if (source.IsInArchive)
+        if (media.IsInArchive)
         {
-            return await GetSizeFromArchiveAsync(source, ct);
+            return await GetSizeFromArchiveAsync(media, ct);
         }
 
-        if (!File.Exists(source.Path)) return null;
-        return await GetSizeFromFileAsync(source.Path, ct);
+        if (!File.Exists(media.Path)) return null;
+        return await GetSizeFromFileAsync(media.Path, ct);
     }
 
-    public async Task<WinImageSource?> LoadFullImageAsync(ImageSource source, int? targetMaxSize = 5120, CancellationToken ct = default)
+    public async Task<WinImageSource?> LoadFullImageAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default)
     {
         try
         {
             ct.ThrowIfCancellationRequested();
             byte[]? pngBytes;
-            if (source.IsInArchive)
+            if (media.IsInArchive)
             {
                 pngBytes = await Task.Run(
                     async () =>
                     {
-                        using var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
+                        using var entryStream = ArchiveHelper.OpenEntryStream(media.Path, media.ArchiveEntry!);
                         return await EncodeToPngBytesAsync(entryStream.AsRandomAccessStream(), targetMaxSize, ct);
                     },
                     ct);
             }
             else
             {
-                if (!File.Exists(source.Path)) return null;
+                if (!File.Exists(media.Path)) return null;
                 pngBytes = await Task.Run(
                     async () =>
                     {
                         using var fileStream = new FileStream(
-                            source.Path,
+                            media.Path,
                             FileMode.Open,
                             FileAccess.Read,
                             FileShare.Read,
@@ -164,7 +164,7 @@ public class MediaLoader : IMediaLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"LoadFullImageAsync error for {source}: {ex.Message}");
+            Trace.TraceError($"LoadFullImageAsync error for {media}: {ex.Message}");
             return null;
         }
     }
@@ -250,17 +250,17 @@ public class MediaLoader : IMediaLoader
         }
     }
 
-    private static async Task<BitmapImage?> LoadThumbnailFromArchiveAsync(ImageSource source, int maxSize, CancellationToken ct)
+    private static async Task<BitmapImage?> LoadThumbnailFromArchiveAsync(MediaRef media, int maxSize, CancellationToken ct)
     {
         try
         {
             ct.ThrowIfCancellationRequested();
-            using var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
+            using var entryStream = ArchiveHelper.OpenEntryStream(media.Path, media.ArchiveEntry!);
             return await DecodeToBitmapImageAsync(entryStream.AsRandomAccessStream(), maxSize, ct);
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"LoadThumbnailAsync archive error for {source}: {ex.Message}");
+            Trace.TraceError($"LoadThumbnailAsync archive error for {media}: {ex.Message}");
             return null;
         }
     }
@@ -287,18 +287,18 @@ public class MediaLoader : IMediaLoader
         }
     }
 
-    private static async Task<(int Width, int Height)?> GetSizeFromArchiveAsync(ImageSource source, CancellationToken ct)
+    private static async Task<(int Width, int Height)?> GetSizeFromArchiveAsync(MediaRef media, CancellationToken ct)
     {
         try
         {
             ct.ThrowIfCancellationRequested();
-            using var entryStream = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
+            using var entryStream = ArchiveHelper.OpenEntryStream(media.Path, media.ArchiveEntry!);
             var decoder = await BitmapDecoder.CreateAsync(entryStream.AsRandomAccessStream());
             return ((int)decoder.OrientedPixelWidth, (int)decoder.OrientedPixelHeight);
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"GetImageSizeAsync archive error for {source}: {ex.Message}");
+            Trace.TraceError($"GetImageSizeAsync archive error for {media}: {ex.Message}");
             return null;
         }
     }

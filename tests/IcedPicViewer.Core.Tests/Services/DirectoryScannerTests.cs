@@ -54,7 +54,7 @@ public sealed class DirectoryScannerTests : IDisposable
         };
 
         var scanner = new DirectoryScanner();
-        var results = new List<ImageSource>();
+        var results = new List<MediaRef>();
 
         await foreach (var source in scanner.ScanAsync(_tempDir, false, extMap))
             results.Add(source);
@@ -71,7 +71,7 @@ public sealed class DirectoryScannerTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_tempDir, "b.txt"), "x");
 
         var scanner = new DirectoryScanner();
-        var results = new List<ImageSource>();
+        var results = new List<MediaRef>();
 
         await foreach (var source in scanner.ScanAsync(_tempDir, false))
             results.Add(source);
@@ -84,7 +84,7 @@ public sealed class DirectoryScannerTests : IDisposable
     public async Task ScanAsync_EmptyDirectory_ShouldReturnNothing()
     {
         var scanner = new DirectoryScanner();
-        var results = new List<ImageSource>();
+        var results = new List<MediaRef>();
 
         await foreach (var source in scanner.ScanAsync(_tempDir, false))
             results.Add(source);

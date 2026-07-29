@@ -26,7 +26,7 @@ public interface IDirectoryScanner
     /// <param name="extensions">
     /// Optional list of (extension, kind) pairs to include. When non-null
     /// only files whose extension matches an entry in the list are yielded,
-    /// and the yielded <see cref="ImageSource"/> carries the matching
+    /// and the yielded <see cref="MediaRef"/> carries the matching
     /// <see cref="MediaKind"/>. When null, every regular file is yielded
     /// with <see cref="MediaKind.Image"/> (the record-struct default).
     /// </param>
@@ -56,7 +56,7 @@ public interface IDirectoryScanner
     /// expected to throttle; without throttling a whole-drive scan would
     /// produce thousands of path reports per second.
     /// </param>
-    IAsyncEnumerable<ImageSource> ScanAsync(
+    IAsyncEnumerable<MediaRef> ScanAsync(
         string rootPath,
         bool recursive,
         IEnumerable<(string Extension, MediaKind Kind)>? extensions = null,

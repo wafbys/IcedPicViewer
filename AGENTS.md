@@ -112,7 +112,7 @@ dotnet test IcedPicViewer.slnx -c Debug
 | 图库集合 | `Items` | 已灌入瀑布流的媒体项 |
 | 当前项 | `SelectedItem` | 查看器/选中项（WinUI 查看器 VM 与 Avalonia 同名） |
 | 当前文件夹 | `FolderPath` | 正在浏览的目录 |
-| 剩余队列 | `_remainingSources` + `_remainingLock` | 已发现未入 `Items` 的 `ImageSource` |
+| 剩余队列 | `_remainingSources` + `_remainingLock` | 已发现未入 `Items` 的 `MediaRef` |
 | 发现数 | `DiscoveredCount` | **扫描期唯一写源**：`IngestScanBatch` 绝对赋值 `DiscoveredCount = discovered`（禁止再叠加 Progress 计数）。监视器增删可 `++`/`--` |
 | 加载态 | `LoadingState` + `IsScanning` | Core：`Idle`/`Scanning`/`Error`/`Completed`；失败用 `Error` 非 `Completed` |
 | 自动灌 / Load More 块 | `PageSize = 200` | drain gate：`Items.Count < PageSize` |

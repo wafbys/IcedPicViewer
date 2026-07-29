@@ -410,7 +410,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     {
         if (_selectedItemForDelete == null) return;
 
-        var source = _selectedItemForDelete.Source;
+        var source = _selectedItemForDelete.Media;
         // For archive entries we can't select the entry itself (Explorer
         // doesn't understand zip/rar/7z contents), so highlight the
         // containing archive file instead. The user immediately sees

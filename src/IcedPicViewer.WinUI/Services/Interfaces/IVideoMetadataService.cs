@@ -46,7 +46,7 @@ public interface IVideoMetadataService
     /// then deleted. Returns null when the file cannot be opened or
     /// contains no decodable video stream.
     /// </summary>
-    Task<VideoMetadata?> GetVideoMetadataAsync(ImageSource source, CancellationToken ct = default);
+    Task<VideoMetadata?> GetVideoMetadataAsync(MediaRef media, CancellationToken ct = default);
 
     /// <summary>
     /// Decodes one frame from the video (seeked to ~10% of duration to
@@ -58,18 +58,18 @@ public interface IVideoMetadataService
     /// temp file for the duration of the call, then deleted. Returns
     /// null on any decode / open failure.
     /// </summary>
-    Task<BitmapImage?> ExtractVideoThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default);
+    Task<BitmapImage?> ExtractVideoThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default);
 
     /// <summary>
     /// Returns a file path that <c>MediaPlayer</c> / <c>MediaSource</c> can
-    /// read. For a loose file, this is just <see cref="ImageSource.Path"/>.
+    /// read. For a loose file, this is just <see cref="MediaRef.Path"/>.
     /// For an archive entry, the entry is extracted to a fresh temp
     /// file (in the service's temp dir) that lives until the caller
     /// invokes <see cref="ReleasePlaybackFilePath"/>. The caller is
     /// responsible for invoking that release exactly once for every
     /// successful GetPlaybackFilePathAsync call.
     /// </summary>
-    Task<string> GetPlaybackFilePathAsync(ImageSource source, CancellationToken ct = default);
+    Task<string> GetPlaybackFilePathAsync(MediaRef media, CancellationToken ct = default);
 
     /// <summary>
     /// Releases a previously-returned playback file path. For loose

@@ -40,7 +40,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _loadCts;
     private readonly SemaphoreSlim _thumbnailLoadSemaphore = new(ThumbConcurrency, ThumbConcurrency);
     private readonly object _remainingLock = new();
-    private List<ImageSource> _remainingSources = new();
+    private List<MediaRef> _remainingSources = new();
     private IDisposable? _watcher;
     private DispatcherTimer? _slideshowTimer;
     private readonly List<int> _shuffleQueue = new();

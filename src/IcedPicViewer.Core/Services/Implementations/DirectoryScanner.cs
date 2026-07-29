@@ -23,7 +23,7 @@ public class DirectoryScanner : IDirectoryScanner
         return false;
     }
 
-    public async IAsyncEnumerable<ImageSource> ScanAsync(
+    public async IAsyncEnumerable<MediaRef> ScanAsync(
         string rootPath,
         bool recursive,
         IEnumerable<(string Extension, MediaKind Kind)>? extensions = null,
@@ -140,14 +140,14 @@ public class DirectoryScanner : IDirectoryScanner
 
                         discovered++;
                         if (discoveredReporter is not null) discoveredReporter.Report(discovered);
-                        yield return ImageSource.FromFile(entry, kind);
+                        yield return MediaRef.FromFile(entry, kind);
                     }
                 }
             }
         }
     }
 
-    private static async IAsyncEnumerable<ImageSource> EnumerateArchiveAsync(
+    private static async IAsyncEnumerable<MediaRef> EnumerateArchiveAsync(
         string archivePath,
         Dictionary<string, MediaKind>? extensionMap,
         IProgress<ScanError>? errorReporter,
@@ -214,7 +214,7 @@ public class DirectoryScanner : IDirectoryScanner
             var kind = extensionMap != null && extensionMap.TryGetValue(ext, out var k)
                 ? k
                 : MediaKind.Image;
-            yield return ImageSource.FromArchive(archivePath, entry.Key, kind);
+            yield return MediaRef.FromArchive(archivePath, entry.Key, kind);
         }
     }
 

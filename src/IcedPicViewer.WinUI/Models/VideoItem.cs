@@ -20,7 +20,7 @@ public sealed partial class VideoItem : MediaItem
     public string Codec { get; }
 
     public VideoItem(
-        ImageSource source,
+        MediaRef media,
         long fileSize,
         DateTime modifiedTime,
         int originalWidth,
@@ -28,7 +28,7 @@ public sealed partial class VideoItem : MediaItem
         TimeSpan duration,
         bool hasAudio,
         string codec)
-        : base(source, fileSize, modifiedTime, originalWidth, originalHeight)
+        : base(media, fileSize, modifiedTime, originalWidth, originalHeight)
     {
         Duration = duration;
         HasAudio = hasAudio;

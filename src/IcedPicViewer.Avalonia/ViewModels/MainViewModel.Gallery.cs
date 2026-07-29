@@ -38,7 +38,7 @@ public partial class MainViewModel
         CanLoadMore = false;
         _scanComplete = false;
         _scanErrors = 0;
-        lock (_remainingLock) _remainingSources = new List<ImageSource>();
+        lock (_remainingLock) _remainingSources = new List<MediaRef>();
         LoadingState = LoadingState.Scanning;
         StatusText = GalleryStatusFormatter.FormatScanningStarted();
         RefreshCommand.NotifyCanExecuteChanged();
@@ -102,14 +102,14 @@ public partial class MainViewModel
                     break;
                 }
                 if (!MediaCatalog.IsSupported(info.Path)) return;
-                EnqueueNewSource(ImageSource.FromFile(info.Path, MediaCatalog.GetKind(info.Path)));
+                EnqueueMedia(MediaRef.FromFile(info.Path, MediaCatalog.GetKind(info.Path)));
                 break;
 
             case WatchChangeType.Renamed:
                 if (!string.IsNullOrEmpty(info.OldPath))
                     RemoveByPath(info.OldPath);
                 if (MediaCatalog.IsSupported(info.Path) && File.Exists(info.Path))
-                    EnqueueNewSource(ImageSource.FromFile(info.Path, MediaCatalog.GetKind(info.Path)));
+                    EnqueueMedia(MediaRef.FromFile(info.Path, MediaCatalog.GetKind(info.Path)));
                 break;
 
             case WatchChangeType.Modified:
@@ -127,7 +127,7 @@ public partial class MainViewModel
             foreach (var e in entries)
             {
                 var kind = MediaCatalog.GetKind(e.Key);
-                EnqueueNewSource(ImageSource.FromArchive(archivePath, e.Key, kind));
+                EnqueueMedia(MediaRef.FromArchive(archivePath, e.Key, kind));
             }
         }
         catch (Exception ex)
@@ -138,14 +138,14 @@ public partial class MainViewModel
 
     // ── Enqueue / removal ────────────────────────────────────────────
 
-    private void EnqueueNewSource(ImageSource source)
+    private void EnqueueMedia(MediaRef media)
     {
-        var id = source.ToString();
-        if (Items.Any(i => i.Source.ToString() == id)) return;
+        var id = media.ToString();
+        if (Items.Any(i => i.Media.ToString() == id)) return;
         lock (_remainingLock)
         {
             if (_remainingSources.Any(s => s.ToString() == id)) return;
-            _remainingSources.Add(source);
+            _remainingSources.Add(media);
         }
         DiscoveredCount++;
         UpdateCanLoadMore();
@@ -158,7 +158,7 @@ public partial class MainViewModel
     {
         for (var i = Items.Count - 1; i >= 0; i--)
         {
-            var s = Items[i].Source;
+            var s = Items[i].Media;
             if (string.Equals(s.Path, path, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(s.ToString(), path, StringComparison.OrdinalIgnoreCase))
             {
@@ -190,7 +190,7 @@ public partial class MainViewModel
         var idx = Items.IndexOf(item);
         if (idx >= 0) Items.RemoveAt(idx);
 
-        var id = item.Source.ToString();
+        var id = item.Media.ToString();
         lock (_remainingLock)
             _remainingSources.RemoveAll(s => s.ToString() == id);
 
@@ -219,13 +219,13 @@ public partial class MainViewModel
 
     private async Task RunScanAndBatchAsync(string path, CancellationToken ct)
     {
-        var batch = new List<ImageSource>(ScanBatchSize);
+        var batch = new List<MediaRef>(ScanBatchSize);
         long batchStartTick = 0;
         var discovered = 0;
 
         try
         {
-            await foreach (var source in _scanner.ScanAsync(
+            await foreach (var media in _scanner.ScanAsync(
                                path,
                                recursive: true,
                                extensions: MediaCatalog.SupportedMedia,
@@ -237,14 +237,14 @@ public partial class MainViewModel
                 if (batch.Count == 0)
                     batchStartTick = Environment.TickCount64;
 
-                batch.Add(source);
+                batch.Add(media);
                 discovered++;
 
                 var elapsed = Environment.TickCount64 - batchStartTick;
                 if (batch.Count >= ScanBatchSize || elapsed >= ScanBatchMs)
                 {
                     FlushScanBatch(batch, discovered, ct);
-                    batch = new List<ImageSource>(ScanBatchSize);
+                    batch = new List<MediaRef>(ScanBatchSize);
                 }
             }
 
@@ -285,7 +285,7 @@ public partial class MainViewModel
         }
     }
 
-    private void FlushScanBatch(List<ImageSource> batch, int discovered, CancellationToken ct)
+    private void FlushScanBatch(List<MediaRef> batch, int discovered, CancellationToken ct)
     {
         if (ct.IsCancellationRequested || batch.Count == 0) return;
 
@@ -294,7 +294,7 @@ public partial class MainViewModel
     }
 
     /// <summary>UI thread: enqueue sources and kick drain (same role as WinUI <c>IngestScanBatch</c>).</summary>
-    private void IngestScanBatch(List<ImageSource> batch, int discovered, CancellationToken ct)
+    private void IngestScanBatch(List<MediaRef> batch, int discovered, CancellationToken ct)
     {
         if (ct.IsCancellationRequested) return;
 
@@ -317,7 +317,7 @@ public partial class MainViewModel
         {
             while (!ct.IsCancellationRequested && Items.Count < PageSize)
             {
-                List<ImageSource> chunk;
+                List<MediaRef> chunk;
                 lock (_remainingLock)
                 {
                     if (_remainingSources.Count == 0) break;
@@ -326,11 +326,11 @@ public partial class MainViewModel
                     _remainingSources.RemoveRange(0, take);
                 }
 
-                foreach (var source in chunk)
+                foreach (var media in chunk)
                 {
                     // Directory switch cancels ct and clears Items; stop adding stale sources.
                     if (ct.IsCancellationRequested) return;
-                    var item = GalleryItemViewModel.FromSource(source);
+                    var item = GalleryItemViewModel.FromMedia(media);
                     Items.Add(item);
                     _ = LoadThumbnailAsync(item, ct);
                 }
@@ -361,7 +361,7 @@ public partial class MainViewModel
         IsLoadingMore = true;
         try
         {
-            List<ImageSource> chunk;
+            List<MediaRef> chunk;
             lock (_remainingLock)
             {
                 if (_remainingSources.Count == 0) return;
@@ -371,10 +371,10 @@ public partial class MainViewModel
             }
 
             var ct = _loadCts?.Token ?? CancellationToken.None;
-            foreach (var source in chunk)
+            foreach (var media in chunk)
             {
                 if (ct.IsCancellationRequested) return;
-                var item = GalleryItemViewModel.FromSource(source);
+                var item = GalleryItemViewModel.FromMedia(media);
                 Items.Add(item);
                 _ = LoadThumbnailAsync(item, ct);
             }

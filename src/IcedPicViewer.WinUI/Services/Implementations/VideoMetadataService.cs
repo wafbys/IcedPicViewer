@@ -186,25 +186,25 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         });
     }
 
-    public async Task<VideoMetadata?> GetVideoMetadataAsync(ImageSource source, CancellationToken ct = default)
+    public async Task<VideoMetadata?> GetVideoMetadataAsync(MediaRef media, CancellationToken ct = default)
     {
-        if (source.IsInArchive)
+        if (media.IsInArchive)
         {
             // Extract to a temp file, then run the metadata read on
             // that. The temp file is untracked — we delete it ourselves
             // after the read, regardless of outcome (success or
             // failure). Playback uses a different, longer-lived path.
-            var tempPath = CreateTempFilePathForSource(source);
+            var tempPath = CreateTempFilePathForSource(media);
             try
             {
-                await Task.Run(() => ArchiveHelper.ExtractEntryToFile(source.Path, source.ArchiveEntry!, tempPath), ct);
+                await Task.Run(() => ArchiveHelper.ExtractEntryToFile(media.Path, media.ArchiveEntry!, tempPath), ct);
                 if (ct.IsCancellationRequested) return null;
                 if (!File.Exists(tempPath)) return null;
                 return await Task.Run(() => GetMetadataFromFile(tempPath, ct), ct);
             }
             catch (Exception ex)
             {
-                Trace.TraceError($"VideoMetadataService.GetVideoMetadataAsync archive error for {source}: {ex.GetType().Name}: {ex.Message}");
+                Trace.TraceError($"VideoMetadataService.GetVideoMetadataAsync archive error for {media}: {ex.GetType().Name}: {ex.Message}");
                 return null;
             }
             finally
@@ -212,14 +212,14 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
                 TryDeleteTempFileUntracked(tempPath);
             }
         }
-        if (!File.Exists(source.Path))
+        if (!File.Exists(media.Path))
         {
             return null;
         }
-        return await Task.Run(() => GetMetadataFromFile(source.Path, ct), ct);
+        return await Task.Run(() => GetMetadataFromFile(media.Path, ct), ct);
     }
 
-    public async Task<BitmapImage?> ExtractVideoThumbnailAsync(ImageSource source, int maxSize, CancellationToken ct = default)
+    public async Task<BitmapImage?> ExtractVideoThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default)
     {
         if (maxSize < 1)
         {
@@ -228,29 +228,29 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
 
         // Cache key shape matches IMediaLoader (path|size|kind) so the
         // shared LRU is one cache, not two parallel ones. We look this
-        // up BEFORE doing any file work — a hit on an archive source
+        // up BEFORE doing any file work — a hit on an archive media
         // skips the temp-file extract entirely, and the same thumbnail
         // gets reused across gallery scrolls even though the underlying
         // extraction is expensive.
-        var cacheKey = $"{source}|{maxSize}|{source.Kind}";
+        var cacheKey = $"{media}|{maxSize}|{media.Kind}";
         if (_thumbnailCache.TryGet(cacheKey, out var cached))
         {
             return cached;
         }
 
-        if (source.IsInArchive)
+        if (media.IsInArchive)
         {
             // Same extract→decode→delete shape as the metadata path.
             // The temp file is untracked; it's gone before this
             // method returns. The decoded bitmap lives on as a
             // BitmapImage (which is what the gallery binds to), and
-            // its source on disk doesn't need to exist past the
+            // its media on disk doesn't need to exist past the
             // decode — the BitmapImage's pixel buffer is in managed
             // memory by the time we return.
-            var tempPath = CreateTempFilePathForSource(source);
+            var tempPath = CreateTempFilePathForSource(media);
             try
             {
-                await Task.Run(() => ArchiveHelper.ExtractEntryToFile(source.Path, source.ArchiveEntry!, tempPath), ct);
+                await Task.Run(() => ArchiveHelper.ExtractEntryToFile(media.Path, media.ArchiveEntry!, tempPath), ct);
                 if (ct.IsCancellationRequested) return null;
                 if (!File.Exists(tempPath)) return null;
                 var (bgra, width, height) = await Task.Run(() => ExtractAndScaleFrame(tempPath, maxSize, ct), ct);
@@ -265,7 +265,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             }
             catch (Exception ex)
             {
-                Trace.TraceError($"VideoMetadataService.ExtractVideoThumbnailAsync archive error for {source}: {ex.GetType().Name}: {ex.Message}");
+                Trace.TraceError($"VideoMetadataService.ExtractVideoThumbnailAsync archive error for {media}: {ex.GetType().Name}: {ex.Message}");
                 return null;
             }
             finally
@@ -274,7 +274,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             }
         }
 
-        if (!File.Exists(source.Path))
+        if (!File.Exists(media.Path))
         {
             return null;
         }
@@ -282,7 +282,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         // Loose file: decode + scale on a worker thread. FFmpeg
         // P/Invoke is sync and CPU-bound; running it inline would
         // block the UI thread for the entire decode.
-        var (bgra2, width2, height2) = await Task.Run(() => ExtractAndScaleFrame(source.Path, maxSize, ct), ct);
+        var (bgra2, width2, height2) = await Task.Run(() => ExtractAndScaleFrame(media.Path, maxSize, ct), ct);
         if (bgra2 is null)
         {
             return null;
@@ -304,17 +304,17 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         return bitmapImage2;
     }
 
-    public async Task<string> GetPlaybackFilePathAsync(ImageSource source, CancellationToken ct = default)
+    public async Task<string> GetPlaybackFilePathAsync(MediaRef media, CancellationToken ct = default)
     {
-        if (!source.IsInArchive)
+        if (!media.IsInArchive)
         {
             // Loose file. Fast path: container is one Windows Media
             // Foundation (the engine behind WinUI MediaPlayer) recognizes
             // natively — just hand the path back. The user already paid
             // for the disk allocation; no temp extraction, no tracking.
-            if (!NeedsRemuxToMp4(source.Path))
+            if (!NeedsRemuxToMp4(media.Path))
             {
-                return source.Path;
+                return media.Path;
             }
 
             // Slow path: container is one MF can't play (.mov, .mkv,
@@ -331,20 +331,20 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             // Why this is necessary at all: since the 2018 QuickTime
             // CVE cleanup Microsoft removed the .mov container demuxer
             // from Media Foundation; .mkv and .avi are also not in the
-            // stock MF source-resolver list. Without remux, MediaPlayer
+            // stock MF media-resolver list. Without remux, MediaPlayer
             // surfaces "Error: Unsupported video type or invalid file
             // path" the moment Play() is called on one of these files.
             // See RemuxToMp4 for the native implementation.
             var remuxedPath = Path.Combine(_tempDir, $"ipv-video-{Guid.NewGuid():N}.mp4");
             try
             {
-                await Task.Run(() => RemuxToMp4(source.Path, remuxedPath, ct), ct);
+                await Task.Run(() => RemuxToMp4(media.Path, remuxedPath, ct), ct);
             }
             catch
             {
                 // Remux aborted partway. The partially-written output (if
                 // any) is junk — delete it so the temp dir doesn't
-                // accumulate garbage over time. The source loose file is
+                // accumulate garbage over time. The media loose file is
                 // untouched (we never wrote to it).
                 TryDeleteTempFileUntracked(remuxedPath);
                 throw;
@@ -357,7 +357,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
                 // want to hand back a path MediaPlayer can't open.
                 TryDeleteTempFileUntracked(remuxedPath);
                 throw new FileNotFoundException(
-                    $"RemuxToMp4 produced no output for {source.Path}", remuxedPath);
+                    $"RemuxToMp4 produced no output for {media.Path}", remuxedPath);
             }
             lock (_tempLock)
             {
@@ -372,9 +372,9 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         // able to tell at a glance which file is which. The file
         // lives until the caller invokes ReleasePlaybackFilePath (or
         // the service's Dispose on app shutdown).
-        var extractPath = CreateTempFilePathForSource(source);
+        var extractPath = CreateTempFilePathForSource(media);
         ct.ThrowIfCancellationRequested();
-        await Task.Run(() => ArchiveHelper.ExtractEntryToFile(source.Path, source.ArchiveEntry!, extractPath), ct);
+        await Task.Run(() => ArchiveHelper.ExtractEntryToFile(media.Path, media.ArchiveEntry!, extractPath), ct);
         if (!File.Exists(extractPath))
         {
             // Extraction silently failed (corrupt entry, I/O
@@ -408,7 +408,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         }
         catch
         {
-            // Both the partial .mp4 and the extracted source are
+            // Both the partial .mp4 and the extracted media are
             // untracked — clean them up so they don't linger in the
             // temp dir between launches.
             TryDeleteTempFileUntracked(remuxedArchivePath);
@@ -420,7 +420,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             TryDeleteTempFileUntracked(remuxedArchivePath);
             TryDeleteTempFileUntracked(extractPath);
             throw new FileNotFoundException(
-                $"RemuxToMp4 produced no output for archive entry {source.ArchiveEntry}", remuxedArchivePath);
+                $"RemuxToMp4 produced no output for archive entry {media.ArchiveEntry}", remuxedArchivePath);
         }
         TryDeleteTempFileUntracked(extractPath);
         lock (_tempLock)
@@ -492,7 +492,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
 
     // -----------------------------------------------------------------
     /// <summary>
-    /// Build a unique temp file path for an archive source. The
+    /// Build a unique temp file path for an archive media. The
     /// "ipv-video-" prefix lets the ctor sweep (and any operator
     /// looking at the temp dir) identify our files at a glance. The
     /// extension comes from the entry key so FFmpeg's container
@@ -500,11 +500,11 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
     /// extension (rare, but possible) we fall back to ".bin" which
     /// FFmpeg will still try to parse via the file's magic bytes.
     /// </summary>
-    private string CreateTempFilePathForSource(ImageSource source)
+    private string CreateTempFilePathForSource(MediaRef media)
     {
-        var ext = source.IsInArchive
-            ? Path.GetExtension(source.ArchiveEntry ?? string.Empty)
-            : Path.GetExtension(source.Path);
+        var ext = media.IsInArchive
+            ? Path.GetExtension(media.ArchiveEntry ?? string.Empty)
+            : Path.GetExtension(media.Path);
         if (string.IsNullOrEmpty(ext)) ext = ".bin";
         return Path.Combine(_tempDir, $"ipv-video-{Guid.NewGuid():N}{ext}");
     }
@@ -520,7 +520,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
     /// <para>
     /// Background: since the 2018 QuickTime CVE cleanup Microsoft
     /// removed the .mov container demuxer from Media Foundation; .mkv
-    /// and .avi are also not in the stock MF source-resolver list.
+    /// and .avi are also not in the stock MF media-resolver list.
     /// The check is intentionally coarse (extension-only) — a finer
     /// "can MF decode this exact file" check would require sniffing
     /// the codec set, which FFmpeg already does at remux time, so
@@ -618,7 +618,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
                         $"RemuxToMp4: avcodec_parameters_copy failed for stream {i} (rc={ret})");
                 }
                 // Reset codec_tag so the MP4 muxer picks its own. Some
-                // source files (especially .mov variants) carry a
+                // media files (especially .mov variants) carry a
                 // QuickTime-style tag that MP4 doesn't recognize;
                 // clearing it forces the muxer to rewrite a valid MP4
                 // tag (avc1 / mp4a / ...).
@@ -628,7 +628,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
                 // av_interleaved_write_frame's timestamp conversion
                 // preserves the original A/V sync. Without this the
                 // MP4 muxer uses its default timescale (e.g. 1/90000)
-                // which can drift from the source's timing, especially
+                // which can drift from the media's timing, especially
                 // for VFR content or files with non-standard timebases.
                 outStream->time_base = inStream->time_base;
             }
@@ -637,7 +637,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             // shifting all streams to start at 0, instead of creating
             // edit lists (elst). Media Foundation historically has poor
             // edit-list support, which causes A/V desync when the
-            // source has non-zero start PTS (common with screen
+            // media has non-zero start PTS (common with screen
             // recordings, webcam captures, and some .mov files).
             outFmt->avoid_negative_ts = ffmpeg.AVFMT_AVOID_NEG_TS_MAKE_ZERO;
 
@@ -876,7 +876,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             if (srcW <= 0 || srcH <= 0) return (null, 0, 0);
 
             // Compute scaled output dimensions (preserve aspect ratio).
-            // Cap at source dimensions so a maxSize=2000 on a 640x480 clip
+            // Cap at media dimensions so a maxSize=2000 on a 640x480 clip
             // doesn't try to upscale.
             int outW, outH;
             if (srcW >= srcH)

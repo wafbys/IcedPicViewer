@@ -310,7 +310,7 @@ public partial class MainViewModel
     {
         item ??= SelectedItem;
         if (item is null) return;
-        _shell.RevealInFolder(item.Source.Path);
+        _shell.RevealInFolder(item.Media.Path);
     }
 
     [RelayCommand(CanExecute = nameof(CanRevealSelected))]
@@ -324,7 +324,7 @@ public partial class MainViewModel
         item ??= SelectedItem;
         if (item is null) return;
 
-        if (item.Source.IsInArchive)
+        if (item.Media.IsInArchive)
         {
             StatusText = GalleryStatusFormatter.FormatArchiveDeleteNotSupported();
             if (ConfirmAsync is not null)
@@ -337,7 +337,7 @@ public partial class MainViewModel
             return;
         }
 
-        var path = item.Source.Path;
+        var path = item.Media.Path;
         var preferTrash = true;
         if (_shell.IsNetworkPath(path))
         {
@@ -365,7 +365,7 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanDeleteSelected))]
     private async Task DeleteSelectedAsync() => await DeleteItemAsync(SelectedItem).ConfigureAwait(true);
 
-    private bool CanDeleteSelected() => SelectedItem is not null && !SelectedItem.Source.IsInArchive;
+    private bool CanDeleteSelected() => SelectedItem is not null && !SelectedItem.Media.IsInArchive;
 
     // ── Open item & full‑image loading ───────────────────────────────
 
@@ -398,9 +398,9 @@ public partial class MainViewModel
         _gifPlayer = null;
     }
 
-    private static bool IsGifSource(ImageSource source)
+    private static bool IsGifMedia(MediaRef media)
     {
-        var name = source.IsInArchive ? source.ArchiveEntry! : source.Path;
+        var name = media.IsInArchive ? media.ArchiveEntry! : media.Path;
         return Path.GetExtension(name).Equals(".gif", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -411,7 +411,7 @@ public partial class MainViewModel
             _vlc.EnsureInitialized();
             OnPropertyChanged(nameof(MediaPlayer));
             _vlc.Volume = Volume;
-            var ok = await _vlc.LoadAsync(item.Source, _loadCts?.Token ?? CancellationToken.None)
+            var ok = await _vlc.LoadAsync(item.Media, _loadCts?.Token ?? CancellationToken.None)
                 .ConfigureAwait(true);
             if (!ok)
                 StatusText = GalleryStatusFormatter.FormatVideoLoadFailed();
@@ -473,7 +473,7 @@ public partial class MainViewModel
         try
         {
             var (bmp, ow, oh, duration) = await AvaloniaMediaLoader.LoadThumbnailWithInfoAsync(
-                    item.Source, ThumbMaxEdge, ct)
+                    item.Media, ThumbMaxEdge, ct)
                 .ConfigureAwait(false);
 
             await Dispatcher.UIThread.InvokeAsync(() => item.ApplyThumbnail(bmp, ow, oh, duration));
@@ -483,7 +483,7 @@ public partial class MainViewModel
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"thumb {item.Source}: {ex.Message}");
+            Trace.TraceError($"thumb {item.Media}: {ex.Message}");
             await Dispatcher.UIThread.InvokeAsync(() => item.IsThumbnailLoading = false);
         }
         finally
@@ -494,8 +494,8 @@ public partial class MainViewModel
 
     private async Task LoadFullImageAsync(GalleryItemViewModel item)
     {
-        var isGif = IsGifSource(item.Source);
-        if (item.FullImage is not null && !isGif && item.Source.Kind != MediaKind.Video)
+        var isGif = IsGifMedia(item.Media);
+        if (item.FullImage is not null && !isGif && item.Media.Kind != MediaKind.Video)
             return;
 
         var ct = _loadCts?.Token ?? CancellationToken.None;
@@ -508,8 +508,8 @@ public partial class MainViewModel
                 return;
             }
 
-            var maxEdge = item.Source.Kind == MediaKind.Video ? ThumbMaxEdge * 4 : FullMaxEdge;
-            var bmp = await AvaloniaMediaLoader.LoadFullAsync(item.Source, maxEdge, ct)
+            var maxEdge = item.Media.Kind == MediaKind.Video ? ThumbMaxEdge * 4 : FullMaxEdge;
+            var bmp = await AvaloniaMediaLoader.LoadFullAsync(item.Media, maxEdge, ct)
                 .ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -524,14 +524,14 @@ public partial class MainViewModel
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"full {item.Source}: {ex.Message}");
+            Trace.TraceError($"full {item.Media}: {ex.Message}");
             await Dispatcher.UIThread.InvokeAsync(() => item.IsFullImageLoading = false);
         }
     }
 
     private async Task LoadGifAsync(GalleryItemViewModel item, CancellationToken ct)
     {
-        await using var stream = await OpenSourceStreamAsync(item.Source, ct).ConfigureAwait(false);
+        await using var stream = await OpenMediaStreamAsync(item.Media, ct).ConfigureAwait(false);
         if (stream is null)
         {
             await Dispatcher.UIThread.InvokeAsync(() => item.IsFullImageLoading = false);
@@ -570,23 +570,23 @@ public partial class MainViewModel
         });
     }
 
-    private static async Task<Stream?> OpenSourceStreamAsync(ImageSource source, CancellationToken ct)
+    private static async Task<Stream?> OpenMediaStreamAsync(MediaRef media, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        if (source.IsInArchive)
+        if (media.IsInArchive)
         {
             try
             {
-                return ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
+                return ArchiveHelper.OpenEntryStream(media.Path, media.ArchiveEntry!);
             }
             catch (Exception ex)
             {
-                Trace.TraceError($"OpenSourceStreamAsync archive: {ex.Message}");
+                Trace.TraceError($"OpenMediaStreamAsync archive: {ex.Message}");
                 return null;
             }
         }
 
-        if (!File.Exists(source.Path)) return null;
-        return new FileStream(source.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+        if (!File.Exists(media.Path)) return null;
+        return new FileStream(media.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
     }
 }

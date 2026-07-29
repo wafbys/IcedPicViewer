@@ -146,7 +146,7 @@ public sealed class VlcPlaybackService : IDisposable
         }
     }
 
-    public async Task<bool> LoadAsync(ImageSource source, CancellationToken ct = default)
+    public async Task<bool> LoadAsync(MediaRef media, CancellationToken ct = default)
     {
         EnsureInitialized();
         if (_libVlc is null || _player is null) return false;
@@ -157,7 +157,7 @@ public sealed class VlcPlaybackService : IDisposable
         string path;
         try
         {
-            path = await ResolvePathAsync(source, ct).ConfigureAwait(false);
+            path = await ResolvePathAsync(media, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -216,19 +216,19 @@ public sealed class VlcPlaybackService : IDisposable
         _player.Time = (long)(len * fraction);
     }
 
-    private async Task<string> ResolvePathAsync(ImageSource source, CancellationToken ct)
+    private async Task<string> ResolvePathAsync(MediaRef media, CancellationToken ct)
     {
-        if (!source.IsInArchive)
-            return source.Path;
+        if (!media.IsInArchive)
+            return media.Path;
 
         var tempDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "IcedPicViewer", "TempVideo");
         Directory.CreateDirectory(tempDir);
-        var ext = Path.GetExtension(source.ArchiveEntry ?? ".mp4");
+        var ext = Path.GetExtension(media.ArchiveEntry ?? ".mp4");
         if (string.IsNullOrEmpty(ext)) ext = ".mp4";
         var tempPath = Path.Combine(tempDir, $"ipv-play-{Guid.NewGuid():N}{ext}");
-        await Task.Run(() => ArchiveHelper.ExtractEntryToFile(source.Path, source.ArchiveEntry!, tempPath), ct)
+        await Task.Run(() => ArchiveHelper.ExtractEntryToFile(media.Path, media.ArchiveEntry!, tempPath), ct)
             .ConfigureAwait(false);
         _tempPlaybackPath = tempPath;
         return tempPath;

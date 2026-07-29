@@ -3,7 +3,7 @@
 namespace IcedPicViewer.Models;
 
 /// <summary>
-/// What kind of media a <see cref="ImageSource"/> points at. Populated by
+/// What kind of media a <see cref="MediaRef"/> points at. Populated by
 /// the directory scanner from the file extension; carried alongside the
 /// source through the gallery pipeline so the VM can dispatch each
 /// media item to the right metadata extractor without re-sniffing the path.
@@ -47,14 +47,14 @@ public enum MediaKind
 /// sufficient.
 /// </para>
 /// </summary>
-public readonly record struct ImageSource(string Path, string? ArchiveEntry, MediaKind Kind = MediaKind.Image)
+public readonly record struct MediaRef(string Path, string? ArchiveEntry, MediaKind Kind = MediaKind.Image)
 {
     public bool IsInArchive => ArchiveEntry is not null;
 
-    public static ImageSource FromFile(string path, MediaKind kind = MediaKind.Image)
+    public static MediaRef FromFile(string path, MediaKind kind = MediaKind.Image)
         => new(path, null, kind);
 
-    public static ImageSource FromArchive(string archivePath, string entryPath, MediaKind kind = MediaKind.Image)
+    public static MediaRef FromArchive(string archivePath, string entryPath, MediaKind kind = MediaKind.Image)
         => new(archivePath, entryPath, kind);
 
     public override string ToString() => IsInArchive ? $"{Path}!{ArchiveEntry}" : Path;

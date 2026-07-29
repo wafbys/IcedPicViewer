@@ -13,8 +13,8 @@ namespace IcedPicViewer.Models;
 /// (<see cref="ImageItem"/>) or a video (<see cref="VideoItem"/>).
 ///
 /// <para>
-/// Holds everything that is identical between the two: the source identity
-/// (<see cref="Source"/>, <see cref="Id"/>, <see cref="Name"/>), the on-disk
+/// Holds everything that is identical between the two: the media identity
+/// (<see cref="Media"/>, <see cref="Id"/>, <see cref="Name"/>), the on-disk
 /// metadata (<see cref="FileSize"/>, <see cref="ModifiedTime"/>), the
 /// displayable thumbnails (<see cref="Thumbnail"/>, <see cref="FullImage"/>),
 /// and the loading state (<see cref="IsThumbnailLoading"/>). Subclasses add
@@ -26,7 +26,7 @@ namespace IcedPicViewer.Models;
 /// The class is <c>abstract</c> because there is no meaningful "generic
 /// media" — every concrete item has either image-specific or video-specific
 /// metadata that has to be filled in by the gallery pipeline. Use
-/// <see cref="Source"/>.<see cref="ImageSource.Kind"/> to dispatch on the
+/// <see cref="Media"/>.<see cref="MediaRef.Kind"/> to dispatch on the
 /// concrete type when needed; for the gallery template, prefer binding to
 /// the properties exposed here (and on the concrete type) and using
 /// <see cref="IsVideoVisibility"/> to toggle the &gt; overlay.
@@ -34,7 +34,7 @@ namespace IcedPicViewer.Models;
 /// </summary>
 public abstract partial class MediaItem : ObservableObject
 {
-    public ImageSource Source { get; protected set; }
+    public MediaRef Media { get; protected set; }
     public string Id { get; protected set; }
     public string Name { get; protected set; }
     public long FileSize { get; }
@@ -52,9 +52,9 @@ public abstract partial class MediaItem : ObservableObject
     public int OriginalHeight { get; }
 
     // True when the current concrete type represents a video. Pure
-    // function of Source.Kind (which is immutable after construction),
+    // function of Media.Kind (which is immutable after construction),
     // so this is safe to evaluate at any time and to bind with Mode=OneTime.
-    public bool IsVideo => Source.Kind == MediaKind.Video;
+    public bool IsVideo => Media.Kind == MediaKind.Video;
     public Visibility IsVideoVisibility => IsVideo ? Visibility.Visible : Visibility.Collapsed;
 
     [ObservableProperty]
@@ -78,13 +78,13 @@ public abstract partial class MediaItem : ObservableObject
         ? Visibility.Visible
         : Visibility.Collapsed;
 
-    protected MediaItem(ImageSource source, long fileSize, DateTime modifiedTime, int originalWidth, int originalHeight)
+    protected MediaItem(MediaRef media, long fileSize, DateTime modifiedTime, int originalWidth, int originalHeight)
     {
-        Source = source;
-        Id = source.ToString();
-        Name = source.IsInArchive
-            ? Path.GetFileName(source.ArchiveEntry!)
-            : Path.GetFileName(source.Path);
+        Media = media;
+        Id = media.ToString();
+        Name = media.IsInArchive
+            ? Path.GetFileName(media.ArchiveEntry!)
+            : Path.GetFileName(media.Path);
         FileSize = fileSize;
         ModifiedTime = modifiedTime;
         OriginalWidth = originalWidth;
@@ -135,11 +135,11 @@ public abstract partial class MediaItem : ObservableObject
     {
         get
         {
-            if (Source.IsInArchive)
+            if (Media.IsInArchive)
             {
-                return Path.GetFileName(Source.Path);
+                return Path.GetFileName(Media.Path);
             }
-            var dir = Path.GetDirectoryName(Source.Path);
+            var dir = Path.GetDirectoryName(Media.Path);
             return string.IsNullOrEmpty(dir) ? "" : dir;
         }
     }
@@ -147,17 +147,17 @@ public abstract partial class MediaItem : ObservableObject
     /// <summary>
     /// Rebind this item to a new on-disk path. Used when the FileSystemWatcher
     /// reports a rename — keeps the same MediaItem instance but updates its
-    /// identity, name, and source. Callers are responsible for re-inserting
+    /// identity, name, and media. Callers are responsible for re-inserting
     /// the item into any collection so indexes refresh.
     /// </summary>
-    public virtual void UpdateSource(ImageSource newSource)
+    public virtual void UpdateMedia(MediaRef newSource)
     {
-        var kindChanged = Source.Kind != newSource.Kind;
-        Source = newSource;
+        var kindChanged = Media.Kind != newMedia.Kind;
+        Media = newSource;
         Id = newSource.ToString();
-        Name = newSource.IsInArchive
-            ? Path.GetFileName(newSource.ArchiveEntry!)
-            : Path.GetFileName(newSource.Path);
+        Name = newMedia.IsInArchive
+            ? Path.GetFileName(newMedia.ArchiveEntry!)
+            : Path.GetFileName(newMedia.Path);
         if (kindChanged)
         {
             OnPropertyChanged(nameof(IsVideo));

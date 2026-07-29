@@ -71,7 +71,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
 
     public int ActualHeight => DisplayActualHeight > 0 ? DisplayActualHeight : SelectedItem?.OriginalHeight ?? 0;
 
-    public string ImagePath => SelectedItem?.Source.ToString() ?? string.Empty;
+    public string ImagePath => SelectedItem?.Media.ToString() ?? string.Empty;
 
     /// <summary>
     /// True when the currently-displayed item is a video. Forwarded from
@@ -495,7 +495,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     {
         try
         {
-            var source = await _imageLoader.LoadFullImageAsync(item.Source, targetMaxSize: null, ct);
+            var source = await _imageLoader.LoadFullImageAsync(item.Media, targetMaxSize: null, ct);
             if (ct.IsCancellationRequested) return;
 
             if (source != null)
@@ -713,7 +713,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             // extracts to a tracked temp file. The temp file must be
             // released via _videoMetadataService.ReleasePlaybackFilePath
             // when playback ends — StopAndDisposePlayer does that.
-            playbackPath = await _videoMetadataService.GetPlaybackFilePathAsync(video.Source);
+            playbackPath = await _videoMetadataService.GetPlaybackFilePathAsync(video.Media);
 
             // StorageFile is the supported handle for CreateFromStorageFile
             // in MSIX packaged apps. GetFileFromPathAsync works for any path
@@ -734,7 +734,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             // explicitly because the player didn't exist when the user
             // last dragged the slider.
             player.Volume = Math.Clamp(Volume, 0.0, 1.0);
-            player.Source = source;
+            player.Media = media;
             // Subscribe before SetSource so we don't miss a fast-failing
             // decode (e.g. unsupported codec → MediaFailed fires within
             // tens of milliseconds on a clean Win10/11 install). The
@@ -1280,7 +1280,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         IsLoading = true;
         try
         {
-            var source = await _imageLoader.LoadFullImageAsync(item.Source, targetMaxSize, ct);
+            var source = await _imageLoader.LoadFullImageAsync(item.Media, targetMaxSize, ct);
 
             if (ct.IsCancellationRequested)
             {
@@ -1312,7 +1312,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     private static bool ShouldReuseFullImageCache(MediaItem item, int? targetMaxSize)
     {
         if (item.FullImage is not BitmapImage) return true;
-        if (item.Source.Kind == MediaKind.Video) return true; // Videos reuse the FFmpeg-extracted poster frame (set in gallery); BitmapDecoder path does not work on video files.
+        if (item.Media.Kind == MediaKind.Video) return true; // Videos reuse the FFmpeg-extracted poster frame (set in gallery); BitmapDecoder path does not work on video files.
         // For Fit (capped request) we happily reuse even a larger (full-res) cache.
         if (targetMaxSize.HasValue) return true;
         // For 1:1 (native request) only reuse if the cached version is essentially native size.
@@ -1378,7 +1378,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         if (ct.IsCancellationRequested || item.FullImage != null) return;
         try
         {
-            var source = await _imageLoader.LoadFullImageAsync(item.Source, FullImageMaxSize, ct);
+            var source = await _imageLoader.LoadFullImageAsync(item.Media, FullImageMaxSize, ct);
             if (!ct.IsCancellationRequested && source != null)
             {
                 // Do not overwrite a full-res version (from 1:1 visit) with a capped preload result.

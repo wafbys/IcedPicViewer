@@ -5,12 +5,12 @@ namespace IcedPicViewer.Models;
 public sealed partial class ImageItem : MediaItem
 {
     public ImageItem(
-        ImageSource source,
+        MediaRef media,
         long fileSize,
         DateTime modifiedTime,
         int originalWidth,
         int originalHeight)
-        : base(source, fileSize, modifiedTime, originalWidth, originalHeight)
+        : base(media, fileSize, modifiedTime, originalWidth, originalHeight)
     {
     }
 

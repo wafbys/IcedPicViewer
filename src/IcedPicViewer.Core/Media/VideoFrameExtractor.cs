@@ -8,7 +8,7 @@ using IcedPicViewer.Services.Implementations;
 namespace IcedPicViewer.Core.Media;
 
 /// <summary>
-/// One scaled BGRA8 frame plus source metadata from a single FFmpeg open.
+/// One scaled BGRA8 frame plus media metadata from a single FFmpeg open.
 /// </summary>
 public readonly record struct VideoFrameExtract(
     byte[] Bgra,
@@ -30,7 +30,7 @@ public static class VideoFrameExtractor
     /// reports a positive <c>fmtCtx-&gt;duration</c> (same open as the frame).
     /// </summary>
     public static Task<VideoFrameExtract?> ExtractAsync(
-        ImageSource source, int maxEdge, CancellationToken ct = default)
+        MediaRef media, int maxEdge, CancellationToken ct = default)
     {
         FFmpegBootstrap.EnsureInitialized();
         if (!FFmpegBootstrap.IsReady || maxEdge < 1)
@@ -40,24 +40,24 @@ public static class VideoFrameExtractor
         {
             ct.ThrowIfCancellationRequested();
 
-            if (source.IsInArchive)
+            if (media.IsInArchive)
             {
                 var tempDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "IcedPicViewer", "TempVideo");
                 Directory.CreateDirectory(tempDir);
-                var ext = Path.GetExtension(source.ArchiveEntry ?? ".mp4");
+                var ext = Path.GetExtension(media.ArchiveEntry ?? ".mp4");
                 if (string.IsNullOrEmpty(ext)) ext = ".mp4";
                 var tempPath = Path.Combine(tempDir, $"ipv-thumb-{Guid.NewGuid():N}{ext}");
                 try
                 {
-                    ArchiveHelper.ExtractEntryToFile(source.Path, source.ArchiveEntry!, tempPath);
+                    ArchiveHelper.ExtractEntryToFile(media.Path, media.ArchiveEntry!, tempPath);
                     if (!File.Exists(tempPath)) return null;
                     return ExtractAndScaleFrame(tempPath, maxEdge, ct);
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceError($"VideoFrameExtractor archive: {source}: {ex.Message}");
+                    Trace.TraceError($"VideoFrameExtractor archive: {media}: {ex.Message}");
                     return null;
                 }
                 finally
@@ -67,8 +67,8 @@ public static class VideoFrameExtractor
                 }
             }
 
-            if (!File.Exists(source.Path)) return null;
-            return ExtractAndScaleFrame(source.Path, maxEdge, ct);
+            if (!File.Exists(media.Path)) return null;
+            return ExtractAndScaleFrame(media.Path, maxEdge, ct);
         }, ct);
     }
 

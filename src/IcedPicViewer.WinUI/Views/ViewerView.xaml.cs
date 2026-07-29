@@ -206,7 +206,7 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     {
         if (ViewModel.SelectedItem != null)
         {
-            var source = ViewModel.SelectedItem.Source;
+            var source = ViewModel.SelectedItem.Media;
             // For archive entries we can't select the entry itself
             // (Explorer doesn't understand zip/rar/7z contents), so
             // highlight the containing archive file instead. The user

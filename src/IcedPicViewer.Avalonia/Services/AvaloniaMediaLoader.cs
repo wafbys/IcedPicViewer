@@ -22,9 +22,9 @@ namespace IcedPicViewer.Avalonia.Services;
 /// </summary>
 public static class AvaloniaMediaLoader
 {
-    public static async Task<AvBitmap?> LoadThumbnailAsync(ImageSource source, int maxEdge, CancellationToken ct)
+    public static async Task<AvBitmap?> LoadThumbnailAsync(MediaRef media, int maxEdge, CancellationToken ct)
     {
-        var (bmp, _, _, _) = await LoadThumbnailWithInfoAsync(source, maxEdge, ct).ConfigureAwait(false);
+        var (bmp, _, _, _) = await LoadThumbnailWithInfoAsync(media, maxEdge, ct).ConfigureAwait(false);
         return bmp;
     }
 
@@ -32,16 +32,16 @@ public static class AvaloniaMediaLoader
     /// Thumbnail plus original pixel size and optional video duration for gallery hover info.
     /// </summary>
     public static async Task<(AvBitmap? Bitmap, int OriginalWidth, int OriginalHeight, TimeSpan? Duration)> LoadThumbnailWithInfoAsync(
-        ImageSource source, int maxEdge, CancellationToken ct)
+        MediaRef media, int maxEdge, CancellationToken ct)
     {
-        if (source.Kind == MediaKind.Video)
+        if (media.Kind == MediaKind.Video)
         {
-            var frame = await VideoFrameExtractor.ExtractAsync(source, maxEdge, ct).ConfigureAwait(false);
+            var frame = await VideoFrameExtractor.ExtractAsync(media, maxEdge, ct).ConfigureAwait(false);
             if (frame is null) return (null, 0, 0, null);
             var f = frame.Value;
             var bmp = await Task.Run(() => BgraToBitmap(f.Bgra, f.FrameWidth, f.FrameHeight), ct)
                 .ConfigureAwait(false);
-            // Prefer container source size for InfoLine; fall back to scaled frame.
+            // Prefer container media size for InfoLine; fall back to scaled frame.
             var ow = f.SourceWidth > 0 ? f.SourceWidth : f.FrameWidth;
             var oh = f.SourceHeight > 0 ? f.SourceHeight : f.FrameHeight;
             return (bmp, ow, oh, f.Duration);
@@ -50,7 +50,7 @@ public static class AvaloniaMediaLoader
         ct.ThrowIfCancellationRequested();
         try
         {
-            await using var stream = await OpenStreamAsync(source, ct).ConfigureAwait(false);
+            await using var stream = await OpenStreamAsync(media, ct).ConfigureAwait(false);
             if (stream is null) return (null, 0, 0, null);
 
             return await Task.Run(() =>
@@ -70,23 +70,23 @@ public static class AvaloniaMediaLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"AvaloniaMediaLoader thumb+info: {source}: {ex.Message}");
+            Trace.TraceError($"AvaloniaMediaLoader thumb+info: {media}: {ex.Message}");
             return (null, 0, 0, null);
         }
     }
 
-    public static Task<AvBitmap?> LoadFullAsync(ImageSource source, int maxEdge, CancellationToken ct)
+    public static Task<AvBitmap?> LoadFullAsync(MediaRef media, int maxEdge, CancellationToken ct)
     {
-        if (source.Kind == MediaKind.Video)
-            return LoadVideoFrameAsync(source, maxEdge, ct);
-        return LoadScaledAsync(source, maxEdge, ct);
+        if (media.Kind == MediaKind.Video)
+            return LoadVideoFrameAsync(media, maxEdge, ct);
+        return LoadScaledAsync(media, maxEdge, ct);
     }
 
-    private static async Task<AvBitmap?> LoadVideoFrameAsync(ImageSource source, int maxEdge, CancellationToken ct)
+    private static async Task<AvBitmap?> LoadVideoFrameAsync(MediaRef media, int maxEdge, CancellationToken ct)
     {
         try
         {
-            var frame = await VideoFrameExtractor.ExtractAsync(source, maxEdge, ct).ConfigureAwait(false);
+            var frame = await VideoFrameExtractor.ExtractAsync(media, maxEdge, ct).ConfigureAwait(false);
             if (frame is null) return null;
             var f = frame.Value;
             return await Task.Run(() => BgraToBitmap(f.Bgra, f.FrameWidth, f.FrameHeight), ct)
@@ -98,18 +98,18 @@ public static class AvaloniaMediaLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"AvaloniaMediaLoader video: {source}: {ex.Message}");
+            Trace.TraceError($"AvaloniaMediaLoader video: {media}: {ex.Message}");
             return null;
         }
     }
 
-    private static async Task<AvBitmap?> LoadScaledAsync(ImageSource source, int maxEdge, CancellationToken ct)
+    private static async Task<AvBitmap?> LoadScaledAsync(MediaRef media, int maxEdge, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
         try
         {
-            await using var stream = await OpenStreamAsync(source, ct).ConfigureAwait(false);
+            await using var stream = await OpenStreamAsync(media, ct).ConfigureAwait(false);
             if (stream is null) return null;
 
             return await Task.Run(() => DecodeWithExif(stream, maxEdge), ct).ConfigureAwait(false);
@@ -120,33 +120,33 @@ public static class AvaloniaMediaLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"AvaloniaMediaLoader: {source}: {ex.Message}");
+            Trace.TraceError($"AvaloniaMediaLoader: {media}: {ex.Message}");
             return null;
         }
     }
 
-    private static Task<Stream?> OpenStreamAsync(ImageSource source, CancellationToken ct)
+    private static Task<Stream?> OpenStreamAsync(MediaRef media, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
-        if (source.IsInArchive)
+        if (media.IsInArchive)
         {
             try
             {
-                Stream ms = ArchiveHelper.OpenEntryStream(source.Path, source.ArchiveEntry!);
+                Stream ms = ArchiveHelper.OpenEntryStream(media.Path, media.ArchiveEntry!);
                 return Task.FromResult<Stream?>(ms);
             }
             catch (Exception ex)
             {
-                Trace.TraceError($"AvaloniaMediaLoader archive open: {source}: {ex.Message}");
+                Trace.TraceError($"AvaloniaMediaLoader archive open: {media}: {ex.Message}");
                 return Task.FromResult<Stream?>(null);
             }
         }
 
-        if (!File.Exists(source.Path)) return Task.FromResult<Stream?>(null);
+        if (!File.Exists(media.Path)) return Task.FromResult<Stream?>(null);
 
         Stream fs = new FileStream(
-            source.Path,
+            media.Path,
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read,
