@@ -48,7 +48,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(PlayerStretch))]
     [NotifyPropertyChangedFor(nameof(FitModeBtnVisibility))]
     [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
-    public partial MediaItem? CurrentImage { get; set; }
+    public partial MediaItem? SelectedItem { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
@@ -59,18 +59,18 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     public event EventHandler? NavigationChanged;
 
     // The displayed bitmap's pixel dimensions. ActualWidth/Height fall back
-    // to CurrentImage.OriginalWidth/Height until the bitmap has loaded.
+    // to SelectedItem.OriginalWidth/Height until the bitmap has loaded.
     [ObservableProperty]
     public partial int DisplayActualWidth { get; set; }
 
     [ObservableProperty]
     public partial int DisplayActualHeight { get; set; }
 
-    public int ActualWidth => DisplayActualWidth > 0 ? DisplayActualWidth : CurrentImage?.OriginalWidth ?? 0;
+    public int ActualWidth => DisplayActualWidth > 0 ? DisplayActualWidth : SelectedItem?.OriginalWidth ?? 0;
 
-    public int ActualHeight => DisplayActualHeight > 0 ? DisplayActualHeight : CurrentImage?.OriginalHeight ?? 0;
+    public int ActualHeight => DisplayActualHeight > 0 ? DisplayActualHeight : SelectedItem?.OriginalHeight ?? 0;
 
-    public string ImagePath => CurrentImage?.Source.ToString() ?? string.Empty;
+    public string ImagePath => SelectedItem?.Source.ToString() ?? string.Empty;
 
     /// <summary>
     /// True when the currently-displayed item is a video. Forwarded from
@@ -78,7 +78,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// chrome (FitMode button visibility, the play overlay, and the
     /// ImageHost/PlayerHost swap).
     /// </summary>
-    public bool IsVideo => CurrentImage?.IsVideo ?? false;
+    public bool IsVideo => SelectedItem?.IsVideo ?? false;
 
     // ----------------------------------------------------------------
     // Slideshow: auto-advance to the next image every interval. The
@@ -221,8 +221,8 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     // The user wants playback-failure hints to STICK — no auto-dismiss
     // timer, no close button. The hint clears only when the user moves
     // on (back to gallery, Next, Prev, Delete, open a different item)
-    // because <see cref="OnCurrentImageChanged"/> sets
-    // <see cref="ErrorMessage"/> back to null on every CurrentImage
+    // because <see cref="OnSelectedItemChanged"/> sets
+    // <see cref="ErrorMessage"/> back to null on every SelectedItem
     // swap. The view renders the message in a read-only TextBox so the
     // user can select and Ctrl+C the codec name / HRESULT / system
     // message for troubleshooting or web search — important for
@@ -343,12 +343,12 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             _lastShuffleIndex = nextIdx;
             CurrentIndex = nextIdx;
             // Direct CurrentIndex set bypasses NavigateNextCommand,
-            // which is the path that calls ShowCurrentImageAsync and
+            // which is the path that calls ShowSelectedItemAsync and
             // populates DisplayImage for the view. Without this
             // explicit call, the index updates in the UI (DisplayIndex
             // + NavigationChanged) but the bitmap doesn't refresh —
             // the viewer keeps showing the previous image.
-            await ShowCurrentImageAsync();
+            await ShowSelectedItemAsync();
         }
         else if (IsSlideshowLooping && CurrentIndex >= Items.Count - 1)
         {
@@ -356,9 +356,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // calling NavigateNext (which would short-circuit at
             // the end via CanNavigateNext). Same caveat as the shuffle
             // branch: direct CurrentIndex set means we have to drive
-            // ShowCurrentImageAsync ourselves.
+            // ShowSelectedItemAsync ourselves.
             CurrentIndex = 0;
-            await ShowCurrentImageAsync();
+            await ShowSelectedItemAsync();
         }
         else
         {
@@ -471,14 +471,14 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     partial void OnIsFitModeChanged(bool value)
     {
-        if (!value && CurrentImage != null)
+        if (!value && SelectedItem != null)
         {
             // Entering 1:1: abort any in-flight capped load and force a full-res decode for current item.
             _loadCts?.Cancel();
             _fullResCts?.Cancel();
             _fullResCts?.Dispose();
             _fullResCts = new CancellationTokenSource();
-            _ = LoadFullResFor1To1Async(CurrentImage, _fullResCts.Token);
+            _ = LoadFullResFor1To1Async(SelectedItem, _fullResCts.Token);
         }
         else if (value)
         {
@@ -500,7 +500,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             if (source != null)
             {
                 item.FullImage = source;
-                if (ReferenceEquals(CurrentImage, item))
+                if (ReferenceEquals(SelectedItem, item))
                 {
                     DisplayImage = source;
                 }
@@ -530,7 +530,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     // surfaces and to hide image-only chrome (Fit/1:1 button) when
     // the current item is a video. All three (plus the helpers below)
     // are computed from IsVideo + IsVideoPlaying; the [Notify...]
-    // attributes on CurrentImage and IsVideoPlaying above take care of
+    // attributes on SelectedItem and IsVideoPlaying above take care of
     // re-firing PropertyChanged when either input changes.
 
     public Visibility ImageHostVisibility => !IsVideo ? Visibility.Visible : Visibility.Collapsed;
@@ -628,7 +628,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// to a TextBlock produces "—" naturally for images.
     /// </summary>
     public string PrePlayDurationText =>
-        CurrentImage is VideoItem v && v.Duration > TimeSpan.Zero
+        SelectedItem is VideoItem v && v.Duration > TimeSpan.Zero
             ? FormatDuration(v.Duration)
             : string.Empty;
 
@@ -700,7 +700,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanPlay))]
     private async Task PlayAsync()
     {
-        if (CurrentImage is not VideoItem video) return;
+        if (SelectedItem is not VideoItem video) return;
         if (_mediaPlayer != null) return;
 
         string? playbackPath = null;
@@ -755,7 +755,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"ImageViewModel.PlayAsync error for {CurrentImage?.Id}: {ex.GetType().Name}: {ex.Message}");
+            Trace.TraceError($"ImageViewModel.PlayAsync error for {SelectedItem?.Id}: {ex.GetType().Name}: {ex.Message}");
             // Surface as a non-playing state so the user can retry. Don't
             // throw — the play overlay stays visible and CanPlay stays true.
             // Order: null MediaPlayer first so CanPlay() sees _mediaPlayer==null
@@ -789,12 +789,12 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             //
             // Pinned InfoBar: no auto-dismiss, no close button. Cleared
             // only when the user moves to a different item (see
-            // OnCurrentImageChanged). The view's TextBox-based content
+            // OnSelectedItemChanged). The view's TextBox-based content
             // makes the codec / HRESULT / system message selectable +
             // Ctrl+C-able for troubleshooting.
             if (ex is not OperationCanceledException)
             {
-                var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
+                var codec = SelectedItem is VideoItem v ? v.Codec : string.Empty;
                 ErrorMessage = BuildPrePlayErrorMessage(ex, codec);
             }
         }
@@ -827,7 +827,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     private void OnMediaPlayerOpened(MediaPlayer sender, object args)
     {
-        Trace.TraceInformation($"ImageViewModel: MediaPlayer opened for {CurrentImage?.Id}");
+        Trace.TraceInformation($"ImageViewModel: MediaPlayer opened for {SelectedItem?.Id}");
     }
 
     private void OnMediaPlayerFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
@@ -873,14 +873,14 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             }
 
             // Log + hint only when still on the failed video — if the
-            // user navigated away, OnCurrentImageChanged already cleared
+            // user navigated away, OnSelectedItemChanged already cleared
             // ErrorMessage and logging a stale player is noise.
-            Trace.TraceError($"ImageViewModel.MediaFailed for {CurrentImage?.Id}: error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
+            Trace.TraceError($"ImageViewModel.MediaFailed for {SelectedItem?.Id}: error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
 
             // Pinned hint: no auto-dismiss timer, no close button.
-            // Cleared by OnCurrentImageChanged when the user navigates to
+            // Cleared by OnSelectedItemChanged when the user navigates to
             // another item (Next / Prev / Close / Delete).
-            var codec = CurrentImage is VideoItem v ? v.Codec : string.Empty;
+            var codec = SelectedItem is VideoItem v ? v.Codec : string.Empty;
             ErrorMessage = BuildPlaybackErrorMessage(args, codec);
         }
         else
@@ -1144,20 +1144,20 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
         else
         {
-            DisplayActualWidth = CurrentImage?.OriginalWidth ?? 0;
-            DisplayActualHeight = CurrentImage?.OriginalHeight ?? 0;
+            DisplayActualWidth = SelectedItem?.OriginalWidth ?? 0;
+            DisplayActualHeight = SelectedItem?.OriginalHeight ?? 0;
         }
     }
 
-    partial void OnCurrentImageChanged(MediaItem? value)
+    partial void OnSelectedItemChanged(MediaItem? value)
     {
         DisplayActualWidth = 0;
         DisplayActualHeight = 0;
         // Pinned hint cleanup: a new item means the old error (codec
         // mismatch / decode failure / file error) is no longer
         // relevant. Clearing here covers every navigation path
-        // (Next / Prev / Delete / ShowImageAsync / Close — Close sets
-        // CurrentImage = null before navigating back to gallery)
+        // (Next / Prev / Delete / OpenItem / Close — Close sets
+        // SelectedItem = null before navigating back to gallery)
         // without sprinkling the same line through each navigation
         // method. Subsequent failures on the new item set
         // ErrorMessage fresh.
@@ -1171,7 +1171,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     public partial int CurrentIndex { get; set; }
 
     [ObservableProperty]
-    public partial int TotalCount { get; set; }
+    public partial int ItemCount { get; set; }
 
     private int _displayIndex = 1;
     public int DisplayIndex
@@ -1182,12 +1182,12 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<MediaItem> Items => _galleryViewModel.Items;
 
-    public bool CanLoadMoreImages => _galleryViewModel.CanLoadMore && !_galleryViewModel.IsLoadingMore;
-    public bool IsLoadingMoreImages => _galleryViewModel.IsLoadingMore;
-    public Visibility LoadMoreImagesVisibility => _galleryViewModel.CanLoadMore ? Visibility.Visible : Visibility.Collapsed;
+    public bool CanLoadMore => _galleryViewModel.CanLoadMore && !_galleryViewModel.IsLoadingMore;
+    public bool IsLoadingMore => _galleryViewModel.IsLoadingMore;
+    public Visibility LoadMoreVisibility => _galleryViewModel.CanLoadMore ? Visibility.Visible : Visibility.Collapsed;
 
-    [RelayCommand(CanExecute = nameof(CanLoadMoreImages))]
-    private async Task LoadMoreImagesAsync()
+    [RelayCommand(CanExecute = nameof(CanLoadMore))]
+    private async Task LoadMoreAsync()
     {
         if (_galleryViewModel.CanLoadMore && !_galleryViewModel.IsLoadingMore)
         {
@@ -1224,7 +1224,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     private void OnItemsCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
-        TotalCount = Items.Count;
+        ItemCount = Items.Count;
         NavigatePreviousCommand.NotifyCanExecuteChanged();
         NavigateNextCommand.NotifyCanExecuteChanged();
     }
@@ -1235,11 +1235,11 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         if (e.PropertyName == nameof(GalleryViewModel.CanLoadMore) ||
             e.PropertyName == nameof(GalleryViewModel.IsLoadingMore))
         {
-            LoadMoreImagesCommand.NotifyCanExecuteChanged();
+            LoadMoreCommand.NotifyCanExecuteChanged();
             NavigateNextCommand.NotifyCanExecuteChanged();
-            OnPropertyChanged(nameof(CanLoadMoreImages));
-            OnPropertyChanged(nameof(IsLoadingMoreImages));
-            OnPropertyChanged(nameof(LoadMoreImagesVisibility));
+            OnPropertyChanged(nameof(CanLoadMore));
+            OnPropertyChanged(nameof(IsLoadingMore));
+            OnPropertyChanged(nameof(LoadMoreVisibility));
         }
     }
 
@@ -1269,7 +1269,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // new image's FullImage is the only thing we want decoded next.
             StopAndDisposePlayer();
             CurrentIndex--;
-            await ShowCurrentImageAsync();
+            await ShowSelectedItemAsync();
         }
     }
 
@@ -1282,7 +1282,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         {
             // 正常前进
             CurrentIndex++;
-            await ShowCurrentImageAsync();
+            await ShowSelectedItemAsync();
         }
         else if (_galleryViewModel.CanLoadMore && !_galleryViewModel.IsLoadingMore)
         {
@@ -1293,7 +1293,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             if (CurrentIndex < Items.Count - 1)
             {
                 CurrentIndex++;
-                await ShowCurrentImageAsync();
+                await ShowSelectedItemAsync();
             }
         }
     }
@@ -1322,7 +1322,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         _fullResCts?.Dispose();
         _fullResCts = null;
 
-        CurrentImage = null;
+        SelectedItem = null;
         DisplayImage = null;
 
         _navigationService.GoBack();
@@ -1331,13 +1331,13 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task DeleteAsync()
     {
-        if (CurrentImage == null) return;
+        if (SelectedItem == null) return;
 
-        var imageToDelete = CurrentImage;
+        var itemToDelete = SelectedItem;
         var indexToDelete = CurrentIndex;
-        var wasLastImage = CurrentIndex >= Items.Count - 1;
+        var wasLastItem = CurrentIndex >= Items.Count - 1;
 
-        await _galleryViewModel.DeleteImageAsync(imageToDelete);
+        await _galleryViewModel.DeleteItemAsync(itemToDelete);
 
         if (Items.Count == 0)
         {
@@ -1345,19 +1345,19 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var newIndex = wasLastImage ? Math.Max(0, indexToDelete - 1) : indexToDelete;
+        var newIndex = wasLastItem ? Math.Max(0, indexToDelete - 1) : indexToDelete;
         newIndex = Math.Min(newIndex, Items.Count - 1);
         CurrentIndex = newIndex;
         if (Items.Count > 0 && newIndex >= 0 && newIndex < Items.Count)
         {
-            CurrentImage = Items[newIndex];
+            SelectedItem = Items[newIndex];
         }
         else
         {
             Close();
             return;
         }
-        TotalCount = Items.Count;
+        ItemCount = Items.Count;
         DisplayImage = null;
         // After a delete the navigation target is fresh, so the previous
         // item's player (if any) was already torn down by the gallery
@@ -1366,11 +1366,11 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         StopAndDisposePlayer();
         ResetLoadCts();
         var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
-        await LoadFullImageAsync(CurrentImage, fitTargetSize, _loadCts!.Token);
+        await LoadFullImageAsync(SelectedItem, fitTargetSize, _loadCts!.Token);
         SchedulePreload();
     }
 
-    public async Task ShowImageAsync(MediaItem item)
+    public async Task OpenItem(MediaItem item)
     {
         // Navigation boundary: tear down any active player from the
         // previous (gallery) item before binding the new one.
@@ -1382,10 +1382,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         // the view covers the brief blank state.
         DisplayImage = null;
 
-        CurrentImage = item;
+        SelectedItem = item;
         CurrentIndex = Items.IndexOf(item);
         _galleryViewModel.LastViewedIndex = CurrentIndex;
-        TotalCount = Items.Count;
+        ItemCount = Items.Count;
 
         var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
         await LoadFullImageAsync(item, fitTargetSize, _loadCts!.Token);
@@ -1415,7 +1415,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             if (source != null)
             {
                 item.FullImage = source;
-                if (ReferenceEquals(CurrentImage, item))
+                if (ReferenceEquals(SelectedItem, item))
                 {
                     DisplayImage = source;
                 }
@@ -1448,14 +1448,14 @@ public partial class ImageViewModel : ObservableObject, IDisposable
                bmp.PixelHeight >= item.OriginalHeight * tolerance;
     }
 
-    private async Task ShowCurrentImageAsync()
+    private async Task ShowSelectedItemAsync()
     {
         if (CurrentIndex >= 0 && CurrentIndex < Items.Count)
         {
-            CurrentImage = Items[CurrentIndex];
+            SelectedItem = Items[CurrentIndex];
             ResetLoadCts();
             var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
-            await LoadFullImageAsync(CurrentImage, fitTargetSize, _loadCts!.Token);
+            await LoadFullImageAsync(SelectedItem, fitTargetSize, _loadCts!.Token);
             SchedulePreload();
         }
     }

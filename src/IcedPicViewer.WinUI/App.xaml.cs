@@ -98,7 +98,7 @@ public partial class App : Application
                 var vm = App.GetService<ViewModels.ImageViewModel>();
                 if (vm != null)
                 {
-                    fullError += $"\n[ViewerState] IsVideo={vm.IsVideo}, IsFitMode={vm.IsFitMode}, IsVideoPlaying={vm.IsVideoPlaying}, HasPlayer={vm.MediaPlayer != null}, Item={vm.CurrentImage?.Name ?? "null"}";
+                    fullError += $"\n[ViewerState] IsVideo={vm.IsVideo}, IsFitMode={vm.IsFitMode}, IsVideoPlaying={vm.IsVideoPlaying}, HasPlayer={vm.MediaPlayer != null}, Item={vm.SelectedItem?.Name ?? "null"}";
                 }
             }
             catch { }
@@ -175,7 +175,7 @@ public partial class App : Application
 
         // ViewModels - appropriate lifetimes
         // GalleryViewModel: Singleton (owns current gallery + file watcher + shared collection)
-        // ImageViewModel: Singleton (instance prepared in GalleryView with ShowImageAsync
+        // ImageViewModel: Singleton (instance prepared in GalleryView with OpenItem
         //   is the same one received in ImageViewerView; this restores single image mode
         //   functionality while we keep the masonry visual).
         services.AddSingleton<GalleryViewModel>();

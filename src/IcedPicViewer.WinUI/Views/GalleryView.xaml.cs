@@ -403,7 +403,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         var item = _selectedItemForDelete;
         _selectedItemForDelete = null;
 
-        await ViewModel.DeleteImageAsync(item);
+        await ViewModel.DeleteItemAsync(item);
     }
 
     private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
@@ -451,7 +451,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
                 _currentImageViewModel = App.GetService<ImageViewModel>();
                 _currentImageViewModel.NavigationChanged += OnImageViewModelNavigationChanged;
             }
-            await _currentImageViewModel.ShowImageAsync(item);
+            await _currentImageViewModel.OpenItem(item);
 
             _navigationService.NavigateTo<ImageViewerView>();
         }
@@ -558,7 +558,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             ? ViewModel.LastViewedIndex
             : 0;
         var startItem = ViewModel.Items[startIndex];
-        await imageViewModel.ShowImageAsync(startItem);
+        await imageViewModel.OpenItem(startItem);
         // StartSlideshow is parameterless now — the viewer's own
         // slider writes to ImageViewModel.SlideshowInterval directly,
         // and the gallery's value is the initial seed (before the

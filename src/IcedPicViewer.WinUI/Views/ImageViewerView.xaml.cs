@@ -20,8 +20,8 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 {
     // Exposed for x:Bind in the page-level markup. Constructor-assigned so
     // it's safe to read in OnLoaded (which fires after the ctor). DI gives
-    // the same singleton that GalleryView prepared via ShowImageAsync, so
-    // state (CurrentImage, CurrentIndex, ...) survives across navigations.
+    // the same singleton that GalleryView prepared via OpenItem, so
+    // state (SelectedItem, CurrentIndex, ...) survives across navigations.
     public ImageViewModel ViewModel { get; }
 
     private double _minimapWidth = 150;
@@ -204,9 +204,9 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
     {
-        if (ViewModel.CurrentImage != null)
+        if (ViewModel.SelectedItem != null)
         {
-            var source = ViewModel.CurrentImage.Source;
+            var source = ViewModel.SelectedItem.Source;
             // For archive entries we can't select the entry itself
             // (Explorer doesn't understand zip/rar/7z contents), so
             // highlight the containing archive file instead. The user
@@ -312,7 +312,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
                 ApplyVideoFitMode(ViewModel.IsFitMode);
             }
         }
-        else if (e.PropertyName == nameof(ImageViewModel.CurrentImage))
+        else if (e.PropertyName == nameof(ImageViewModel.SelectedItem))
         {
             // Only adjust the Player container for video items.
             if (ViewModel.IsVideo)

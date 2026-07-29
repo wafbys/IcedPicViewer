@@ -66,7 +66,12 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(OpenFolderCommand))]
-    public partial bool IsBusy { get; set; }
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+    [NotifyPropertyChangedFor(nameof(IsScanning))]
+    public partial LoadingState LoadingState { get; set; } = LoadingState.Idle;
+
+    /// <summary>True while a directory scan is in progress (same meaning as WinUI).</summary>
+    public bool IsScanning => LoadingState == LoadingState.Scanning;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
@@ -322,7 +327,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         await LoadDirectoryAsync(path).ConfigureAwait(true);
     }
 
-    private bool CanOpenFolder() => !IsBusy;
+    private bool CanOpenFolder() => !IsScanning;
 
     [RelayCommand(CanExecute = nameof(CanRefresh))]
     private async Task RefreshAsync()
@@ -331,7 +336,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         await LoadDirectoryAsync(FolderPath).ConfigureAwait(true);
     }
 
-    private bool CanRefresh() => !IsBusy && !string.IsNullOrEmpty(FolderPath);
+    private bool CanRefresh() => !IsScanning && !string.IsNullOrEmpty(FolderPath);
 
     [RelayCommand]
     private async Task ShowAboutAsync()

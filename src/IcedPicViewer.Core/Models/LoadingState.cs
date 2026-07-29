@@ -6,7 +6,8 @@ public enum LoadingState
 {
     Idle,
     Scanning,
-    LoadingImages,
+    /// <summary>Page fill / thumbnail work in progress (reserved; shells may use Completed after scan).</summary>
+    LoadingItems,
     Error,
     Completed
 }

@@ -39,7 +39,7 @@
                     Background="{ThemeResource SubtleFillColorSecondaryBrush}">
             <CommandBar.Content>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
-                    <TextBlock Text="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"
+                    <TextBlock Text="{x:Bind ViewModel.SelectedItem.Name, Mode=OneWay}"
                                VerticalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                Margin="0,0,8,0"
@@ -54,7 +54,7 @@
                     <TextBlock VerticalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Margin="0,0,8,0" FontSize="12">
-                        <Run Text="{x:Bind ViewModel.CurrentImage.FileSizeText, Mode=OneWay}"/>
+                        <Run Text="{x:Bind ViewModel.SelectedItem.FileSizeText, Mode=OneWay}"/>
                     </TextBlock>
                     <TextBlock Text="{x:Bind ViewModel.ImagePath, Mode=OneWay}"
                                VerticalAlignment="Center"
@@ -78,7 +78,7 @@
                            Margin="4,0">
                     <Run Text="{x:Bind ViewModel.DisplayIndex, Mode=OneWay}"/>
                     <Run Text="/"/>
-                    <Run Text="{x:Bind ViewModel.TotalCount, Mode=OneWay}"/>
+                    <Run Text="{x:Bind ViewModel.ItemCount, Mode=OneWay}"/>
                 </TextBlock>
             </AppBarElementContainer>
             <AppBarButton Icon="Next"
@@ -102,8 +102,8 @@
                           ToolTipService.ToolTip="Fit / 1:1 切换"/>
             <AppBarButton Icon="Refresh"
                           Label="Load More"
-                          Command="{x:Bind ViewModel.LoadMoreImagesCommand}"
-                          Visibility="{x:Bind ViewModel.LoadMoreImagesVisibility, Mode=OneWay}"
+                          Command="{x:Bind ViewModel.LoadMoreCommand}"
+                          Visibility="{x:Bind ViewModel.LoadMoreVisibility, Mode=OneWay}"
                           ToolTipService.ToolTip="Load More (扫描更多图片)"/>
             <!--
                 Slideshow toggle. Click to start / stop the auto-advance
@@ -238,7 +238,7 @@
             <Viewbox x:Name="FitContainer" Stretch="Uniform">
                 <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
                        Stretch="Uniform"
-                       AutomationProperties.Name="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"/>
+                       AutomationProperties.Name="{x:Bind ViewModel.SelectedItem.Name, Mode=OneWay}"/>
             </Viewbox>
 
             <ScrollViewer x:Name="ActualSizeContainer"
@@ -378,7 +378,7 @@
                             Orientation="Horizontal"
                             VerticalAlignment="Center"
                             Spacing="8">
-                    <TextBlock Text="{x:Bind ViewModel.CurrentImage.Name, Mode=OneWay}"
+                    <TextBlock Text="{x:Bind ViewModel.SelectedItem.Name, Mode=OneWay}"
                                TextTrimming="CharacterEllipsis"
                                MaxLines="1"
                                FontSize="13"/>
@@ -553,7 +553,7 @@
 
             Visibility tied to VM.IsErrorBarVisibility (projected
             from IsErrorBarOpen). Cleared on navigation by
-            OnCurrentImageChanged, same as before.
+            OnSelectedItemChanged, same as before.
         -->
         <Border x:Name="ErrorPanel"
                 Grid.Row="0" Grid.RowSpan="2"

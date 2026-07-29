@@ -103,80 +103,51 @@ dotnet test IcedPicViewer.slnx -c Debug
 
 ### Gallery 扫描/加载 pipeline 不变量
 
-**产品语义（WinUI 与 Avalonia 必须一致）**：**边扫边灌到 200 张停**。scanner 在 worker thread yield → 50ms / ≤100 条 batch flush 到 UI → drain 灌到 200 停；scanner 可继续累计发现数，但不自动再灌；用户 Load More / 滚底再取。
+**产品语义（WinUI 与 Avalonia 必须一致）**：**边扫边灌到 200 张停**。
 
-#### 统一术语（两壳相同，禁止另起一套）
+#### 统一术语（两壳相同代码名，禁止另起一套）
 
 | 术语 | 代码名 | 含义 |
 |------|--------|------|
-| 图库集合 | `Items` | 已灌入瀑布流的媒体项（图+视频） |
-| 剩余队列 | `_remainingSources` + `_remainingLock` | 已发现、尚未入 `Items` 的 `ImageSource` |
-| 发现数 | `DiscoveredCount` | 扫描进度/状态栏用 |
-| 自动灌 / Load More 块 | `PageSize = 200` | drain gate：`Items.Count < PageSize`；用户 Load More 也取 ≤200 |
-| scan 每轮入队 | `ScanPageSize = 30` | drain 每轮最多加 30，避免 layout 卡死 |
-| batch | `ScanBatchSize = 100` / `ScanBatchMs = 50` | worker 侧攒批再 flush |
-| flush / ingest | `FlushScanBatch` → `IngestScanBatch` | worker 投递 UI；UI 入队并触发 drain |
-| drain | `DrainPageFillAsync` + `_pageFillInFlight` | 单消费者自动灌到 `PageSize` |
-| Load More | `LoadMoreAsync` + `IsLoadingMore` / `CanLoadMore` | 用户触发；与 `_pageFillInFlight` 分离 |
-| 缩略图 | `LoadThumbnailAsync` + `_thumbnailLoadSemaphore`（6） | 解码后经 UI dispatcher 回写 |
-| 状态文案 | `StatusText` | 状态栏 |
+| 图库集合 | `Items` | 已灌入瀑布流的媒体项 |
+| 当前项 | `SelectedItem` | 查看器/选中项（WinUI 查看器 VM 与 Avalonia 同名） |
+| 当前文件夹 | `FolderPath` | 正在浏览的目录 |
+| 剩余队列 | `_remainingSources` + `_remainingLock` | 已发现未入 `Items` 的 `ImageSource` |
+| 发现数 | `DiscoveredCount` | 扫描/入队累计，状态栏「共 N」 |
+| 加载态 | `LoadingState` + `IsScanning` | Core 枚举；`IsScanning == (LoadingState == Scanning)` |
+| 自动灌 / Load More 块 | `PageSize = 200` | drain gate：`Items.Count < PageSize` |
+| scan 每轮 | `ScanPageSize = 30` | |
+| batch | `ScanBatchSize = 100` / `ScanBatchMs = 50` | |
+| flush 链 | `FlushScanBatch` → `IngestScanBatch` → `DrainPageFillAsync` | |
+| Load More | `LoadMoreAsync` / `LoadMoreCommand` + `CanLoadMore` / `IsLoadingMore` | |
+| 缩略图 | `LoadThumbnailAsync` + `_thumbnailLoadSemaphore`（`ThumbConcurrency = 6`） | |
+| 状态文案 | `StatusText` | 默认 `"Open a folder to start"` |
+| 查看器已加载数 | `ItemCount`（= `Items.Count`，仅查看器 chrome） | 勿与 `DiscoveredCount` 混淆 |
 
-#### 仅平台差异（允许不同）
+#### 仅平台差异（技术栈，不是第二套产品词）
 
 | 点 | WinUI | Avalonia |
 |----|-------|----------|
-| VM 入口 | `GalleryViewModel` + `ImageViewModel` | `MainViewModel`（partial Gallery / SlideshowViewer） |
+| VM 拆分 | `GalleryViewModel` + `ImageViewModel` | `MainViewModel` partials |
 | 项类型 | `MediaItem` / `ImageItem` / `VideoItem` | `GalleryItemViewModel` |
-| 加载态模型 | `LoadingState` 枚举 | `IsBusy` + `_scanComplete` 等 |
-| 入队累计（可选） | 另有 `TotalCount`（入 `_remainingSources` 的累计） | 以 `DiscoveredCount` 为主 |
-| drain 内加项 | `LoadNextPageAsync`（先取尺寸再 Add） | drain 内直接 `Items.Add` |
-| 尺寸探测限流 | 另有 `_sizeFetchSemaphore` + `GetImageSizeAsync`（WinRT STA） | 尺寸随缩略图/解码一并得到 |
+| drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` | 随缩略图/解码 |
 | UI marshal | `DispatcherQueue.TryEnqueue` | `Dispatcher.UIThread` |
-| 图片解码 / 视频 | WIC / `MediaPlayerElement` | ImageSharp / LibVLC |
+| 解码 / 播放 | WIC / `MediaPlayerElement` | ImageSharp / LibVLC |
+| 键盘 | `WH_KEYBOARD` | 窗口 `KeyDown` |
+| 扫描路径提示 | `CurrentScanningPath`（可选 UI） | 可无 |
 
-**共用流程**（统一术语；marshal 见上表）：
+**共用流程**：
 
 ```
-scanner (worker, Task.Run(RunScanAndBatchAsync))
-    │ yield source
-    ▼
-RunScanAndBatchAsync ── ≤ScanBatchSize 或 ScanBatchMs(batchStartTick) ── FlushScanBatch
-    │ UI marshal
-    ▼
-IngestScanBatch ── _remainingSources.AddRange ── DrainPageFillAsync
-    │ _pageFillInFlight 单消费者；仅当 Items.Count < PageSize
-    ▼
-DrainPageFillAsync ── 每轮 ≤ScanPageSize ── Items.Add + LoadThumbnailAsync
-    │ 直到 Items.Count ≥ PageSize 或 queue 空
-    ▼
-_thumbnailLoadSemaphore(6) ── 解码 ── UI 回写 Thumbnail / IsThumbnailLoading
+RunScanAndBatchAsync ── ScanBatchSize/ScanBatchMs ── FlushScanBatch
+    → IngestScanBatch(_remainingSources, DiscoveredCount)
+    → DrainPageFillAsync（Items.Count < PageSize, 每轮 ScanPageSize）
+    → LoadThumbnailAsync（_thumbnailLoadSemaphore）
 ```
 
-**不变量清单**：
+**不变量**：scanner 在 worker；`batchStartTick`；`_pageFillInFlight` ≠ `IsLoadingMore`；drain gate `Items.Count < PageSize`；缩略图经 UI 线程回写；切目录取消 CTS。
 
-| 规则 | 说明 |
-|------|------|
-| scanner 永远在 worker thread | `Task.Run` 包住整个 `await foreach` |
-| `batchStartTick` 锚点 | batch 空时设 now，保证首张 50ms 内 flush |
-| 单一 consumer drain | `_pageFillInFlight` |
-| `_pageFillInFlight` ≠ `IsLoadingMore` | 自动灌 vs Load More 按钮 |
-| `ScanPageSize=30` / `PageSize=200` | scan 小块；自动灌与 Load More 均为 200 |
-| drain gate | `Items.Count < PageSize` |
-| 缩略图 6 路限流 | `_thumbnailLoadSemaphore`；WinUI 另限流尺寸探测 |
-| 缩略图状态回写 | 必须经 UI dispatcher |
-| 切目录取消 | 旧 cts Cancel+Dispose；flush/drain/thumb 检查 token |
-| 术语一致 | 除「仅平台差异」表外，**禁止**再发明 `Images` / `AutoCap` / `_remainingFilePaths` 等平行叫法 |
-
-**绝对不要做的事**：
-- 把 `await foreach` 同步吞光再统一 Load
-- 加回 page fill timer
-- 把 `ScanPageSize` 调到 150
-- 缩略图/尺寸探测无 semaphore 全并发
-- worker 线程直接写绑定属性
-- 只改一边 hybrid 语义
-- 在一边重新引入与统一术语冲突的旧名
-
-**取消语义**：切目录时旧 cts `Cancel()`+`Dispose()` → scanner 退出 await foreach → 旧 batch 检查 token 直接 return → drain / LoadMore 内加项前检查 token 早退。
+**禁止**：`Images` / `AutoCap` / `_remainingFilePaths` / `CurrentFolderPath` / `IsBusy`（作加载态）/ `LoadMoreImages*` / `CurrentImage` / Gallery 级 `TotalCount` 等旧名重现。
 
 ### 键盘导航（WinUI：`WH_KEYBOARD` thread-scope hook）
 

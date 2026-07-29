@@ -38,9 +38,10 @@ public partial class MainViewModel
         _scanComplete = false;
         _scanErrors = 0;
         lock (_remainingLock) _remainingSources = new List<ImageSource>();
-        IsBusy = true;
+        LoadingState = LoadingState.Scanning;
         StatusText = "Scanning…";
         RefreshCommand.NotifyCanExecuteChanged();
+        OpenFolderCommand.NotifyCanExecuteChanged();
 
         StartWatcher(path);
         _ = Task.Run(() => RunScanAndBatchAsync(path, ct), ct);
@@ -253,9 +254,10 @@ public partial class MainViewModel
             {
                 if (ct.IsCancellationRequested) return;
                 _scanComplete = true;
-                IsBusy = false;
+                LoadingState = LoadingState.Completed;
                 UpdateStatus();
                 RefreshCommand.NotifyCanExecuteChanged();
+                OpenFolderCommand.NotifyCanExecuteChanged();
                 _ = DrainPageFillAsync(ct);
             });
         }
@@ -263,9 +265,10 @@ public partial class MainViewModel
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                IsBusy = false;
+                LoadingState = LoadingState.Completed;
                 StatusText = "Cancelled";
                 RefreshCommand.NotifyCanExecuteChanged();
+                OpenFolderCommand.NotifyCanExecuteChanged();
             });
         }
         catch (Exception ex)
@@ -273,9 +276,10 @@ public partial class MainViewModel
             Trace.TraceError($"RunScanAndBatchAsync: {ex}");
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                IsBusy = false;
+                LoadingState = LoadingState.Error;
                 StatusText = $"Error: {ex.Message}";
                 RefreshCommand.NotifyCanExecuteChanged();
+                OpenFolderCommand.NotifyCanExecuteChanged();
             });
         }
     }
@@ -407,7 +411,7 @@ public partial class MainViewModel
             ? $"{images} images, {videos} videos"
             : $"{images} image(s)";
 
-        if (IsBusy || !_scanComplete)
+        if (IsScanning || !_scanComplete)
         {
             StatusText = $"Scanning… found {DiscoveredCount}, showing {loaded}{err}";
             return;

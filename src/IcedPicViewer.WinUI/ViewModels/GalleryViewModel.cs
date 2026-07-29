@@ -49,14 +49,16 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private bool _pageFillInFlight;
 
     // Limit concurrent thumbnail loads
-    private readonly SemaphoreSlim _thumbnailLoadSemaphore = new(initialCount: 6, maxCount: 6);
+    private const int ThumbConcurrency = 6;
 
-    // Same 6-wide cap, but for the metadata + size fetch in LoadNextPageAsync.
+    private readonly SemaphoreSlim _thumbnailLoadSemaphore = new(initialCount: ThumbConcurrency, maxCount: ThumbConcurrency);
+
+    // Same ThumbConcurrency cap, but for the metadata + size fetch in LoadNextPageAsync.
     // Without this, 150 sequential awaits on GetImageSizeAsync would freeze
     // the perceived responsiveness for ~5 s on a populated page. The bound
     // is intentionally equal to the thumbnail cap so the two phases share
     // roughly the same number of in-flight WinRT marshal calls.
-    private readonly SemaphoreSlim _sizeFetchSemaphore = new(initialCount: 6, maxCount: 6);
+    private readonly SemaphoreSlim _sizeFetchSemaphore = new(initialCount: ThumbConcurrency, maxCount: ThumbConcurrency);
 
     // For incremental loading while keeping masonry visual.
     // Both LoadNextPageAsync (worker thread) and OnFileChanged (dispatcher thread) read/write
@@ -150,14 +152,12 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
 
     [ObservableProperty]
-    public partial string StatusText { get; set; } = "Select a folder to start";
+    public partial string StatusText { get; set; } = "Open a folder to start";
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
-    public partial string? CurrentFolderPath { get; set; }
+    public partial string? FolderPath { get; set; }
 
-    [ObservableProperty]
-    public partial int TotalCount { get; set; }
 
     [ObservableProperty]
     public partial int LastViewedIndex { get; set; } = -1;
@@ -309,9 +309,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         if (index >= 0)
         {
             Items.RemoveAt(index);
-            if (TotalCount > 0)
+            if (DiscoveredCount > 0)
             {
-                TotalCount--;
+                DiscoveredCount--;
             }
             lock (_remainingLock)
             {
@@ -320,15 +320,15 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             }
 
             var loaded = Items.Count;
-            StatusText = (TotalCount > 0 && TotalCount != loaded)
-                ? $"Loaded {loaded} / {TotalCount} images"
+            StatusText = (DiscoveredCount > 0 && DiscoveredCount != loaded)
+                ? $"Loaded {loaded} / {DiscoveredCount}"
                 : $"Loaded {loaded} images";
             return true;
         }
         return false;
     }
 
-    public async Task DeleteImageAsync(MediaItem item)
+    public async Task DeleteItemAsync(MediaItem item)
     {
         // Refuse to delete entries that live inside an archive: doing so would
         // require rewriting the entire archive, and we do not implement that.
@@ -385,7 +385,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"DeleteImageAsync error: {ex}");
+            Trace.TraceError($"DeleteItemAsync error: {ex}");
             StatusText = $"Delete failed: {ex.Message}";
             return;
         }
@@ -403,7 +403,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         oldCts?.Cancel();
         oldCts?.Dispose();
 
-        CurrentFolderPath = path;
+        FolderPath = path;
 
         try
         {
@@ -416,10 +416,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             {
                 _remainingSources.Clear();
             }
-            TotalCount = 0;
+            DiscoveredCount = 0;
             CanLoadMore = false;
             _scanErrors.Clear();
-            DiscoveredCount = 0;
             CurrentScanningPath = "";
 
             // Throttled progress sinks for the scan. A whole-drive scan can
@@ -595,7 +594,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Runs on the UI thread. Adds the batched sources to the pending queue
-    /// (under <c>_remainingLock</c>) and bumps <see cref="TotalCount"/>.
+    /// (under <c>_remainingLock</c>) and bumps <see cref="DiscoveredCount"/>.
     /// The first call after a quiescent period starts
     /// <see cref="DrainPageFillAsync"/>; subsequent calls while the drain
     /// loop is still running are no-ops (the drain loop polls the queue
@@ -621,7 +620,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             _remainingSources.AddRange(batch);
         }
-        TotalCount += batch.Count;
+        DiscoveredCount += batch.Count;
         UpdateScanningStatusText();
 
         if (!_pageFillInFlight && Items.Count < PageSize)
@@ -708,12 +707,12 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanRefreshCommand))]
     public async Task RefreshAsync()
     {
-        if (string.IsNullOrEmpty(CurrentFolderPath)) return;
+        if (string.IsNullOrEmpty(FolderPath)) return;
         LastViewedYOffset = 0;
-        await LoadDirectoryAsync(CurrentFolderPath);
+        await LoadDirectoryAsync(FolderPath);
     }
 
-    private bool CanRefreshCommand() => !string.IsNullOrEmpty(CurrentFolderPath)
+    private bool CanRefreshCommand() => !string.IsNullOrEmpty(FolderPath)
         && LoadingState != LoadingState.Scanning;
 
     private async Task LoadNextPageAsync(CancellationToken ct, int pageSize = -1)
@@ -834,7 +833,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 // from a previous folder sneaking into the new Items collection.
                 if (ct.IsCancellationRequested) return;
                 Items.Add(item);
-                StatusText = $"Loading {Items.Count} / {TotalCount}...";
+                StatusText = $"Loading {Items.Count} / {DiscoveredCount}...";
             });
 
             _ = LoadThumbnailAsync(item, ct);
@@ -907,7 +906,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     {
         var loaded = Items.Count;
         // Video count out of the loaded set. We don't have a separate
-        // VideoTotalCount because the scanner reports a single combined
+        // video count is derived from Items because the scanner reports a single combined
         // discovered count (extensions are filtered per-source as we go,
         // not pre-bucketed into image-vs-video totals). Showing only
         // "N videos loaded" — without a total denominator — is the
@@ -915,8 +914,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         // this folder" can read the number once Load More has caught
         // up to the scanner's progress.
         var videos = loaded > 0 ? Items.Count(i => i.IsVideo) : 0;
-        var imageText = (TotalCount > 0 && TotalCount != loaded)
-            ? $"Loaded {loaded} / {TotalCount} images"
+        var imageText = (DiscoveredCount > 0 && DiscoveredCount != loaded)
+            ? $"Loaded {loaded} / {DiscoveredCount}"
             : $"Loaded {loaded} images";
         // Append the video count only when non-zero — a pure-photo
         // folder shouldn't grow the status text with a ", 0 videos"
@@ -951,7 +950,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         if (string.IsNullOrEmpty(CurrentScanningPath))
         {
             // Pre-first-throttle window: no path reported yet.
-            StatusText = $"Scanning... {DiscoveredCount} images found";
+            StatusText = $"Scanning… found {DiscoveredCount}";
         }
         else
         {
@@ -1038,7 +1037,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             }
             if (newItems.Count > 0)
             {
-                TotalCount += newItems.Count;
+                DiscoveredCount += newItems.Count;
                 UpdateStatusText();
                 foreach (var newItem in newItems)
                 {
@@ -1086,7 +1085,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
 
         Items.Add(item);
-        TotalCount++;
+        DiscoveredCount++;
         UpdateStatusText();
         await LoadThumbnailAsync(item, CancellationToken.None);
     }
@@ -1197,7 +1196,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         if (_imageIndex.TryGetValue(directId, out var directItem))
         {
             Items.Remove(directItem);
-            if (TotalCount > 0) TotalCount--;
+            if (DiscoveredCount > 0) DiscoveredCount--;
             lock (_remainingLock)
             {
                 _remainingSources.RemoveAll(s => s.ToString() == directId);
@@ -1219,7 +1218,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             Items.Remove(item);
         }
-        if (TotalCount >= toRemove.Count) TotalCount -= toRemove.Count;
+        if (DiscoveredCount >= toRemove.Count) DiscoveredCount -= toRemove.Count;
         UpdateStatusText();
     }
 
@@ -1254,7 +1253,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             {
                 Items.Remove(item);
             }
-            if (TotalCount >= oldPathItems.Count) TotalCount -= oldPathItems.Count;
+            if (DiscoveredCount >= oldPathItems.Count) DiscoveredCount -= oldPathItems.Count;
 
             if (File.Exists(info.Path) && ArchiveHelper.IsArchive(info.Path))
             {
@@ -1263,7 +1262,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 {
                     _scanErrors.Add(error);
                 }
-                TotalCount += newItems.Count;
+                DiscoveredCount += newItems.Count;
                 foreach (var newItem in newItems)
                 {
                     _ = LoadThumbnailAsync(newItem, CancellationToken.None);
