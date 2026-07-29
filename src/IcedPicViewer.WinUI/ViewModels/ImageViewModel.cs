@@ -308,20 +308,20 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     private async void OnSlideshowTick(DispatcherQueueTimer sender, object args)
     {
-        if (Images.Count == 0) return;
+        if (Items.Count == 0) return;
 
         // End-of-set policy. Skipped in shuffle mode: a shuffle pick
         // can land on any image (including past the current), so the
         // conventional "reached the last image" check doesn't apply
         // and would just falsely stop the slideshow. Sequential mode
         // still respects the loop / no-loop choice.
-        if (!IsSlideshowShuffling && CurrentIndex >= Images.Count - 1 && !IsSlideshowLooping)
+        if (!IsSlideshowShuffling && CurrentIndex >= Items.Count - 1 && !IsSlideshowLooping)
         {
             StopSlideshow();
             return;
         }
 
-        if (IsSlideshowShuffling && Images.Count > 1)
+        if (IsSlideshowShuffling && Items.Count > 1)
         {
             // Smart shuffle: a queue of all-but-shuffled indices.
             // Each tick dequeue's the next index, so within one cycle
@@ -350,7 +350,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // the viewer keeps showing the previous image.
             await ShowCurrentImageAsync();
         }
-        else if (IsSlideshowLooping && CurrentIndex >= Images.Count - 1)
+        else if (IsSlideshowLooping && CurrentIndex >= Items.Count - 1)
         {
             // Loop semantics: wrap to the first image rather than
             // calling NavigateNext (which would short-circuit at
@@ -367,7 +367,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Build a new shuffled permutation of <c>[0, Images.Count)</c>
+    /// Build a new shuffled permutation of <c>[0, Items.Count)</c>
     /// and enqueue it. Fisher-Yates so the distribution is uniform.
     /// If the first element of the new queue would equal
     /// <c>_lastShuffleIndex</c> (the image shown at the end of the
@@ -376,7 +376,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// </summary>
     private void RefillShuffleQueue()
     {
-        var n = Images.Count;
+        var n = Items.Count;
         _shuffleQueue.Clear();
         var indices = new int[n];
         for (int i = 0; i < n; i++) indices[i] = i;
@@ -1180,7 +1180,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _displayIndex, value);
     }
 
-    public ObservableCollection<MediaItem> Images => _galleryViewModel.Images;
+    public ObservableCollection<MediaItem> Items => _galleryViewModel.Items;
 
     public bool CanLoadMoreImages => _galleryViewModel.CanLoadMore && !_galleryViewModel.IsLoadingMore;
     public bool IsLoadingMoreImages => _galleryViewModel.IsLoadingMore;
@@ -1218,13 +1218,13 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
         // Named handlers (not lambdas) so Dispose can unsubscribe — avoids lambda
         // captures keeping this singleton alive past the App's lifetime.
-        Images.CollectionChanged += OnImagesCollectionChanged;
+        Items.CollectionChanged += OnItemsCollectionChanged;
         _galleryViewModel.PropertyChanged += OnGalleryPropertyChanged;
     }
 
-    private void OnImagesCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    private void OnItemsCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
-        TotalCount = Images.Count;
+        TotalCount = Items.Count;
         NavigatePreviousCommand.NotifyCanExecuteChanged();
         NavigateNextCommand.NotifyCanExecuteChanged();
     }
@@ -1252,13 +1252,13 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         NavigationChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private bool CanNavigatePrevious() => Images.Count > 0 && CurrentIndex > 0;
+    private bool CanNavigatePrevious() => Items.Count > 0 && CurrentIndex > 0;
 
     /// <summary>
     /// 在单图模式下支持“到底自动加载更多”：
     /// 当到达当前已加载图片的末尾，但 Gallery 还有更多图片时，Next 按钮仍然可用。
     /// </summary>
-    private bool CanNavigateNext() => Images.Count > 0 && (CurrentIndex < Images.Count - 1 || _galleryViewModel.CanLoadMore);
+    private bool CanNavigateNext() => Items.Count > 0 && (CurrentIndex < Items.Count - 1 || _galleryViewModel.CanLoadMore);
 
     [RelayCommand(CanExecute = nameof(CanNavigatePrevious))]
     private async Task NavigatePreviousAsync()
@@ -1278,7 +1278,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     {
         // Same navigation-boundary cleanup as NavigatePreviousAsync.
         StopAndDisposePlayer();
-        if (CurrentIndex < Images.Count - 1)
+        if (CurrentIndex < Items.Count - 1)
         {
             // 正常前进
             CurrentIndex++;
@@ -1290,7 +1290,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             await _galleryViewModel.LoadMoreAsync();
 
             // 加载完成后，如果有新图片，则自动前进到下一张
-            if (CurrentIndex < Images.Count - 1)
+            if (CurrentIndex < Items.Count - 1)
             {
                 CurrentIndex++;
                 await ShowCurrentImageAsync();
@@ -1335,29 +1335,29 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
         var imageToDelete = CurrentImage;
         var indexToDelete = CurrentIndex;
-        var wasLastImage = CurrentIndex >= Images.Count - 1;
+        var wasLastImage = CurrentIndex >= Items.Count - 1;
 
         await _galleryViewModel.DeleteImageAsync(imageToDelete);
 
-        if (Images.Count == 0)
+        if (Items.Count == 0)
         {
             Close();
             return;
         }
 
         var newIndex = wasLastImage ? Math.Max(0, indexToDelete - 1) : indexToDelete;
-        newIndex = Math.Min(newIndex, Images.Count - 1);
+        newIndex = Math.Min(newIndex, Items.Count - 1);
         CurrentIndex = newIndex;
-        if (Images.Count > 0 && newIndex >= 0 && newIndex < Images.Count)
+        if (Items.Count > 0 && newIndex >= 0 && newIndex < Items.Count)
         {
-            CurrentImage = Images[newIndex];
+            CurrentImage = Items[newIndex];
         }
         else
         {
             Close();
             return;
         }
-        TotalCount = Images.Count;
+        TotalCount = Items.Count;
         DisplayImage = null;
         // After a delete the navigation target is fresh, so the previous
         // item's player (if any) was already torn down by the gallery
@@ -1383,9 +1383,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         DisplayImage = null;
 
         CurrentImage = item;
-        CurrentIndex = Images.IndexOf(item);
+        CurrentIndex = Items.IndexOf(item);
         _galleryViewModel.LastViewedIndex = CurrentIndex;
-        TotalCount = Images.Count;
+        TotalCount = Items.Count;
 
         var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
         await LoadFullImageAsync(item, fitTargetSize, _loadCts!.Token);
@@ -1450,9 +1450,9 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     private async Task ShowCurrentImageAsync()
     {
-        if (CurrentIndex >= 0 && CurrentIndex < Images.Count)
+        if (CurrentIndex >= 0 && CurrentIndex < Items.Count)
         {
-            CurrentImage = Images[CurrentIndex];
+            CurrentImage = Items[CurrentIndex];
             ResetLoadCts();
             var fitTargetSize = IsFitMode ? (int?)FullImageMaxSize : null;
             await LoadFullImageAsync(CurrentImage, fitTargetSize, _loadCts!.Token);
@@ -1475,13 +1475,13 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         var prevIdx = CurrentIndex - 1;
 
         var preloadTasks = new List<Task>(2);
-        if (nextIdx < Images.Count)
+        if (nextIdx < Items.Count)
         {
-            preloadTasks.Add(PreloadItemAsync(Images[nextIdx], ct));
+            preloadTasks.Add(PreloadItemAsync(Items[nextIdx], ct));
         }
         if (prevIdx >= 0)
         {
-            preloadTasks.Add(PreloadItemAsync(Images[prevIdx], ct));
+            preloadTasks.Add(PreloadItemAsync(Items[prevIdx], ct));
         }
         if (preloadTasks.Count == 0) return;
 
@@ -1586,7 +1586,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
             // Unsubscribe event handlers to break the reference cycle and let
             // the singleton be collected if the DI container is ever disposed.
-            Images.CollectionChanged -= OnImagesCollectionChanged;
+            Items.CollectionChanged -= OnItemsCollectionChanged;
             _galleryViewModel.PropertyChanged -= OnGalleryPropertyChanged;
         }
         _disposed = true;

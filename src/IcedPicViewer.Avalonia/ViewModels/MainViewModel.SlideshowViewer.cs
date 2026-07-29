@@ -453,11 +453,11 @@ public partial class MainViewModel
 
     // ── Full‑image async loading ─────────────────────────────────────
 
-    private async Task LoadThumbnailFireAndForgetAsync(GalleryItemViewModel item, CancellationToken ct)
+    private async Task LoadThumbnailAsync(GalleryItemViewModel item, CancellationToken ct)
     {
         try
         {
-            await _thumbSemaphore.WaitAsync(ct).ConfigureAwait(false);
+            await _thumbnailLoadSemaphore.WaitAsync(ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -482,7 +482,7 @@ public partial class MainViewModel
         }
         finally
         {
-            try { _thumbSemaphore.Release(); } catch (ObjectDisposedException) { }
+            try { _thumbnailLoadSemaphore.Release(); } catch (ObjectDisposedException) { }
         }
     }
 

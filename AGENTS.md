@@ -103,84 +103,79 @@ dotnet test IcedPicViewer.slnx -c Debug
 
 ### Gallery 扫描/加载 pipeline 不变量
 
-**产品语义（WinUI 与 Avalonia 必须一致）**：**边扫边灌到 200 张停**。scanner 在 worker thread yield → 50ms / ≤100 条 batch flush 到 UI → drain 灌到 200 停；scanner 可继续累计发现数，但不自动再灌；用户 Load More / 滚底再取。实现可分叉，语义不可只改一边。
+**产品语义（WinUI 与 Avalonia 必须一致）**：**边扫边灌到 200 张停**。scanner 在 worker thread yield → 50ms / ≤100 条 batch flush 到 UI → drain 灌到 200 停；scanner 可继续累计发现数，但不自动再灌；用户 Load More / 滚底再取。
 
-**命名对照**（按工程找符号，**禁止**跨壳复制粘贴符号名）：
+#### 统一术语（两壳相同，禁止另起一套）
 
-| 概念 | WinUI `GalleryViewModel` | Avalonia `MainViewModel.Gallery` |
-|------|--------------------------|----------------------------------|
-| 集合 | `Images` | `Items` |
-| 剩余队列 | `_remainingFilePaths` | `_remaining` |
-| 发现/入队计数 | `DiscoveredCount`（节流上报）+ `TotalCount`（入队累计） | `DiscoveredCount` |
-| 加载态 | `LoadingState`（`Scanning` / `Completed` …） | `IsBusy` 等 |
-| 自动灌上限 | `PageSize = 200`（兼 Load More 块大小） | `AutoCap = 200` |
-| Load More 块 | `PageSize = 200` | `PageSize = 200` |
-| scan 每轮灌入 | `ScanPageSize = 30` | `ScanPageSize = 30` |
-| batch 常量 | `ScanBatchSize=100` / 时间阈值 `50` | `ScanBatchSize=100` / `ScanBatchMs=50` |
-| flush API | `FlushScanBatch` → `TryEnqueue(IngestScanBatch)` | `FlushBatch` → `Dispatcher.UIThread.Post` |
-| drain | `DrainPageFillAsync` → `LoadNextPageAsync` | `DrainPageFillAsync` 内直接 `Items.Add` |
-| 缩略图 | `_thumbnailLoadSemaphore`(6) + `LoadThumbnailAsync`；尺寸另有 `_sizeFetchSemaphore`(6) + `GetImageSizeAsync` | `_thumbSemaphore`(6) + `LoadThumbnailFireAndForgetAsync` |
+| 术语 | 代码名 | 含义 |
+|------|--------|------|
+| 图库集合 | `Items` | 已灌入瀑布流的媒体项（图+视频） |
+| 剩余队列 | `_remainingSources` + `_remainingLock` | 已发现、尚未入 `Items` 的 `ImageSource` |
+| 发现数 | `DiscoveredCount` | 扫描进度/状态栏用 |
+| 自动灌 / Load More 块 | `PageSize = 200` | drain gate：`Items.Count < PageSize`；用户 Load More 也取 ≤200 |
+| scan 每轮入队 | `ScanPageSize = 30` | drain 每轮最多加 30，避免 layout 卡死 |
+| batch | `ScanBatchSize = 100` / `ScanBatchMs = 50` | worker 侧攒批再 flush |
+| flush / ingest | `FlushScanBatch` → `IngestScanBatch` | worker 投递 UI；UI 入队并触发 drain |
+| drain | `DrainPageFillAsync` + `_pageFillInFlight` | 单消费者自动灌到 `PageSize` |
+| Load More | `LoadMoreAsync` + `IsLoadingMore` / `CanLoadMore` | 用户触发；与 `_pageFillInFlight` 分离 |
+| 缩略图 | `LoadThumbnailAsync` + `_thumbnailLoadSemaphore`（6） | 解码后经 UI dispatcher 回写 |
+| 状态文案 | `StatusText` | 状态栏 |
+
+#### 仅平台差异（允许不同）
+
+| 点 | WinUI | Avalonia |
+|----|-------|----------|
+| VM 入口 | `GalleryViewModel` + `ImageViewModel` | `MainViewModel`（partial Gallery / SlideshowViewer） |
+| 项类型 | `MediaItem` / `ImageItem` / `VideoItem` | `GalleryItemViewModel` |
+| 加载态模型 | `LoadingState` 枚举 | `IsBusy` + `_scanComplete` 等 |
+| 入队累计（可选） | 另有 `TotalCount`（入 `_remainingSources` 的累计） | 以 `DiscoveredCount` 为主 |
+| drain 内加项 | `LoadNextPageAsync`（先取尺寸再 Add） | drain 内直接 `Items.Add` |
+| 尺寸探测限流 | 另有 `_sizeFetchSemaphore` + `GetImageSizeAsync`（WinRT STA） | 尺寸随缩略图/解码一并得到 |
 | UI marshal | `DispatcherQueue.TryEnqueue` | `Dispatcher.UIThread` |
+| 图片解码 / 视频 | WIC / `MediaPlayerElement` | ImageSharp / LibVLC |
 
-**WinUI 流程**（`GalleryViewModel.cs`）：
-
-```
-scanner (worker, Task.Run(RunScanAndBatchAsync))
-    │ yield source
-    ▼
-RunScanAndBatchAsync ── ≤100 或 50ms batchStartTick ── FlushScanBatch
-    │ DispatcherQueue.TryEnqueue
-    ▼
-IngestScanBatch ── _remainingFilePaths.AddRange + TotalCount++ ── DrainPageFillAsync
-    │ 仅当 !_pageFillInFlight && Images.Count < PageSize
-    ▼
-DrainPageFillAsync ── await LoadNextPageAsync(≤ScanPageSize) ── Images.Add
-    │ 直到 Images.Count ≥ PageSize(200) 或 queue 空
-    ▼
-LoadNextPageAsync ── _sizeFetchSemaphore 取尺寸 ── LoadThumbnailAsync(_thumbnailLoadSemaphore)
-    ── TryEnqueue 回写 Thumbnail / IsThumbnailLoading
-```
-
-**Avalonia 流程**（`MainViewModel.Gallery.cs`）：
+**共用流程**（统一术语；marshal 见上表）：
 
 ```
 scanner (worker, Task.Run(RunScanAndBatchAsync))
     │ yield source
     ▼
-RunScanAndBatchAsync ── ≤100 或 50ms batchStartTick ── FlushBatch
-    │ Dispatcher.UIThread.Post
+RunScanAndBatchAsync ── ≤ScanBatchSize 或 ScanBatchMs(batchStartTick) ── FlushScanBatch
+    │ UI marshal
     ▼
-FlushBatch ── _remaining.AddRange + DiscoveredCount ── DrainPageFillAsync
-    │ _pageFillInFlight 单消费者
+IngestScanBatch ── _remainingSources.AddRange ── DrainPageFillAsync
+    │ _pageFillInFlight 单消费者；仅当 Items.Count < PageSize
     ▼
-DrainPageFillAsync ── ≤ScanPageSize(30) ── Items.Add + LoadThumbnailFireAndForgetAsync
-    │ 直到 Items.Count ≥ AutoCap(200) 或 queue 空
+DrainPageFillAsync ── 每轮 ≤ScanPageSize ── Items.Add + LoadThumbnailAsync
+    │ 直到 Items.Count ≥ PageSize 或 queue 空
     ▼
-_thumbSemaphore(6) ── AvaloniaImageLoader ── UI 回写 ApplyThumbnail / IsThumbnailLoading
+_thumbnailLoadSemaphore(6) ── 解码 ── UI 回写 Thumbnail / IsThumbnailLoading
 ```
 
-**不变量清单**（语义共用；符号见表）：
+**不变量清单**：
 
 | 规则 | 说明 |
 |------|------|
-| scanner 永远在 worker thread | `Task.Run` 包住整个 `await foreach`，yield 不走 UI 同步上下文 |
-| `batchStartTick` 锚点 | batch 空时设 `batchStartTick = now`，保证第一张 source 50ms 内必 flush |
-| 单一 consumer drain | `_pageFillInFlight` 保证同时只有一个 drain 循环 |
-| `_pageFillInFlight` ≠ `IsLoadingMore` | 自动灌用前者；Load More 按钮用后者 |
-| `ScanPageSize=30` / 自动灌 200 / Load More 200 | scan-time 小块避免 layout 卡死 |
-| drain gate | WinUI：`Images.Count < PageSize`；Avalonia：`Items.Count < AutoCap` |
-| 扫描完成等待（WinUI） | `LoadDirectoryAsync` 轮询 `!_pageFillInFlight && !IsLoadingMore` 再 `LoadingState=Completed`；**不**要求剩余队列为空 |
-| 缩略图 / 尺寸 6 路限流 | 必须 semaphore；WinUI 的 `GetImageSizeAsync` 尤忌全并发（WinRT STA） |
-| 缩略图状态回写 | 必须经 UI dispatcher；禁止 worker 直接写绑定属性 |
-| 切目录取消 | 旧 cts `Cancel`+`Dispose`；flush/drain/thumb 检查 token |
+| scanner 永远在 worker thread | `Task.Run` 包住整个 `await foreach` |
+| `batchStartTick` 锚点 | batch 空时设 now，保证首张 50ms 内 flush |
+| 单一 consumer drain | `_pageFillInFlight` |
+| `_pageFillInFlight` ≠ `IsLoadingMore` | 自动灌 vs Load More 按钮 |
+| `ScanPageSize=30` / `PageSize=200` | scan 小块；自动灌与 Load More 均为 200 |
+| drain gate | `Items.Count < PageSize` |
+| 缩略图 6 路限流 | `_thumbnailLoadSemaphore`；WinUI 另限流尺寸探测 |
+| 缩略图状态回写 | 必须经 UI dispatcher |
+| 切目录取消 | 旧 cts Cancel+Dispose；flush/drain/thumb 检查 token |
+| 术语一致 | 除「仅平台差异」表外，**禁止**再发明 `Images` / `AutoCap` / `_remainingFilePaths` 等平行叫法 |
 
-**绝对不要做的事**（WinUI 与 Avalonia）：
+**绝对不要做的事**：
 - 把 `await foreach` 同步吞光再统一 Load
 - 加回 page fill timer
 - 把 `ScanPageSize` 调到 150
 - 缩略图/尺寸探测无 semaphore 全并发
 - worker 线程直接写绑定属性
-- 只改一边 hybrid 语义却不同步另一边（产品行为对齐；符号可不同）
+- 只改一边 hybrid 语义
+- 在一边重新引入与统一术语冲突的旧名
+
 **取消语义**：切目录时旧 cts `Cancel()`+`Dispose()` → scanner 退出 await foreach → 旧 batch 检查 token 直接 return → drain / LoadMore 内加项前检查 token 早退。
 
 ### 键盘导航（WinUI：`WH_KEYBOARD` thread-scope hook）
@@ -253,6 +248,7 @@ worker 解码后 `Dispatcher.UIThread.InvokeAsync` 再写 `GalleryItemViewModel`
 
 - 把 Core / WinUI / Avalonia 分主次（「主交付」「对照壳」）——三者平等。
 - 只改一边 UI 却假设另一边自动对齐（共享语义两边都看）。
+- **非平台概念起两套名**（如 `Images`/`Items`、`AutoCap`/`PageSize`）——应用「统一术语」表。
 - 把 WinUI 当只读历史而不修 bug / 不同步 pipeline。
 - 看到问题就自己发明新抽象或新服务。
 - 为了"最佳实践"大幅改动用户明确不想改的地方（如 MasonryPanel）。
@@ -262,4 +258,4 @@ worker 解码后 `Dispatcher.UIThread.InvokeAsync` 再写 `GalleryItemViewModel`
 
 ---
 
-**最后**：**Core = WinUI = Avalonia**，规则服务**高效 + 靠谱 + 尊重真实需求**。觉得某条在当前任务中不合适，随时说出来一起调整。
+**最后**：**Core = WinUI = Avalonia**；WinUI/Avalonia **除平台差异外术语一致**。规则服务**高效 + 靠谱 + 尊重真实需求**。觉得某条在当前任务中不合适，随时说出来一起调整。

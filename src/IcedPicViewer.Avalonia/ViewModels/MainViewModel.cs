@@ -20,7 +20,8 @@ namespace IcedPicViewer.Avalonia.ViewModels;
 /// </summary>
 public partial class MainViewModel : ViewModelBase, IDisposable
 {
-    private const int AutoCap = 200;
+    // Auto-fill cap == PageSize (same as WinUI Load More chunk).
+    // Drain stops when Items.Count >= PageSize.
     private const int ScanPageSize = 30;
     private const int PageSize = 200;
     private const int ScanBatchSize = 100;
@@ -36,9 +37,9 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private GifAnimationPlayer? _gifPlayer;
     private DispatcherTimer? _chromeHideTimer;
     private CancellationTokenSource? _loadCts;
-    private readonly SemaphoreSlim _thumbSemaphore = new(ThumbConcurrency, ThumbConcurrency);
+    private readonly SemaphoreSlim _thumbnailLoadSemaphore = new(ThumbConcurrency, ThumbConcurrency);
     private readonly object _remainingLock = new();
-    private List<ImageSource> _remaining = new();
+    private List<ImageSource> _remainingSources = new();
     private IDisposable? _watcher;
     private DispatcherTimer? _slideshowTimer;
     private readonly List<int> _shuffleQueue = new();
@@ -372,7 +373,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _loadCts = null;
-        _thumbSemaphore.Dispose();
+        _thumbnailLoadSemaphore.Dispose();
         _settings.Dispose();
         GC.SuppressFinalize(this);
     }

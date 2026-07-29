@@ -62,9 +62,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     // Both LoadNextPageAsync (worker thread) and OnFileChanged (dispatcher thread) read/write
     // this list, so guard it with _remainingLock to avoid race conditions.
     private readonly object _remainingLock = new();
-    private List<ImageSource> _remainingFilePaths = new();
+    private List<ImageSource> _remainingSources = new();
     // Page size for user-triggered Load More (button click OR auto-load
-    // when scrolling near the bottom). Each source is added to Images
+    // when scrolling near the bottom). Each source is added to Items
     // individually, so PageSize items ≈ PageSize MasonryPanel layout
     // passes — at 200 that's ~75 ms on a typical machine, well under
     // the user's "feels sluggish" threshold. Going to 300 would push
@@ -82,6 +82,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     // for why both triggers are needed.
     private const int ScanBatchSize = 100;
 
+    /// <summary>Time-based batch flush (ms) from first source in the batch — same as Avalonia <c>ScanBatchMs</c>.</summary>
+    private const int ScanBatchMs = 50;
+
     // Page size used while the scan-time page fill is feeding the gallery.
     // Deliberately small so a single LoadNextPageAsync only adds 30 items
     // to the ItemsControl (≈30 layout passes on the non-virtualising
@@ -92,7 +95,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     // growth instead of a multi-second freeze.
     private const int ScanPageSize = 30;
 
-    // O(1) source-id → item lookup. Mirrors the Images collection; maintained
+    // O(1) source-id → item lookup. Mirrors the Items collection; maintained
     // via the CollectionChanged handler in the constructor. Keys are
     // ImageSource.ToString(), which is case-sensitive for archive entries
     // (archive keys preserve the original case) and case-insensitive-friendly
@@ -209,7 +212,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
     private double _slideshowInterval = 5.0;
 
-    public ObservableCollection<MediaItem> Images { get; } = new();
+    public ObservableCollection<MediaItem> Items { get; } = new();
 
     public GalleryViewModel(
         IDirectoryScanner scanner,
@@ -240,10 +243,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
         // Keep the source-id → item index in sync with the observable collection.
         // Avoids O(n) FirstOrDefault scans in OnFileChanged when collections grow.
-        Images.CollectionChanged += OnImagesCollectionChanged;
+        Items.CollectionChanged += OnItemsCollectionChanged;
     }
 
-    private void OnImagesCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    private void OnItemsCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
         {
@@ -284,7 +287,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 _loadCts?.Dispose();
                 _thumbnailLoadSemaphore.Dispose();
                 _sizeFetchSemaphore.Dispose();
-                Images.CollectionChanged -= OnImagesCollectionChanged;
+                Items.CollectionChanged -= OnItemsCollectionChanged;
             }
             _disposed = true;
         }
@@ -302,21 +305,21 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     public bool RemoveImage(MediaItem item)
     {
-        var index = Images.IndexOf(item);
+        var index = Items.IndexOf(item);
         if (index >= 0)
         {
-            Images.RemoveAt(index);
+            Items.RemoveAt(index);
             if (TotalCount > 0)
             {
                 TotalCount--;
             }
             lock (_remainingLock)
             {
-                _remainingFilePaths.RemoveAll(s => s.ToString() == item.Id);
-                CanLoadMore = _remainingFilePaths.Count > 0;
+                _remainingSources.RemoveAll(s => s.ToString() == item.Id);
+                CanLoadMore = _remainingSources.Count > 0;
             }
 
-            var loaded = Images.Count;
+            var loaded = Items.Count;
             StatusText = (TotalCount > 0 && TotalCount != loaded)
                 ? $"Loaded {loaded} / {TotalCount} images"
                 : $"Loaded {loaded} images";
@@ -408,10 +411,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             var token = linkedCts.Token;
 
             LoadingState = LoadingState.Scanning;
-            Images.Clear();
+            Items.Clear();
             lock (_remainingLock)
             {
-                _remainingFilePaths.Clear();
+                _remainingSources.Clear();
             }
             TotalCount = 0;
             CanLoadMore = false;
@@ -469,7 +472,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // Run the scan on a worker thread so the UI thread can render
             // the first page as soon as the scanner yields PageSize sources.
             // The scanner runs to completion; while it runs, the page-fill
-            // timer is feeding _remainingFilePaths into the gallery.
+            // timer is feeding _remainingSources into the gallery.
             //
             // Implemented as a named async method rather than a Task.Run
             // lambda because C# does not allow `yield return` / `yield break`
@@ -498,7 +501,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // folders and cheap enough not to matter on big ones.
             // Wait for the scan-time page fill and any user-triggered
             // "Load More" to settle before declaring Completed. We do NOT
-            // require _remainingFilePaths to be empty here — the hybrid
+            // require _remainingSources to be empty here — the hybrid
             // mode (边扫边灌到 200 张停) leaves the rest of the queue
             // untouched for the user to pull manually. If the scan is
             // still in flight we are also fine to declare Completed: the
@@ -563,7 +566,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             if (batch.Count == 0) batchStartTick = Environment.TickCount64;
             batch.Add(source);
             var now = Environment.TickCount64;
-            if (batch.Count >= ScanBatchSize || now - batchStartTick >= 50)
+            if (batch.Count >= ScanBatchSize || now - batchStartTick >= ScanBatchMs)
             {
                 FlushScanBatch(batch, token);
                 batch = new List<ImageSource>(ScanBatchSize);
@@ -600,7 +603,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// path never sets <see cref="IsLoadingMore"/>, which is owned by
     /// <c>LoadMoreAsync</c> and observed by the "Load More" button.
     ///
-    /// We also gate the start on <c>Images.Count &lt; PageSize</c>: the
+    /// We also gate the start on <c>Items.Count &lt; PageSize</c>: the
     /// auto-fill only ever fills the first page (200 items by default).
     /// Past that, the user pulls more manually via "Load More". This
     /// restores the classic "first 200 + Load More" control feel that the
@@ -608,20 +611,20 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// drain would auto-inject items into the gallery for the entire scan
     /// and the user would never get a moment of stillness to look at what
     /// they have. The scanner keeps running in the background and
-    /// continues to accumulate sources into <c>_remainingFilePaths</c>;
-    /// only the auto-injection into <see cref="Images"/> stops.
+    /// continues to accumulate sources into <c>_remainingSources</c>;
+    /// only the auto-injection into <see cref="Items"/> stops.
     /// </summary>
     private void IngestScanBatch(List<ImageSource> batch, CancellationToken ct)
     {
         if (ct.IsCancellationRequested) return;
         lock (_remainingLock)
         {
-            _remainingFilePaths.AddRange(batch);
+            _remainingSources.AddRange(batch);
         }
         TotalCount += batch.Count;
         UpdateScanningStatusText();
 
-        if (!_pageFillInFlight && Images.Count < PageSize)
+        if (!_pageFillInFlight && Items.Count < PageSize)
         {
             _pageFillInFlight = true;
             _ = DrainPageFillAsync(ct);
@@ -638,7 +641,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// async sequence, so there is never more than one LoadNextPageAsync
     /// in flight even when IngestScanBatch fires every 50 ms.
     ///
-    /// The page size is clamped to <c>PageSize - Images.Count</c> on each
+    /// The page size is clamped to <c>PageSize - Items.Count</c> on each
     /// iteration so the loop never overshoots the first page: if the
     /// previous iteration left 120 items visible, the next take is at most
     /// 30 — exactly enough to hit 150. Without this clamp the gallery
@@ -653,10 +656,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 int remaining;
                 lock (_remainingLock)
                 {
-                    remaining = _remainingFilePaths.Count;
+                    remaining = _remainingSources.Count;
                 }
                 if (remaining == 0) break;
-                int target = PageSize - Images.Count;
+                int target = PageSize - Items.Count;
                 if (target <= 0) break;
                 int pageSize = Math.Min(ScanPageSize, target);
                 await LoadNextPageAsync(ct, pageSize);
@@ -674,7 +677,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Loads more items from <c>_remainingFilePaths</c>, up to <see cref="PageSize"/>.
+    /// Loads more items from <c>_remainingSources</c>, up to <see cref="PageSize"/>.
     /// Links the caller's token with the current scan's CTS so that switching
     /// folders cancels in-flight Load More.
     /// </summary>
@@ -720,14 +723,14 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         List<ImageSource> batch;
         lock (_remainingLock)
         {
-            if (_remainingFilePaths.Count == 0)
+            if (_remainingSources.Count == 0)
             {
                 CanLoadMore = false;
                 return;
             }
-            batch = _remainingFilePaths.Take(pageSize).ToList();
-            _remainingFilePaths.RemoveRange(0, batch.Count);
-            CanLoadMore = _remainingFilePaths.Count > 0;
+            batch = _remainingSources.Take(pageSize).ToList();
+            _remainingSources.RemoveRange(0, batch.Count);
+            CanLoadMore = _remainingSources.Count > 0;
         }
 
         // Fetchahead: pre-fetch (size, mtime, WxH [+ duration / hasAudio
@@ -738,7 +741,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         //      context for each video; on a 30-item batch that is several
         //      seconds of sequential I/O. Running them with a 6-wide cap
         //      drops the wall time by ~5x.
-        //   2. Each `Images.Add` triggers a MasonryPanel layout pass, and
+        //   2. Each `Items.Add` triggers a MasonryPanel layout pass, and
         //      the panel is non-virtualising — emitting 150 Add work items
         //      in one Tick freezes the UI for the entire layout burst. With
         //      pageSize=30 the burst is small enough to feel incremental.
@@ -828,10 +831,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             _dispatcher.TryEnqueue(() =>
             {
                 // Guard against running after cancellation: prevents stale items
-                // from a previous folder sneaking into the new Images collection.
+                // from a previous folder sneaking into the new Items collection.
                 if (ct.IsCancellationRequested) return;
-                Images.Add(item);
-                StatusText = $"Loading {Images.Count} / {TotalCount}...";
+                Items.Add(item);
+                StatusText = $"Loading {Items.Count} / {TotalCount}...";
             });
 
             _ = LoadThumbnailAsync(item, ct);
@@ -902,7 +905,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// </summary>
     private void UpdateStatusText()
     {
-        var loaded = Images.Count;
+        var loaded = Items.Count;
         // Video count out of the loaded set. We don't have a separate
         // VideoTotalCount because the scanner reports a single combined
         // discovered count (extensions are filtered per-source as we go,
@@ -911,7 +914,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         // honest version. A user scanning for "how many videos are in
         // this folder" can read the number once Load More has caught
         // up to the scanner's progress.
-        var videos = loaded > 0 ? Images.Count(i => i.IsVideo) : 0;
+        var videos = loaded > 0 ? Items.Count(i => i.IsVideo) : 0;
         var imageText = (TotalCount > 0 && TotalCount != loaded)
             ? $"Loaded {loaded} / {TotalCount} images"
             : $"Loaded {loaded} images";
@@ -979,7 +982,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         // Capture the load cts token. When LoadDirectoryAsync starts a new
         // folder it cancels and replaces _loadCts, so any lambdas already
         // enqueued will see the cancelled token and early-exit instead of
-        // mutating the new Images collection.
+        // mutating the new Items collection.
         var token = _loadCts?.Token ?? CancellationToken.None;
         if (DirectoryScanner.IsRecycleBin(info.Path)) return;
 
@@ -1082,7 +1085,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 originalHeight: dimensions?.Height ?? 0);
         }
 
-        Images.Add(item);
+        Items.Add(item);
         TotalCount++;
         UpdateStatusText();
         await LoadThumbnailAsync(item, CancellationToken.None);
@@ -1193,13 +1196,13 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         var directId = ImageSource.FromFile(info.Path, _imageLoader.GetKindForFile(info.Path)).ToString();
         if (_imageIndex.TryGetValue(directId, out var directItem))
         {
-            Images.Remove(directItem);
+            Items.Remove(directItem);
             if (TotalCount > 0) TotalCount--;
             lock (_remainingLock)
             {
-                _remainingFilePaths.RemoveAll(s => s.ToString() == directId);
+                _remainingSources.RemoveAll(s => s.ToString() == directId);
             }
-            CanLoadMore = _remainingFilePaths.Count > 0;
+            CanLoadMore = _remainingSources.Count > 0;
             UpdateStatusText();
             return;
         }
@@ -1214,7 +1217,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
         foreach (var item in toRemove)
         {
-            Images.Remove(item);
+            Items.Remove(item);
         }
         if (TotalCount >= toRemove.Count) TotalCount -= toRemove.Count;
         UpdateStatusText();
@@ -1249,7 +1252,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 .ToList();
             foreach (var item in oldPathItems)
             {
-                Images.Remove(item);
+                Items.Remove(item);
             }
             if (TotalCount >= oldPathItems.Count) TotalCount -= oldPathItems.Count;
 
@@ -1283,9 +1286,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         // video, not an image. The new path's GetKindForFile would
         // return the same thing anyway, but using Source.Kind here
         // is explicit about the intent.
-        Images.Remove(renamedItem);  // triggers index removal on OldPath
+        Items.Remove(renamedItem);  // triggers index removal on OldPath
         renamedItem.UpdateSource(ImageSource.FromFile(info.Path, renamedItem.Source.Kind));
-        Images.Add(renamedItem);     // triggers index insertion on NewPath
+        Items.Add(renamedItem);     // triggers index insertion on NewPath
         renamedItem.Thumbnail = null;
         renamedItem.FullImage = null;
         await LoadThumbnailAsync(renamedItem, CancellationToken.None);

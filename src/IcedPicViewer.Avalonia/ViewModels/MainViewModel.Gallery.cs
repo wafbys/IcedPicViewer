@@ -37,7 +37,7 @@ public partial class MainViewModel
         CanLoadMore = false;
         _scanComplete = false;
         _scanErrors = 0;
-        lock (_remainingLock) _remaining = new List<ImageSource>();
+        lock (_remainingLock) _remainingSources = new List<ImageSource>();
         IsBusy = true;
         StatusText = "Scanning…";
         RefreshCommand.NotifyCanExecuteChanged();
@@ -142,8 +142,8 @@ public partial class MainViewModel
         if (Items.Any(i => i.Source.ToString() == id)) return;
         lock (_remainingLock)
         {
-            if (_remaining.Any(s => s.ToString() == id)) return;
-            _remaining.Add(source);
+            if (_remainingSources.Any(s => s.ToString() == id)) return;
+            _remainingSources.Add(source);
         }
         DiscoveredCount++;
         UpdateCanLoadMore();
@@ -172,7 +172,7 @@ public partial class MainViewModel
 
         lock (_remainingLock)
         {
-            _remaining.RemoveAll(s =>
+            _remainingSources.RemoveAll(s =>
                 string.Equals(s.Path, path, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(s.ToString(), path, StringComparison.OrdinalIgnoreCase));
         }
@@ -190,7 +190,7 @@ public partial class MainViewModel
 
         var id = item.Source.ToString();
         lock (_remainingLock)
-            _remaining.RemoveAll(s => s.ToString() == id);
+            _remainingSources.RemoveAll(s => s.ToString() == id);
 
         if (SelectedItem == item)
         {
@@ -241,13 +241,13 @@ public partial class MainViewModel
                 var elapsed = Environment.TickCount64 - batchStartTick;
                 if (batch.Count >= ScanBatchSize || elapsed >= ScanBatchMs)
                 {
-                    FlushBatch(batch, discovered, ct);
+                    FlushScanBatch(batch, discovered, ct);
                     batch = new List<ImageSource>(ScanBatchSize);
                 }
             }
 
             if (batch.Count > 0)
-                FlushBatch(batch, discovered, ct);
+                FlushScanBatch(batch, discovered, ct);
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -280,23 +280,26 @@ public partial class MainViewModel
         }
     }
 
-    private void FlushBatch(List<ImageSource> batch, int discovered, CancellationToken ct)
+    private void FlushScanBatch(List<ImageSource> batch, int discovered, CancellationToken ct)
     {
         if (ct.IsCancellationRequested || batch.Count == 0) return;
 
         var snapshot = batch.ToList();
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (ct.IsCancellationRequested) return;
+        Dispatcher.UIThread.Post(() => IngestScanBatch(snapshot, discovered, ct));
+    }
 
-            lock (_remainingLock)
-                _remaining.AddRange(snapshot);
+    /// <summary>UI thread: enqueue sources and kick drain (same role as WinUI <c>IngestScanBatch</c>).</summary>
+    private void IngestScanBatch(List<ImageSource> batch, int discovered, CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested) return;
 
-            DiscoveredCount = discovered;
-            UpdateCanLoadMore();
-            UpdateStatus();
-            _ = DrainPageFillAsync(ct);
-        });
+        lock (_remainingLock)
+            _remainingSources.AddRange(batch);
+
+        DiscoveredCount = discovered;
+        UpdateCanLoadMore();
+        UpdateStatus();
+        _ = DrainPageFillAsync(ct);
     }
 
     // ── Drain & Load More ────────────────────────────────────────────
@@ -307,15 +310,15 @@ public partial class MainViewModel
         _pageFillInFlight = true;
         try
         {
-            while (!ct.IsCancellationRequested && Items.Count < AutoCap)
+            while (!ct.IsCancellationRequested && Items.Count < PageSize)
             {
                 List<ImageSource> chunk;
                 lock (_remainingLock)
                 {
-                    if (_remaining.Count == 0) break;
-                    var take = Math.Min(ScanPageSize, Math.Min(AutoCap - Items.Count, _remaining.Count));
-                    chunk = _remaining.GetRange(0, take);
-                    _remaining.RemoveRange(0, take);
+                    if (_remainingSources.Count == 0) break;
+                    var take = Math.Min(ScanPageSize, Math.Min(PageSize - Items.Count, _remainingSources.Count));
+                    chunk = _remainingSources.GetRange(0, take);
+                    _remainingSources.RemoveRange(0, take);
                 }
 
                 foreach (var source in chunk)
@@ -324,7 +327,7 @@ public partial class MainViewModel
                     if (ct.IsCancellationRequested) return;
                     var item = GalleryItemViewModel.FromSource(source);
                     Items.Add(item);
-                    _ = LoadThumbnailFireAndForgetAsync(item, ct);
+                    _ = LoadThumbnailAsync(item, ct);
                 }
 
                 UpdateCanLoadMore();
@@ -356,10 +359,10 @@ public partial class MainViewModel
             List<ImageSource> chunk;
             lock (_remainingLock)
             {
-                if (_remaining.Count == 0) return;
-                var take = Math.Min(PageSize, _remaining.Count);
-                chunk = _remaining.GetRange(0, take);
-                _remaining.RemoveRange(0, take);
+                if (_remainingSources.Count == 0) return;
+                var take = Math.Min(PageSize, _remainingSources.Count);
+                chunk = _remainingSources.GetRange(0, take);
+                _remainingSources.RemoveRange(0, take);
             }
 
             var ct = _loadCts?.Token ?? CancellationToken.None;
@@ -368,7 +371,7 @@ public partial class MainViewModel
                 if (ct.IsCancellationRequested) return;
                 var item = GalleryItemViewModel.FromSource(source);
                 Items.Add(item);
-                _ = LoadThumbnailFireAndForgetAsync(item, ct);
+                _ = LoadThumbnailAsync(item, ct);
             }
 
             UpdateCanLoadMore();
@@ -389,14 +392,14 @@ public partial class MainViewModel
     private void UpdateCanLoadMore()
     {
         int remaining;
-        lock (_remainingLock) remaining = _remaining.Count;
+        lock (_remainingLock) remaining = _remainingSources.Count;
         CanLoadMore = remaining > 0;
     }
 
     private void UpdateStatus()
     {
         int remaining;
-        lock (_remainingLock) remaining = _remaining.Count;
+        lock (_remainingLock) remaining = _remainingSources.Count;
         var err = _scanErrors > 0 ? $" · {_scanErrors} scan error(s)" : "";
         var videos = Items.Count(i => i.IsVideo);
         var images = Items.Count - videos;

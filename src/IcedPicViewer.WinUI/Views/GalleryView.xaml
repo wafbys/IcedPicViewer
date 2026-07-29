@@ -40,7 +40,7 @@
                       HorizontalScrollBarVisibility="Disabled">
             <!-- Using the original working MasonryPanel to restore the exact waterfall visual the user requested.
                  Note: This is non-virtualizing. Virtualization work is tracked separately. -->
-            <ItemsControl x:Name="MainItemsControl" ItemsSource="{x:Bind ViewModel.Images, Mode=OneWay}">
+            <ItemsControl x:Name="MainItemsControl" ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <controls:MasonryPanel ItemWidth="220" ItemSpacing="8"/>

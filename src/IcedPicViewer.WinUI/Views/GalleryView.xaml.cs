@@ -435,7 +435,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
         try
         {
-            var index = ViewModel.Images.IndexOf(item);
+            var index = ViewModel.Items.IndexOf(item);
             ViewModel.LastViewedIndex = index;
 
             var panel = FindMasonryPanel(MainScrollViewer);
@@ -551,13 +551,13 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     /// </summary>
     private async void SlideshowBtn_Click(object sender, RoutedEventArgs e)
     {
-        if (ViewModel.Images.Count == 0) return;
+        if (ViewModel.Items.Count == 0) return;
 
         var imageViewModel = App.GetService<ImageViewModel>();
-        var startIndex = ViewModel.LastViewedIndex >= 0 && ViewModel.LastViewedIndex < ViewModel.Images.Count
+        var startIndex = ViewModel.LastViewedIndex >= 0 && ViewModel.LastViewedIndex < ViewModel.Items.Count
             ? ViewModel.LastViewedIndex
             : 0;
-        var startItem = ViewModel.Images[startIndex];
+        var startItem = ViewModel.Items[startIndex];
         await imageViewModel.ShowImageAsync(startItem);
         // StartSlideshow is parameterless now — the viewer's own
         // slider writes to ImageViewModel.SlideshowInterval directly,
