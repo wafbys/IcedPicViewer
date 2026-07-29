@@ -141,9 +141,9 @@ public partial class App : Application
     private static void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IDirectoryScanner, DirectoryScanner>();
-        services.AddSingleton<IImageLoader, ImageLoader>();
+        services.AddSingleton<IMediaLoader, MediaLoader>();
 
-        // Shared thumbnail LRU. Consumed by both IImageLoader (BitmapDecoder
+        // Shared thumbnail LRU. Consumed by both IMediaLoader (BitmapDecoder
         // thumbs) and IVideoMetadataService (FFmpeg first-frame thumbs) so
         // the 200-cap budget covers both kinds and a path can't be cached
         // twice under different shapes. Capacity tuning lives in
@@ -176,7 +176,7 @@ public partial class App : Application
         // ViewModels - appropriate lifetimes
         // GalleryViewModel: Singleton (owns current gallery + file watcher + shared collection)
         // ViewerViewModel: Singleton (instance prepared in GalleryView with OpenItem
-        //   is the same one received in ImageViewerView; this restores single image mode
+        //   is the same one received in ViewerView; this restores single image mode
         //   functionality while we keep the masonry visual).
         services.AddSingleton<GalleryViewModel>();
         services.AddSingleton<ViewerViewModel>();
@@ -252,7 +252,7 @@ if (FFmpegProbeService.IsProbeRequested || File.Exists(
 
     /// <summary>
     /// Enumerate the WIC codecs installed on the host and warn if a
-    /// format in <see cref="IImageLoader.SupportedExtensions"/> is
+    /// format in <see cref="IMediaLoader.SupportedExtensions"/> is
     /// not actually decodable. The most common case is .heic /
     /// .avif on a stock Windows install — both ship in the MS Store
     /// ("HEIF Image Extension" and "AV1 Video Extension") but

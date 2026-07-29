@@ -75,7 +75,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         // observed that AppWindow.SetPresenter returns synchronously
         // but AppWindow.Presenter.Kind doesn't actually flip until
         // the next dispatcher round-trip — so when subscribers
-        // (GalleryView / ImageViewerView) read MainWindow.IsFullscreen
+        // (GalleryView / ViewerView) read MainWindow.IsFullscreen
         // inside their OnMainWindowPropertyChanged handler, they see
         // the OLD value, fall into the wrong branch of the if/else,
         // and the chrome fails to collapse. Re-raising the same
@@ -149,7 +149,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
         AppWindow.Closing += AppWindow_Closing;
 
-        // Thread-scope WH_KEYBOARD hook for ImageViewerView shortcuts
+        // Thread-scope WH_KEYBOARD hook for ViewerView shortcuts
         // (Left/Right/Delete/Escape). Replaces 6 earlier XAML-layer
         // attempts (AddHandler(KeyDownEvent), KeyboardAccelerator,
         // SetWindowSubclass, …) — all depended on a focused element or
@@ -283,10 +283,10 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             return;
         }
 
-        // ImageViewerView binds via x:Bind to a ViewModel field on the code-behind
+        // ViewerView binds via x:Bind to a ViewModel field on the code-behind
         // (not through DataContext), so DataContext is null here — read VM from
         // the typed ViewModel property exposed on the page.
-        if (RootFrame.Content is not ImageViewerView viewer || viewer.ViewModel is not ViewerViewModel vm)
+        if (RootFrame.Content is not ViewerView viewer || viewer.ViewModel is not ViewerViewModel vm)
             return;
 
         switch (key)

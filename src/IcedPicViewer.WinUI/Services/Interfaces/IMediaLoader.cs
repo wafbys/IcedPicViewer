@@ -1,12 +1,12 @@
+// Copyright (c) IcedPicViewer. All rights reserved.
+
 using IcedPicViewer.Models;
 using Microsoft.UI.Xaml.Media.Imaging;
 using WinImageSource = Microsoft.UI.Xaml.Media.ImageSource;
 
-// Copyright (c) IcedPicViewer. All rights reserved.
-
 namespace IcedPicViewer.Services.Interfaces;
 
-public interface IImageLoader
+public interface IMediaLoader
 {
     /// <summary>
     /// Image file extensions (with leading dot, lowercase) the gallery

@@ -28,6 +28,8 @@ public static class UiCopy
     public const string Location = "位置";
     public const string Volume = "音量";
     public const string Play = "播放";
+    public const string Pause = "暂停";
+    public const string StopSlideshow = "停止幻灯片";
     public const string SelectFolderHint = "选择文件夹开始浏览";
 
     // ── Dialogs ──────────────────────────────────────────────────────

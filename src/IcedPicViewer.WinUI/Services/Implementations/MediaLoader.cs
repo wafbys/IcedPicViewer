@@ -16,11 +16,11 @@ using WinImageSource = Microsoft.UI.Xaml.Media.ImageSource;
 
 namespace IcedPicViewer.Services.Implementations;
 
-public class ImageLoader : IImageLoader
+public class MediaLoader : IMediaLoader
 {
     private readonly IThumbnailCache _thumbnailCache;
 
-    public ImageLoader(IThumbnailCache thumbnailCache)
+    public MediaLoader(IThumbnailCache thumbnailCache)
     {
         _thumbnailCache = thumbnailCache;
     }

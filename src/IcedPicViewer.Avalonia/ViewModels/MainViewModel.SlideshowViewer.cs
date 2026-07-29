@@ -472,7 +472,7 @@ public partial class MainViewModel
 
         try
         {
-            var (bmp, ow, oh, duration) = await AvaloniaImageLoader.LoadThumbnailWithInfoAsync(
+            var (bmp, ow, oh, duration) = await AvaloniaMediaLoader.LoadThumbnailWithInfoAsync(
                     item.Source, ThumbMaxEdge, ct)
                 .ConfigureAwait(false);
 
@@ -509,7 +509,7 @@ public partial class MainViewModel
             }
 
             var maxEdge = item.Source.Kind == MediaKind.Video ? ThumbMaxEdge * 4 : FullMaxEdge;
-            var bmp = await AvaloniaImageLoader.LoadFullAsync(item.Source, maxEdge, ct)
+            var bmp = await AvaloniaMediaLoader.LoadFullAsync(item.Source, maxEdge, ct)
                 .ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {

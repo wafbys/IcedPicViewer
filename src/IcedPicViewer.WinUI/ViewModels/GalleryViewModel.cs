@@ -20,7 +20,7 @@ namespace IcedPicViewer.ViewModels;
 public partial class GalleryViewModel : ObservableObject, IDisposable
 {
     private readonly IDirectoryScanner _scanner;
-    private readonly IImageLoader _imageLoader;
+    private readonly IMediaLoader _imageLoader;
     private readonly IVideoMetadataService _videoMetadataService;
     private readonly IFolderPickerService _folderPicker;
     private readonly IDialogService _dialogService;
@@ -216,7 +216,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     public GalleryViewModel(
         IDirectoryScanner scanner,
-        IImageLoader imageLoader,
+        IMediaLoader imageLoader,
         IVideoMetadataService videoMetadataService,
         IFolderPickerService folderPicker,
         IDialogService dialogService,
@@ -1278,10 +1278,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             try
             {
                 // Dispatch on Kind: image thumbnails go through the
-                // BitmapDecoder path (with the IImageLoader LRU), videos
+                // BitmapDecoder path (with the IMediaLoader LRU), videos
                 // through the FFmpeg first-frame path. The mtime check
                 // above is intentionally only on the loose-file image
-                // path — videos don't share the IImageLoader LRU so the
+                // path — videos don't share the IMediaLoader LRU so the
                 // "is this cached" check is implicit on the item itself
                 // (we got here because Thumbnail was null), and the cost
                 // of re-decoding a video is high enough that we don't

@@ -16,7 +16,7 @@ using Windows.Media.Playback;
 
 namespace IcedPicViewer.Views;
 
-public sealed partial class ImageViewerView : Page, System.ComponentModel.INotifyPropertyChanged
+public sealed partial class ViewerView : Page, System.ComponentModel.INotifyPropertyChanged
 {
     // Exposed for x:Bind in the page-level markup. Constructor-assigned so
     // it's safe to read in OnLoaded (which fires after the ctor). DI gives
@@ -227,7 +227,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
         }
     }
 
-    public ImageViewerView()
+    public ViewerView()
     {
         this.InitializeComponent();
         ViewModel = App.GetService<ViewerViewModel>();

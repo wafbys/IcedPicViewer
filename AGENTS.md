@@ -22,8 +22,8 @@
 - **混合加载**（产品语义两壳一致）：边扫边灌到 200 停 → Load More / 滚底再灌。
 - **不**自动恢复上次打开的文件夹（两壳）。
 - **VM 布局**：
-  - WinUI：`GalleryViewModel` + `ViewerViewModel`；项 `MediaItem` / `ImageItem` / `VideoItem`。
-  - Avalonia：`MainViewModel` partial（`.cs` / `.Gallery` / `.SlideshowViewer`）；项 `GalleryItemViewModel`。
+  - WinUI：`GalleryViewModel` + `ViewerViewModel` + 页 `ViewerView`；项 `MediaItem` / `ImageItem` / `VideoItem`；加载 `IMediaLoader` / `MediaLoader`。
+  - Avalonia：`MainViewModel` partial（`.cs` / `.Gallery` / `.SlideshowViewer`）；项 `GalleryItemViewModel`；加载 `AvaloniaMediaLoader`；小地图 `ViewerMinimap`。
 - CommunityToolkit.Mvvm（两壳）。
 - 改共享行为动 **Core**，并确认 **WinUI 与 Avalonia** 仍符合约定；改壳特有交互只动对应工程。反对过度设计。
 
@@ -169,7 +169,7 @@ RunScanAndBatchAsync ── ScanBatchSize/ScanBatchMs ── FlushScanBatch
 2. try-catch 双层防护，不允许异常 reach OS
 3. `wParam`/`lParam` 用 `unchecked((int)IntPtr)` cast（不用 `IntPtr.ToInt32()`，Win11 25H2 下 64-bit 高 32 位有 garbage 会抛 `OverflowException`）
 
-**易错点**：`HandleViewerKey` 从 `viewer.ViewModel` 拿 VM，不是 `viewer.DataContext`（`ImageViewerView` 用 `x:Bind`，DataContext 始终是 null）。
+**易错点**：`HandleViewerKey` 从 `viewer.ViewModel` 拿 VM，不是 `viewer.DataContext`（`ViewerView` 用 `x:Bind`，DataContext 始终是 null）。
 
 **调试**：键盘 hook 问题可通过 crash.log（未处理异常）和 Trace 输出诊断。
 

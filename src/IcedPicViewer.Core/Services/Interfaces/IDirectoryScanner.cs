@@ -21,7 +21,7 @@ public interface IDirectoryScanner
     /// both loose files and entries inside archives (.zip / .rar / .tar / tar.*).
     /// The caller-supplied <paramref name="extensions"/> filter is applied
     /// uniformly to both loose files and archive entries (archive entries
-    /// are currently image-only — see <c>IImageLoader.SupportedExtensions</c>).
+    /// are currently image-only — see <c>IMediaLoader.SupportedExtensions</c>).
     /// </summary>
     /// <param name="extensions">
     /// Optional list of (extension, kind) pairs to include. When non-null

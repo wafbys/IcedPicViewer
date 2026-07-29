@@ -22,7 +22,7 @@ namespace IcedPicViewer.ViewModels;
 public partial class ViewerViewModel : ObservableObject, IDisposable
 {
     private readonly GalleryViewModel _galleryViewModel;
-    private readonly IImageLoader _imageLoader;
+    private readonly IMediaLoader _imageLoader;
     private readonly IVideoMetadataService _videoMetadataService;
     private readonly INavigationService _navigationService;
     private readonly IDialogService _dialogService;
@@ -144,9 +144,9 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     }
 
     public string SlideshowGlyph => IsSlideshowActive ? "\uE71A" /* Stop */ : "\uE768" /* Play */;
-    public string SlideshowLabel => IsSlideshowActive ? "停止幻灯片" : "幻灯片";
+    public string SlideshowLabel => IsSlideshowActive ? UiCopy.StopSlideshow : UiCopy.Slideshow;
     public string SlideshowTooltip => IsSlideshowActive
-        ? "停止幻灯片"
+        ? UiCopy.StopSlideshow
         : $"开始幻灯片（每 {SlideshowInterval:0.#} 秒）";
 
     // Loop button — same glyph in both states, but a different
@@ -1070,7 +1070,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         }
     }
 
-    public ViewerViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, IVideoMetadataService videoMetadataService, INavigationService navigationService, IDialogService dialogService, ISettingsService settingsService)
+    public ViewerViewModel(GalleryViewModel galleryViewModel, IMediaLoader imageLoader, IVideoMetadataService videoMetadataService, INavigationService navigationService, IDialogService dialogService, ISettingsService settingsService)
     {
         _galleryViewModel = galleryViewModel;
         _imageLoader = imageLoader;

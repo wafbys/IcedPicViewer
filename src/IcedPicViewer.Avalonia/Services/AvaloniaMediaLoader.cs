@@ -20,7 +20,7 @@ namespace IcedPicViewer.Avalonia.Services;
 /// Image decode via ImageSharp (EXIF) and video first-frame via
 /// <see cref="VideoFrameExtractor"/> (FFmpeg).
 /// </summary>
-public static class AvaloniaImageLoader
+public static class AvaloniaMediaLoader
 {
     public static async Task<AvBitmap?> LoadThumbnailAsync(ImageSource source, int maxEdge, CancellationToken ct)
     {
@@ -70,7 +70,7 @@ public static class AvaloniaImageLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"AvaloniaImageLoader thumb+info: {source}: {ex.Message}");
+            Trace.TraceError($"AvaloniaMediaLoader thumb+info: {source}: {ex.Message}");
             return (null, 0, 0, null);
         }
     }
@@ -98,7 +98,7 @@ public static class AvaloniaImageLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"AvaloniaImageLoader video: {source}: {ex.Message}");
+            Trace.TraceError($"AvaloniaMediaLoader video: {source}: {ex.Message}");
             return null;
         }
     }
@@ -120,7 +120,7 @@ public static class AvaloniaImageLoader
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"AvaloniaImageLoader: {source}: {ex.Message}");
+            Trace.TraceError($"AvaloniaMediaLoader: {source}: {ex.Message}");
             return null;
         }
     }
@@ -138,7 +138,7 @@ public static class AvaloniaImageLoader
             }
             catch (Exception ex)
             {
-                Trace.TraceError($"AvaloniaImageLoader archive open: {source}: {ex.Message}");
+                Trace.TraceError($"AvaloniaMediaLoader archive open: {source}: {ex.Message}");
                 return Task.FromResult<Stream?>(null);
             }
         }

@@ -34,7 +34,7 @@ public class DirectoryScanner : IDirectoryScanner
     {
         // Build a (lowercase extension → kind) lookup once, outside the
         // directory loop. The caller passes the combined image+video list
-        // (see IImageLoader.SupportedMedia); null means "no filter, default
+        // (see IMediaLoader.SupportedMedia); null means "no filter, default
         // everything to Image". The dictionary avoids per-file string
         // allocations and lets the inner loop use a single hash lookup.
         Dictionary<string, MediaKind>? extensionMap = null;

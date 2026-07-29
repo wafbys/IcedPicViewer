@@ -108,7 +108,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     public partial double SlideshowInterval { get; set; } = 5.0;
 
-    public string SlideshowButtonLabel => IsSlideshowActive ? "Stop Slideshow" : "Slideshow";
+    public string SlideshowButtonLabel => IsSlideshowActive ? UiCopy.StopSlideshow : UiCopy.Slideshow;
 
     [ObservableProperty]
     public partial bool IsFullscreen { get; set; }
@@ -129,7 +129,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     public MediaPlayer? MediaPlayer => _vlc.Player;
 
-    public string PlayPauseLabel => IsVideoPlaying ? "Pause" : "Play";
+    public string PlayPauseLabel => IsVideoPlaying ? UiCopy.Pause : UiCopy.Play;
 
     public bool ShowVideoPoster =>
         SelectedItem?.IsVideo == true && !IsVideoPlaying;

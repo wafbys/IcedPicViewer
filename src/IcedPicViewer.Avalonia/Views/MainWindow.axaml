@@ -158,7 +158,7 @@
                                        VerticalAlignment="Center" />
                             </Grid>
                         </ScrollViewer>
-                        <controls:ImageMinimap Width="168" Height="126"
+                        <controls:ViewerMinimap Width="168" Height="126"
                                                Margin="16"
                                                HorizontalAlignment="Right"
                                                VerticalAlignment="Bottom"

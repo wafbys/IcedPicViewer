@@ -83,7 +83,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
     // any later instances short-circuit.
     private static int _warmedUp;
 
-    // Shared with IImageLoader so a video thumb and an image thumb with
+    // Shared with IMediaLoader so a video thumb and an image thumb with
     // the same path don't collide (cache key includes MediaKind), and so
     // a 200-cap LRU doesn't get dominated by whichever kind the user
     // opens first.
@@ -226,7 +226,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             return null;
         }
 
-        // Cache key shape matches IImageLoader (path|size|kind) so the
+        // Cache key shape matches IMediaLoader (path|size|kind) so the
         // shared LRU is one cache, not two parallel ones. We look this
         // up BEFORE doing any file work — a hit on an archive source
         // skips the temp-file extract entirely, and the same thumbnail

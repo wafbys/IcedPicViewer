@@ -114,7 +114,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             // above only fires when IsFullscreen CHANGES, not when the
             // window is already fullscreen at subscribe time. The
             // common case this covers: user enters fullscreen in
-            // ImageViewerView, presses Esc / Close → navigates back to
+            // ViewerView, presses Esc / Close → navigates back to
             // gallery, the window is still in FullScreen presenter,
             // but the freshly-loaded GalleryView would otherwise see
             // IsHeaderVisible=true (its ctor default) and render the
@@ -384,7 +384,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     {
         if (sender is FrameworkElement element && element.DataContext is MediaItem item)
         {
-            OpenImageViewer(item);
+            OpenViewer(item);
         }
     }
 
@@ -429,7 +429,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         }
     }
 
-    private async void OpenImageViewer(MediaItem item)
+    private async void OpenViewer(MediaItem item)
     {
         if (System.Threading.Interlocked.CompareExchange(ref _isNavigatingToViewer, 1, 0) != 0) return;
 
@@ -453,7 +453,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             }
             await _viewerViewModel.OpenItem(item);
 
-            _navigationService.NavigateTo<ImageViewerView>();
+            _navigationService.NavigateTo<ViewerView>();
         }
         finally
         {
@@ -565,6 +565,6 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         // user has a chance to touch the viewer's slider).
         viewerViewModel.SlideshowInterval = ViewModel.SlideshowInterval;
         viewerViewModel.StartSlideshow();
-        _navigationService.NavigateTo<ImageViewerView>();
+        _navigationService.NavigateTo<ViewerView>();
     }
 }

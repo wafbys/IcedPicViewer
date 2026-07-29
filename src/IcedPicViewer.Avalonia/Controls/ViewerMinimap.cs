@@ -12,22 +12,22 @@ namespace IcedPicViewer.Avalonia.Controls;
 /// Small overview of a large image with a viewport rectangle. Click or drag
 /// to pan the bound <see cref="TargetScrollViewer"/>.
 /// </summary>
-public class ImageMinimap : Control
+public class ViewerMinimap : Control
 {
     public static readonly StyledProperty<Bitmap?> SourceProperty =
-        AvaloniaProperty.Register<ImageMinimap, Bitmap?>(nameof(Source));
+        AvaloniaProperty.Register<ViewerMinimap, Bitmap?>(nameof(Source));
 
     public static readonly StyledProperty<ScrollViewer?> TargetScrollViewerProperty =
-        AvaloniaProperty.Register<ImageMinimap, ScrollViewer?>(nameof(TargetScrollViewer));
+        AvaloniaProperty.Register<ViewerMinimap, ScrollViewer?>(nameof(TargetScrollViewer));
 
     private ScrollViewer? _subscribed;
     private bool _dragging;
 
-    static ImageMinimap()
+    static ViewerMinimap()
     {
-        AffectsRender<ImageMinimap>(SourceProperty);
-        SourceProperty.Changed.AddClassHandler<ImageMinimap>((m, _) => m.InvalidateVisual());
-        TargetScrollViewerProperty.Changed.AddClassHandler<ImageMinimap>((m, e) => m.OnTargetChanged(e));
+        AffectsRender<ViewerMinimap>(SourceProperty);
+        SourceProperty.Changed.AddClassHandler<ViewerMinimap>((m, _) => m.InvalidateVisual());
+        TargetScrollViewerProperty.Changed.AddClassHandler<ViewerMinimap>((m, e) => m.OnTargetChanged(e));
     }
 
     public Bitmap? Source

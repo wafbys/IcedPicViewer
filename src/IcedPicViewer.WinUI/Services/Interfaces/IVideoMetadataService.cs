@@ -29,7 +29,7 @@ public readonly record struct VideoMetadata(int Width, int Height, TimeSpan Dura
 /// <c>MediaPlayerElement</c> can play archive entries that don't have
 /// a real on-disk file, and provides a transcoding fallback for files
 /// whose codec is one Windows Media Foundation cannot decode. Kept
-/// deliberately separate from <see cref="IImageLoader"/>: image loading
+/// deliberately separate from <see cref="IMediaLoader"/>: image loading
 /// is a pure WinRT path (BitmapDecoder), while video is an FFmpeg
 /// AutoGen native-pointer path with very different lifetime and error
 /// semantics. Mixing them would mean every image-only call site drags
