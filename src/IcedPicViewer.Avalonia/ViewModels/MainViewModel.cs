@@ -351,18 +351,15 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         var licensePath = Path.Combine(AppContext.BaseDirectory, "License", "ffmpeg-LGPL.txt");
         var licenseLine = File.Exists(licensePath)
             ? licensePath
-            : "License/ffmpeg-LGPL.txt (next to the executable after build)";
+            : "License/ffmpeg-LGPL.txt (可执行文件旁)";
 
-        var body =
-            $"IcedPicViewer (Avalonia)  v0.15.0  ({IcedPicViewer.Avalonia.BuildInfo.CommitShort})\n\n" +
-            "Cross-platform gallery: masonry, archives (ZIP/RAR/tar.*), EXIF, GIF,\n" +
-            "slideshow, video thumbs (FFmpeg LGPL shared) + playback (LibVLC).\n\n" +
-            "Formats: see README — HEIC/AVIF need platform codecs; 7z is not supported.\n" +
-            "FFmpeg is LGPL 2.1+ (replaceable natives under runtimes/<rid>/native).\n" +
-            $"LGPL text:\n{licenseLine}\n\n" +
-            $"Settings:\n{Path.Combine(settingsDir, "settings.json")}";
+        var body = AboutCopy.AvaloniaBody(
+            "v0.15.0",
+            IcedPicViewer.Avalonia.BuildInfo.CommitShort,
+            licenseLine,
+            Path.Combine(settingsDir, "settings.json"));
 
-        await ConfirmAsync("关于 IcedPicViewer", body, true).ConfigureAwait(true);
+        await ConfirmAsync(AboutCopy.Title, body, true).ConfigureAwait(true);
     }
 
     // ── Dispose ──────────────────────────────────────────────────────

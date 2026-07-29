@@ -2,6 +2,7 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Dispatching;
@@ -18,7 +19,7 @@ using Windows.Storage;
 
 namespace IcedPicViewer.ViewModels;
 
-public partial class ImageViewModel : ObservableObject, IDisposable
+public partial class ViewerViewModel : ObservableObject, IDisposable
 {
     private readonly GalleryViewModel _galleryViewModel;
     private readonly IImageLoader _imageLoader;
@@ -613,7 +614,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                Trace.TraceWarning($"ImageViewModel.OnVolumeChanged: failed to push to MediaPlayer: {ex.GetType().Name}: {ex.Message}");
+                Trace.TraceWarning($"ViewerViewModel.OnVolumeChanged: failed to push to MediaPlayer: {ex.GetType().Name}: {ex.Message}");
             }
         }
         // Persist. Same write-back pattern as the other preference
@@ -755,7 +756,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"ImageViewModel.PlayAsync error for {SelectedItem?.Id}: {ex.GetType().Name}: {ex.Message}");
+            Trace.TraceError($"ViewerViewModel.PlayAsync error for {SelectedItem?.Id}: {ex.GetType().Name}: {ex.Message}");
             // Surface as a non-playing state so the user can retry. Don't
             // throw — the play overlay stays visible and CanPlay stays true.
             // Order: null MediaPlayer first so CanPlay() sees _mediaPlayer==null
@@ -827,7 +828,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
 
     private void OnMediaPlayerOpened(MediaPlayer sender, object args)
     {
-        Trace.TraceInformation($"ImageViewModel: MediaPlayer opened for {SelectedItem?.Id}");
+        Trace.TraceInformation($"ViewerViewModel: MediaPlayer opened for {SelectedItem?.Id}");
     }
 
     private void OnMediaPlayerFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
@@ -840,7 +841,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         var failedPath = _currentPlaybackPath;
         if (!_dispatcher.TryEnqueue(() => HandleMediaFailedOnUiThread(failedPlayer, failedPath, args)))
         {
-            Trace.TraceWarning($"ImageViewModel: MediaFailed dropped (dispatcher unavailable): code=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
+            Trace.TraceWarning($"ViewerViewModel: MediaFailed dropped (dispatcher unavailable): code=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
         }
     }
 
@@ -864,18 +865,18 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             if (failedPlayer is not null)
             {
                 try { failedPlayer.Source = null; failedPlayer.Dispose(); }
-                catch (Exception ex) { Trace.TraceWarning($"ImageViewModel: failed player dispose threw: {ex.GetType().Name}: {ex.Message}"); }
+                catch (Exception ex) { Trace.TraceWarning($"ViewerViewModel: failed player dispose threw: {ex.GetType().Name}: {ex.Message}"); }
             }
             if (failedPath is not null)
             {
                 try { _videoMetadataService.ReleasePlaybackFilePath(failedPath); }
-                catch (Exception ex) { Trace.TraceWarning($"ImageViewModel: failed release threw: {ex.GetType().Name}: {ex.Message}"); }
+                catch (Exception ex) { Trace.TraceWarning($"ViewerViewModel: failed release threw: {ex.GetType().Name}: {ex.Message}"); }
             }
 
             // Log + hint only when still on the failed video — if the
             // user navigated away, OnSelectedItemChanged already cleared
             // ErrorMessage and logging a stale player is noise.
-            Trace.TraceError($"ImageViewModel.MediaFailed for {SelectedItem?.Id}: error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
+            Trace.TraceError($"ViewerViewModel.MediaFailed for {SelectedItem?.Id}: error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
 
             // Pinned hint: no auto-dismiss timer, no close button.
             // Cleared by OnSelectedItemChanged when the user navigates to
@@ -889,7 +890,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             // disposed it and released its temp file. Skip cleanup
             // (avoid double-release) and skip error hint (the hint
             // belongs to the old video, not the current one).
-            Trace.TraceWarning($"ImageViewModel.MediaFailed for stale player (already navigated away): error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
+            Trace.TraceWarning($"ViewerViewModel.MediaFailed for stale player (already navigated away): error={args.Error}, hr=0x{args.ExtendedErrorCode:X8}, msg={args.ErrorMessage}");
         }
     }
 
@@ -906,164 +907,38 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     /// </summary>
     private static string BuildPlaybackErrorMessage(MediaPlayerFailedEventArgs args, string codec)
     {
-        var codecHint = GetCodecSpecificHint(codec);
-
+        var codecHint = VideoPlaybackCopy.GetCodecSpecificHint(codec);
         var categoryHint = args.Error switch
         {
-            MediaPlayerError.SourceNotSupported =>
-                "Media Foundation 不支持此视频格式 (SourceNotSupported)。\n" +
-                "通常是 codec 不被当前 Windows 解码,或者 codec 头损坏 / 非标。",
-            MediaPlayerError.DecodingError =>
-                "解码时发生错误 (DecodingError)。视频文件可能在传输中断、不完整,或 codec 参数异常。",
-            MediaPlayerError.NetworkError =>
-                "网络错误 (NetworkError)。此项目仅播放本地文件,不应触发此错误 — 可能是文件被外部 AV 扫描拦截。",
-            MediaPlayerError.Aborted =>
-                "播放被中止 (Aborted)。通常是用户切到下一张 / 关闭 viewer 时正在解码。",
-            _ => "未知播放错误。",
+            MediaPlayerError.SourceNotSupported => VideoPlaybackCopy.CategorySourceNotSupported(),
+            MediaPlayerError.DecodingError => VideoPlaybackCopy.CategoryDecodingError(),
+            MediaPlayerError.NetworkError => VideoPlaybackCopy.CategoryNetworkError(),
+            MediaPlayerError.Aborted => VideoPlaybackCopy.CategoryAborted(),
+            _ => VideoPlaybackCopy.CategoryUnknown(),
         };
 
         var codecLine = string.IsNullOrEmpty(codec)
-            ? "(codec 未知 — 扫描时未识别)"
+            ? VideoPlaybackCopy.CodecUnknownLine()
             : codec;
 
-        var details = $"HRESULT: 0x{args.ExtendedErrorCode:X8}\n" +
-                      $"类别: {args.Error}\n" +
-                      $"视频 codec: {codecLine}\n" +
-                      $"系统消息: {args.ErrorMessage}";
+        var details = VideoPlaybackCopy.FormatPlaybackDetails(
+            $"0x{args.ExtendedErrorCode:X8}",
+            args.Error.ToString(),
+            codecLine,
+            args.ErrorMessage ?? "");
 
-        var parts = new List<string>();
-        if (!string.IsNullOrEmpty(codecHint)) parts.Add(codecHint);
-        parts.Add(categoryHint);
-        parts.Add("— 详细信息 —\n" + details);
-        return string.Join("\n\n", parts);
+        return VideoPlaybackCopy.ComposeErrorMessage(codecHint, categoryHint, details);
     }
 
-    /// <summary>
-    /// Codec-specific recovery advice. Only consulted when MediaPlayer
-    /// fails — we don't surface these hints preemptively because most
-    /// files (H.264 / HEVC in mp4) play fine on stock Windows and the
-    /// extra text would be noise. The set is small but covers the codecs
-    /// most likely to land a Windows user here: Apple ProRes (Final Cut
-    /// Pro / macOS exports), HEVC without the extension installed, and
-    /// the "open codec alliance" codecs (VP9, AV1) that MF also lacks.
-    /// </summary>
-    private static string GetCodecSpecificHint(string codec)
-    {
-        if (string.IsNullOrEmpty(codec)) return string.Empty;
-
-        // Normalise once — "prores" / "PRORES" / "ProRes" should all
-        // match the same hint. We only need a leading-prefix match
-        // because FFmpeg reports several ProRes variants ("prores",
-        // "prores_422", "prores_422_hq", "prores_4444", ...) and the
-        // distinction matters less than the "you need LAV" advice.
-        var c = codec.Trim().ToLowerInvariant();
-
-        if (c.StartsWith("prores", StringComparison.Ordinal))
-        {
-            return "此文件用 Apple ProRes (" + codec + ") 编码 — 这是 macOS / Final Cut Pro 生态的专业 codec,Windows Media Foundation 不带 decoder,本应用也无法播放。\n\n" +
-                   "三个解决方法 (按推荐度):\n" +
-                   "1. 用 VLC / mpv / PotPlayer 等第三方播放器打开 — 它们自带 ProRes decoder,无需额外安装。\n" +
-                   "2. 安装 LAV Filters (https://github.com/Nevcairiel/LAVFilters/releases),把 ProRes decoder 注入 Media Foundation — 装好后本应用和其他 WMP / Edge 视频也能播。\n" +
-                   "3. 用 FFmpeg / HandBrake 转封装成 H.264/AAC 的 mp4 (会显著损失质量且耗时较长):\n" +
-                   "   ffmpeg -i input.mov -c:v libx264 -crf 18 -c:v aac output.mp4";
-        }
-
-        if (c == "hevc" || c == "h265" || c.StartsWith("hevc", StringComparison.Ordinal))
-        {
-            return "此文件用 HEVC / H.265 编码。Win10 默认不带 HEVC decoder,Win11 大多数版本自带但偶尔缺失。\n\n" +
-                   "建议:Microsoft Store 搜索 'HEVC Video Extensions' (免费 / 收费版功能一致,免费版有约 0.5% 画质损失),装完即可在本应用播放。\n" +
-                   "或者用 FFmpeg 转 H.264 之后再用 — ffmpeg -i input.mov -c:v libx264 -crf 20 -c:a aac output.mp4";
-        }
-
-        if (c == "vp9" || c.StartsWith("vp9", StringComparison.Ordinal))
-        {
-            return "此文件用 VP9 编码。Windows Media Foundation 不带 VP9 decoder。\n\n" +
-                   "建议:用 FFmpeg 转 H.264 / H.265,或者用 Chrome / VLC 播放原始文件。\n" +
-                   "ffmpeg -i input.webm -c:v libx264 -crf 22 -c:a aac output.mp4";
-        }
-
-        if (c == "av1" || c.StartsWith("av1", StringComparison.Ordinal))
-        {
-            return "此文件用 AV1 编码。Win10 没有 AV1 decoder;Win11 24H2+ 默认带 AV1 解码,旧版需要装 'AV1 Video Extension' (Microsoft Store 免费)。\n\n" +
-                   "建议:升级到最新 Windows 11,或用 FFmpeg 转 H.264 / H.265 后再播放。";
-        }
-
-        // Generic fallback for other rare codecs (DNxHD, Cineform, etc.)
-        return $"此文件用非主流 codec ({codec}) 编码,Windows Media Foundation 很可能无法解码。\n" +
-               "建议:用 FFmpeg 转 H.264 + AAC 的 mp4 后再播放,或者用 VLC / mpv 直接打开本文件。";
-    }
-
-    /// <summary>
-    /// Turns a pre-MediaPlayer exception into a user-friendly explanation,
-    /// mirroring <see cref="BuildPlaybackErrorMessage"/> for the post-MediaPlayer
-    /// MediaFailed path. Used when the failure happens BEFORE
-    /// <c>MediaPlayer.Source</c> is set (remux / extract / file-open step),
-    /// which means MediaFailed will never fire and we have to surface the
-    /// error ourselves. The most common scenario is a .mov / .mkv file
-    /// whose codec MP4 can't carry (ProRes, DNxHD, ...) — FFmpeg's
-    /// avformat_write_header fails, the exception bubbles up to PlayAsync's
-    /// catch, and without this dialog the user clicks ▶ and sees nothing.
-    /// </summary>
     private static string BuildPrePlayErrorMessage(Exception ex, string codec)
     {
-        var codecHint = GetCodecSpecificHint(codec);
-        var reason = ClassifyPrePlayException(ex);
-
+        var codecHint = VideoPlaybackCopy.GetCodecSpecificHint(codec);
+        var reason = VideoPlaybackCopy.ClassifyPrePlayException(ex);
         var codecLine = string.IsNullOrEmpty(codec)
-            ? "(codec 未知 — 扫描时未识别)"
+            ? VideoPlaybackCopy.CodecUnknownLine()
             : codec;
-
-        var details = $"异常类型: {ex.GetType().Name}\n" +
-                      $"视频 codec: {codecLine}\n" +
-                      $"系统消息: {ex.Message}";
-
-        var parts = new List<string>();
-        if (!string.IsNullOrEmpty(codecHint)) parts.Add(codecHint);
-        parts.Add(reason);
-        parts.Add("— 详细信息 —\n" + details);
-        return string.Join("\n\n", parts);
-    }
-
-    /// <summary>
-    /// Maps a pre-MediaPlayer exception to a short, user-readable
-    /// explanation. Priority: text-sniff the FFmpeg-remux error message
-    /// first (it's the dominant case and the most actionable), then fall
-    /// through to the standard CLR exception types.
-    /// </summary>
-    private static string ClassifyPrePlayException(Exception ex)
-    {
-        // VideoMetadataService.RemuxToMp4 annotates its throws with
-        // "source codec likely not MP4-compatible" specifically so the
-        // user-facing layer can route this to the codec hint. The other
-        // "rc={ret}" messages from RemuxToMp4 are less specific (open /
-        // header / write failures can be codec OR corrupt file), so we
-        // also accept the broader "RemuxToMp4:" prefix as a "this was
-        // an FFmpeg remux failure" signal — paired with the codec hint
-        // it gives the user a coherent story.
-        var msg = ex.Message ?? string.Empty;
-        if (msg.Contains("not MP4-compatible", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("codec likely", StringComparison.OrdinalIgnoreCase))
-        {
-            return "无法将此视频重新封装为 MP4 — 视频使用的 codec 不被 MP4 容器支持,本应用的播放引擎也不直接支持该 codec。";
-        }
-        if (msg.StartsWith("RemuxToMp4:", StringComparison.Ordinal))
-        {
-            return "FFmpeg 重新封装失败。可能是视频文件已损坏,或 codec / 容器组合不被 MP4 支持。";
-        }
-
-        return ex switch
-        {
-            FileNotFoundException =>
-                "找不到视频文件 (可能在浏览到此处后被移动 / 删除 / 重命名)。",
-            DirectoryNotFoundException =>
-                "视频所在目录不存在 (可能被移动 / 删除)。",
-            UnauthorizedAccessException =>
-                "没有读取此视频文件的权限 (可能被其他进程独占,或目录权限不足)。",
-            IOException =>
-                "读取视频文件时发生 I/O 错误。可能是文件被外部 AV 扫描程序锁定,或磁盘出错。",
-            _ =>
-                "播放准备失败。",
-        };
+        var details = VideoPlaybackCopy.FormatPrePlayDetails(ex.GetType().Name, codecLine, ex.Message);
+        return VideoPlaybackCopy.ComposeErrorMessage(codecHint, reason, details);
     }
 
     /// <summary>
@@ -1109,7 +984,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             {
                 // Best-effort cleanup. A leaked native handle here is much
                 // less bad than a crash in the disposal path.
-                Trace.TraceError($"ImageViewModel.StopAndDisposePlayer error: {ex.GetType().Name}: {ex.Message}");
+                Trace.TraceError($"ViewerViewModel.StopAndDisposePlayer error: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -1129,7 +1004,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                Trace.TraceError($"ImageViewModel.StopAndDisposePlayer: release playback path error: {ex.GetType().Name}: {ex.Message}");
+                Trace.TraceError($"ViewerViewModel.StopAndDisposePlayer: release playback path error: {ex.GetType().Name}: {ex.Message}");
             }
         }
     }
@@ -1195,7 +1070,7 @@ public partial class ImageViewModel : ObservableObject, IDisposable
         }
     }
 
-    public ImageViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, IVideoMetadataService videoMetadataService, INavigationService navigationService, IDialogService dialogService, ISettingsService settingsService)
+    public ViewerViewModel(GalleryViewModel galleryViewModel, IImageLoader imageLoader, IVideoMetadataService videoMetadataService, INavigationService navigationService, IDialogService dialogService, ISettingsService settingsService)
     {
         _galleryViewModel = galleryViewModel;
         _imageLoader = imageLoader;

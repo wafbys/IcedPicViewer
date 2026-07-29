@@ -184,15 +184,15 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// Interval the viewer's slideshow waits between auto-advances,
     /// in seconds. Stored as <c>double</c> so the gallery's
     /// (future) slider and the viewer's slider share the same
-    /// type. Mirrored to <c>ImageViewModel.SlideshowInterval</c> at
+    /// type. Mirrored to <c>ViewerViewModel.SlideshowInterval</c> at
     /// gallery's Slideshow-button click time — the viewer's own
-    /// slider writes directly to the ImageViewModel.
+    /// slider writes directly to the ViewerViewModel.
     ///
     /// <para>
     /// Persisted: the setter writes through to
     /// <see cref="ISettingsService"/> so the next launch starts at
     /// the same cadence. The user controls the value via the
-    /// viewer's slider (which writes to <c>ImageViewModel.SlideshowInterval</c>,
+    /// viewer's slider (which writes to <c>ViewerViewModel.SlideshowInterval</c>,
     /// a different property that mirrors back here through the
     /// gallery's Slideshow-button click handler).
     /// </para>
@@ -204,7 +204,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             if (_slideshowInterval == value) return;
             _slideshowInterval = value;
-            // Persist. Same write-back pattern as ImageViewModel's
+            // Persist. Same write-back pattern as ViewerViewModel's
             // preference setters — see OnIsSlideshowLoopingChanged there.
             _settingsService.Current.SlideshowInterval = value;
             _settingsService.ScheduleSave();

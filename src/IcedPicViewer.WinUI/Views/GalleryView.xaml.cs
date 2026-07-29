@@ -17,7 +17,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
     private MediaItem? _selectedItemForDelete;
     private int _isNavigatingToViewer;
-    private ImageViewModel? _viewerViewModel;
+    private ViewerViewModel? _viewerViewModel;
 
     // 用于实现"滚动到底部自动加载更多"
     // 采用 debounce 机制避免快速滚动时频繁触发（符合性能要求）
@@ -241,7 +241,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
         if (_viewerViewModel != null)
         {
-            _viewerViewModel.NavigationChanged -= OnImageViewModelNavigationChanged;
+            _viewerViewModel.NavigationChanged -= OnViewerNavigationChanged;
             _viewerViewModel = null;
         }
 
@@ -444,12 +444,12 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
                 ViewModel.LastViewedYOffset = panel.GetItemYPosition(index);
             }
 
-            // ImageViewModel is a Singleton — only subscribe the first time. The
+            // ViewerViewModel is a Singleton — only subscribe the first time. The
             // OnNavigatedTo unsubscribe paired with this guard keeps it 1:1.
             if (_viewerViewModel == null)
             {
-                _viewerViewModel = App.GetService<ImageViewModel>();
-                _viewerViewModel.NavigationChanged += OnImageViewModelNavigationChanged;
+                _viewerViewModel = App.GetService<ViewerViewModel>();
+                _viewerViewModel.NavigationChanged += OnViewerNavigationChanged;
             }
             await _viewerViewModel.OpenItem(item);
 
@@ -461,7 +461,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         }
     }
 
-    private void OnImageViewModelNavigationChanged(object? sender, EventArgs e)
+    private void OnViewerNavigationChanged(object? sender, EventArgs e)
     {
         if (_viewerViewModel == null) return;
 
@@ -545,7 +545,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     /// <summary>
     /// Top-bar Slideshow button. Opens the viewer at the last-viewed
     /// item (or the first if none yet) and asks the singleton
-    /// <see cref="ImageViewModel"/> to start the auto-advance timer.
+    /// <see cref="ViewerViewModel"/> to start the auto-advance timer.
     /// The viewer's own Slideshow button (in the CommandBar) is the
     /// toggle that stops it — same state, two surfaces.
     /// </summary>
@@ -553,18 +553,18 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     {
         if (ViewModel.Items.Count == 0) return;
 
-        var imageViewModel = App.GetService<ImageViewModel>();
+        var viewerViewModel = App.GetService<ViewerViewModel>();
         var startIndex = ViewModel.LastViewedIndex >= 0 && ViewModel.LastViewedIndex < ViewModel.Items.Count
             ? ViewModel.LastViewedIndex
             : 0;
         var startItem = ViewModel.Items[startIndex];
-        await imageViewModel.OpenItem(startItem);
+        await viewerViewModel.OpenItem(startItem);
         // StartSlideshow is parameterless now — the viewer's own
-        // slider writes to ImageViewModel.SlideshowInterval directly,
+        // slider writes to ViewerViewModel.SlideshowInterval directly,
         // and the gallery's value is the initial seed (before the
         // user has a chance to touch the viewer's slider).
-        imageViewModel.SlideshowInterval = ViewModel.SlideshowInterval;
-        imageViewModel.StartSlideshow();
+        viewerViewModel.SlideshowInterval = ViewModel.SlideshowInterval;
+        viewerViewModel.StartSlideshow();
         _navigationService.NavigateTo<ImageViewerView>();
     }
 }

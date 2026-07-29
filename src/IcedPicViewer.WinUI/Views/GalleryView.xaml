@@ -186,9 +186,9 @@
                     Slideshow trigger. Click opens the viewer at the
                     last-viewed item (or the first if none yet) and
                     starts auto-advance. The actual timer / state lives
-                    on the viewer's ImageViewModel — once the viewer
+                    on the viewer's ViewerViewModel — once the viewer
                     is open, the viewer's own Slideshow button (or the
-                    same gallery button, since ImageViewModel is a
+                    same gallery button, since ViewerViewModel is a
                     singleton) is what stops it. Click handler rather
                     than Command because we need to call into the
                     viewer VM, which is a sibling in the DI graph —

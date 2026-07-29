@@ -22,7 +22,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
     // it's safe to read in OnLoaded (which fires after the ctor). DI gives
     // the same singleton that GalleryView prepared via OpenItem, so
     // state (SelectedItem, CurrentIndex, ...) survives across navigations.
-    public ImageViewModel ViewModel { get; }
+    public ViewerViewModel ViewModel { get; }
 
     private double _minimapWidth = 150;
     private double _minimapHeight = 120;
@@ -230,7 +230,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
     public ImageViewerView()
     {
         this.InitializeComponent();
-        ViewModel = App.GetService<ImageViewModel>();
+        ViewModel = App.GetService<ViewerViewModel>();
 
         // Mirror the VM's MediaPlayer into the MediaPlayerElement. The
         // XAML can't bind the element's MediaPlayer property directly
@@ -275,7 +275,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ImageViewModel.MediaPlayer))
+        if (e.PropertyName == nameof(ViewerViewModel.MediaPlayer))
         {
             // Detach any previous player (SetMediaPlayer(null) is the
             // safe detach path) and attach the new one. Order matters
@@ -298,7 +298,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
                 StopControlsTimer();
             }
         }
-        else if (e.PropertyName == nameof(ImageViewModel.IsFitMode))
+        else if (e.PropertyName == nameof(ViewerViewModel.IsFitMode))
         {
             // Image surface: existing FitContainer/ActualSizeContainer/
             // MinimapOverlay swap (code-managed because the minimap
@@ -312,7 +312,7 @@ public sealed partial class ImageViewerView : Page, System.ComponentModel.INotif
                 ApplyVideoFitMode(ViewModel.IsFitMode);
             }
         }
-        else if (e.PropertyName == nameof(ImageViewModel.SelectedItem))
+        else if (e.PropertyName == nameof(ViewerViewModel.SelectedItem))
         {
             // Only adjust the Player container for video items.
             if (ViewModel.IsVideo)

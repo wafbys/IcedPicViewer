@@ -24,13 +24,13 @@
                         Background="Transparent"
                         BorderThickness="0"
                         Padding="12,0"
-                        ToolTipService.ToolTip="Back to gallery">
+                        ToolTipService.ToolTip="返回图库">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE72B;" FontSize="16"/>
-                        <TextBlock Text="Back" VerticalAlignment="Center"/>
+                        <TextBlock Text="返回" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
-                <TextBlock Text="About"
+                <TextBlock Text="关于"
                            VerticalAlignment="Center"
                            Margin="12,0,0,0"
                            FontWeight="SemiBold"/>
@@ -50,13 +50,12 @@
                 <TextBlock x:Name="VersionTextBlock"
                            FontSize="13"
                            Opacity="0.7"/>
-                <TextBlock TextWrapping="Wrap"
-                           FontSize="14">
-                    <Run Text="一个基于 WinUI 3 + Windows App SDK 的图片 / 视频查看器。本地优先、纯查看器，不上传、不联网。"/>
-                </TextBlock>
+                <TextBlock x:Name="IntroTextBlock"
+                           TextWrapping="Wrap"
+                           FontSize="14"/>
 
                 <!-- Third-party section header -->
-                <TextBlock Text="第三方组件 / Third-Party Components"
+                <TextBlock Text="第三方组件"
                            FontSize="20"
                            FontWeight="SemiBold"
                            Margin="0,20,0,4"/>
@@ -73,12 +72,9 @@
                         <TextBlock Text="FFmpeg"
                                    FontSize="18"
                                    FontWeight="SemiBold"/>
-                        <TextBlock TextWrapping="Wrap" FontSize="13">
-                            <Run Text="版本 8.1 (BtbN 构建,LGPL 2.1+ shared)。用于读取视频文件的元数据 (分辨率、时长、音轨) 和首帧缩略图。"/>
-                        </TextBlock>
-                        <TextBlock TextWrapping="Wrap" FontSize="13" Opacity="0.7">
-                            <Run Text="Version 8.1 (BtbN build, LGPL 2.1+ shared). Used for reading video metadata (resolution, duration, audio) and first-frame thumbnails."/>
-                        </TextBlock>
+                        <TextBlock x:Name="FfmpegDescTextBlock"
+                                   TextWrapping="Wrap"
+                                   FontSize="13"/>
 
                         <!-- Links. HyperlinkButton with NavigateUri opens
                              external links in the user's default browser.

@@ -286,7 +286,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         // ImageViewerView binds via x:Bind to a ViewModel field on the code-behind
         // (not through DataContext), so DataContext is null here — read VM from
         // the typed ViewModel property exposed on the page.
-        if (RootFrame.Content is not ImageViewerView viewer || viewer.ViewModel is not ImageViewModel vm)
+        if (RootFrame.Content is not ImageViewerView viewer || viewer.ViewModel is not ViewerViewModel vm)
             return;
 
         switch (key)
@@ -313,7 +313,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
                 // CanExecute returns false once IsVideoPlaying is true, so
                 // we don't fight the MediaPlayerElement's built-in
                 // transport controls for Space-to-pause once the player
-                // surface is up. See ImageViewModel.PlayAsync + the
+                // surface is up. See ViewerViewModel.PlayAsync + the
                 // CanPlay guard for the gate that makes this safe.
                 if (vm.PlayCommand.CanExecute(null))
                     vm.PlayCommand.Execute(null);
@@ -354,7 +354,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
     /// video can stutter on the native side, and the resume keeps
     /// the user's "I'm watching this, not paused" intent intact.
     /// </summary>
-    private static void HandleNumberKeySeek(ImageViewModel vm, int percent)
+    private static void HandleNumberKeySeek(ViewerViewModel vm, int percent)
     {
         if (!vm.IsVideo) return;
         var player = vm.MediaPlayer;

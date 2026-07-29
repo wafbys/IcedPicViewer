@@ -2,6 +2,7 @@
 
 using System;
 using System.Diagnostics;
+using IcedPicViewer.Core.Text;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -19,7 +20,9 @@ public sealed partial class AboutPage : Page
         // Surface the build's commit hash as the version string. Same
         // string MainWindow puts in its title bar, so the user can
         // confirm the binary they're looking at is the one they expect.
-        VersionTextBlock.Text = $"Version: {BuildInfo.CommitShort}";
+        VersionTextBlock.Text = $"版本：{BuildInfo.CommitShort}";
+        IntroTextBlock.Text = AboutCopy.WinUiIntro();
+        FfmpegDescTextBlock.Text = AboutCopy.FfmpegDescriptionZh();
     }
 
     /// <summary>

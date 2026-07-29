@@ -575,6 +575,7 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Spacing="6">
                     <TextBlock Text="无法播放此视频"
+                               x:Name="CannotPlayTitle"
                                FontWeight="SemiBold"
                                FontSize="14"
                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>

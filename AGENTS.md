@@ -22,7 +22,7 @@
 - **混合加载**（产品语义两壳一致）：边扫边灌到 200 停 → Load More / 滚底再灌。
 - **不**自动恢复上次打开的文件夹（两壳）。
 - **VM 布局**：
-  - WinUI：`GalleryViewModel` + `ImageViewModel`；项 `MediaItem` / `ImageItem` / `VideoItem`。
+  - WinUI：`GalleryViewModel` + `ViewerViewModel`；项 `MediaItem` / `ImageItem` / `VideoItem`。
   - Avalonia：`MainViewModel` partial（`.cs` / `.Gallery` / `.SlideshowViewer`）；项 `GalleryItemViewModel`。
 - CommunityToolkit.Mvvm（两壳）。
 - 改共享行为动 **Core**，并确认 **WinUI 与 Avalonia** 仍符合约定；改壳特有交互只动对应工程。反对过度设计。
@@ -129,7 +129,7 @@ dotnet test IcedPicViewer.slnx -c Debug
 
 | 点 | WinUI | Avalonia |
 |----|-------|----------|
-| VM 拆分 | `GalleryViewModel` + `ImageViewModel` | `MainViewModel` partials |
+| VM 拆分 | `GalleryViewModel` + `ViewerViewModel` | `MainViewModel` partials |
 | 项类型 | `MediaItem` / `ImageItem` / `VideoItem` | `GalleryItemViewModel` |
 | drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` | 随缩略图/解码 |
 | UI marshal | `DispatcherQueue.TryEnqueue` | `Dispatcher.UIThread` |

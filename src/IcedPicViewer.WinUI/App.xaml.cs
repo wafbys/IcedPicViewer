@@ -95,7 +95,7 @@ public partial class App : Application
             // Attach current viewer state if possible (for easier diagnosis)
             try
             {
-                var vm = App.GetService<ViewModels.ImageViewModel>();
+                var vm = App.GetService<ViewModels.ViewerViewModel>();
                 if (vm != null)
                 {
                     fullError += $"\n[ViewerState] IsVideo={vm.IsVideo}, IsFitMode={vm.IsFitMode}, IsVideoPlaying={vm.IsVideoPlaying}, HasPlayer={vm.MediaPlayer != null}, Item={vm.SelectedItem?.Name ?? "null"}";
@@ -175,11 +175,11 @@ public partial class App : Application
 
         // ViewModels - appropriate lifetimes
         // GalleryViewModel: Singleton (owns current gallery + file watcher + shared collection)
-        // ImageViewModel: Singleton (instance prepared in GalleryView with OpenItem
+        // ViewerViewModel: Singleton (instance prepared in GalleryView with OpenItem
         //   is the same one received in ImageViewerView; this restores single image mode
         //   functionality while we keep the masonry visual).
         services.AddSingleton<GalleryViewModel>();
-        services.AddSingleton<ImageViewModel>();
+        services.AddSingleton<ViewerViewModel>();
     }
 
     public static T GetService<T>() where T : class
@@ -246,7 +246,7 @@ if (FFmpegProbeService.IsProbeRequested || File.Exists(
         // IServiceProvider doesn't auto-dispose singletons, so we do it explicitly here.
         if (_services is null) return;
         (_services.GetService<GalleryViewModel>() as IDisposable)?.Dispose();
-        (_services.GetService<ImageViewModel>() as IDisposable)?.Dispose();
+        (_services.GetService<ViewerViewModel>() as IDisposable)?.Dispose();
         (_services.GetService<IVideoMetadataService>() as IDisposable)?.Dispose();
     }
 
