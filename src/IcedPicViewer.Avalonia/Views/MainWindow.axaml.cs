@@ -32,7 +32,8 @@ public partial class MainWindow : Window
         if (DataContext is not MainViewModel vm) return;
 
         vm.PickFolderAsync = PickFolderAsync;
-        vm.ConfirmAsync = (title, message) => ConfirmDialog.ShowAsync(this, title, message);
+        vm.ConfirmAsync = (title, message, alertOnly) =>
+            ConfirmDialog.ShowAsync(this, title, message, alertOnly);
         vm.ApplyFullscreen = full =>
         {
             // Don't overwrite saved normal bounds while fullscreen.

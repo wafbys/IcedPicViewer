@@ -17,7 +17,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
     private MediaItem? _selectedItemForDelete;
     private int _isNavigatingToViewer;
-    private ImageViewModel? _currentImageViewModel;
+    private ImageViewModel? _viewerViewModel;
 
     // 用于实现"滚动到底部自动加载更多"
     // 采用 debounce 机制避免快速滚动时频繁触发（符合性能要求）
@@ -239,10 +239,10 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     {
         base.OnNavigatedTo(e);
 
-        if (_currentImageViewModel != null)
+        if (_viewerViewModel != null)
         {
-            _currentImageViewModel.NavigationChanged -= OnImageViewModelNavigationChanged;
-            _currentImageViewModel = null;
+            _viewerViewModel.NavigationChanged -= OnImageViewModelNavigationChanged;
+            _viewerViewModel = null;
         }
 
         var offset = ViewModel.LastViewedYOffset;
@@ -446,12 +446,12 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
             // ImageViewModel is a Singleton — only subscribe the first time. The
             // OnNavigatedTo unsubscribe paired with this guard keeps it 1:1.
-            if (_currentImageViewModel == null)
+            if (_viewerViewModel == null)
             {
-                _currentImageViewModel = App.GetService<ImageViewModel>();
-                _currentImageViewModel.NavigationChanged += OnImageViewModelNavigationChanged;
+                _viewerViewModel = App.GetService<ImageViewModel>();
+                _viewerViewModel.NavigationChanged += OnImageViewModelNavigationChanged;
             }
-            await _currentImageViewModel.OpenItem(item);
+            await _viewerViewModel.OpenItem(item);
 
             _navigationService.NavigateTo<ImageViewerView>();
         }
@@ -463,12 +463,12 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
     private void OnImageViewModelNavigationChanged(object? sender, EventArgs e)
     {
-        if (_currentImageViewModel == null) return;
+        if (_viewerViewModel == null) return;
 
         var panel = FindMasonryPanel(MainScrollViewer);
         if (panel != null)
         {
-            ViewModel.LastViewedYOffset = panel.GetItemYPosition(_currentImageViewModel.CurrentIndex);
+            ViewModel.LastViewedYOffset = panel.GetItemYPosition(_viewerViewModel.CurrentIndex);
         }
     }
 

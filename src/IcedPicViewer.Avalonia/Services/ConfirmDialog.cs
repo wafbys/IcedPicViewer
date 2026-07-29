@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using IcedPicViewer.Core.Text;
 
 namespace IcedPicViewer.Avalonia.Services;
 
@@ -12,10 +13,12 @@ namespace IcedPicViewer.Avalonia.Services;
 /// </summary>
 public static class ConfirmDialog
 {
-    public static async Task<bool> ShowAsync(Window owner, string title, string message)
+    /// <param name="alertOnly">
+    /// If true, only an acknowledge button (info); otherwise OK/Cancel confirm.
+    /// </param>
+    public static async Task<bool> ShowAsync(Window owner, string title, string message, bool alertOnly = false)
     {
         var tcs = new TaskCompletionSource<bool>();
-        var alertOnly = title.Contains("无法", StringComparison.Ordinal);
 
         var messageBlock = new TextBlock
         {
@@ -27,13 +30,13 @@ public static class ConfirmDialog
 
         var ok = new Button
         {
-            Content = alertOnly ? "知道了" : "确定",
+            Content = alertOnly ? UiCopy.GotIt : UiCopy.Ok,
             Padding = new Thickness(16, 8),
             Margin = new Thickness(4),
         };
         var cancel = new Button
         {
-            Content = "取消",
+            Content = UiCopy.Cancel,
             Padding = new Thickness(16, 8),
             Margin = new Thickness(4),
             IsVisible = !alertOnly,

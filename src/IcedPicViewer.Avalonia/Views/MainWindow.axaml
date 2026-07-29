@@ -224,7 +224,7 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Orientation="Vertical" Margin="20,0" VerticalAlignment="Center">
-                        <TextBlock Classes="chrome-title" Text="选择文件夹开始浏览"
+                        <TextBlock Classes="chrome-title" Text="打开文件夹开始浏览"
                                    IsVisible="{Binding FolderPath, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
                         <TextBlock Classes="chrome-title" Text="{Binding FolderPath}" TextTrimming="CharacterEllipsis"
                                    IsVisible="{Binding FolderPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />

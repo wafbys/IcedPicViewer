@@ -328,7 +328,12 @@ public partial class MainViewModel
         {
             StatusText = GalleryStatusFormatter.FormatArchiveDeleteNotSupported();
             if (ConfirmAsync is not null)
-                await ConfirmAsync("无法删除", "压缩包内的媒体不能从本应用删除。请在资源管理器中处理整个压缩包。").ConfigureAwait(true);
+            {
+                await ConfirmAsync(
+                    UiCopy.CannotDeleteTitle,
+                    UiCopy.ArchiveDeleteMessageSimple(),
+                    true).ConfigureAwait(true);
+            }
             return;
         }
 
@@ -340,8 +345,9 @@ public partial class MainViewModel
             if (ConfirmAsync is not null)
             {
                 var ok = await ConfirmAsync(
-                    "确认删除",
-                    $"网络路径文件将永久删除，无法进回收站：\n{path}\n\n确定删除？").ConfigureAwait(true);
+                    UiCopy.ConfirmDeleteTitle,
+                    UiCopy.NetworkPermanentDeleteConfirm(path),
+                    false).ConfigureAwait(true);
                 if (!ok) return;
             }
         }

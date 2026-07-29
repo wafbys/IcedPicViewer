@@ -143,10 +143,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     }
 
     public string SlideshowGlyph => IsSlideshowActive ? "\uE71A" /* Stop */ : "\uE768" /* Play */;
-    public string SlideshowLabel => IsSlideshowActive ? "Stop Slideshow" : "Start Slideshow";
+    public string SlideshowLabel => IsSlideshowActive ? "停止幻灯片" : "幻灯片";
     public string SlideshowTooltip => IsSlideshowActive
-        ? "Stop slideshow"
-        : $"Start slideshow (auto-advance every {SlideshowInterval:0.#}s)";
+        ? "停止幻灯片"
+        : $"开始幻灯片（每 {SlideshowInterval:0.#} 秒）";
 
     // Loop button — same glyph in both states, but a different
     // background tint would normally distinguish the active one.
@@ -158,10 +158,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     // reached in the conventional sense).
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind target — the property's value is read by XAML through an instance member access; the static-friendly body is intentional.")]
     public string SlideshowLoopGlyph => "\uE8ED"; // RepeatAll
-    public string SlideshowLoopLabel => IsSlideshowLooping ? "Loop On" : "Loop Off";
+    public string SlideshowLoopLabel => IsSlideshowLooping ? "循环开" : "循环关";
     public string SlideshowLoopTooltip => IsSlideshowLooping
-        ? "Looping: slideshow wraps from last image back to first"
-        : "Off: slideshow stops at the last image";
+        ? "循环：到末尾后回到第一张"
+        : "不循环：到末尾后停止";
 
     // Shuffle button — pick a random next index on each tick instead
     // of incrementing CurrentIndex. Single Random instance per VM
@@ -170,10 +170,10 @@ public partial class ImageViewModel : ObservableObject, IDisposable
     // timer pattern doesn't).
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind target — the property's value is read by XAML through an instance member access; the static-friendly body is intentional.")]
     public string SlideshowShuffleGlyph => "\uE8B1"; // Shuffle
-    public string SlideshowShuffleLabel => IsSlideshowShuffling ? "Shuffle On" : "Shuffle Off";
+    public string SlideshowShuffleLabel => IsSlideshowShuffling ? "随机开" : "随机关";
     public string SlideshowShuffleTooltip => IsSlideshowShuffling
-        ? "Shuffling: slideshow picks a random next image each tick"
-        : "Sequential: slideshow advances in order";
+        ? "随机：每次随机下一张"
+        : "顺序：按列表依次播放";
 
     /// <summary>
     /// Auto-advance interval in seconds. Stored as <c>double</c> (not

@@ -334,10 +334,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         if (item.Source.IsInArchive)
         {
             await _dialogService.ShowInfoAsync(
-                "无法删除",
-                $"压缩包内的图片 \"{item.Name}\" 不支持删除。\n\n" +
-                $"如需删除，请在文件资源管理器中处理整个压缩包（{Path.GetFileName(item.Source.Path)}）。",
-                closeButtonText: "确定");
+                UiCopy.CannotDeleteTitle,
+                UiCopy.ArchiveDeleteMessage(item.Name, Path.GetFileName(item.Source.Path)),
+                closeButtonText: UiCopy.Ok);
             return;
         }
 
@@ -358,10 +357,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         if (!useRecycleBin)
         {
             var confirmed = await _dialogService.ShowConfirmAsync(
-                "确认删除",
-                $"确定要永久删除 \"{item.Name}\" 吗？此操作无法撤销。",
-                primaryButtonText: "删除",
-                closeButtonText: "取消",
+                UiCopy.ConfirmDeleteTitle,
+                UiCopy.PermanentDeleteConfirm(item.Name),
+                primaryButtonText: UiCopy.Delete,
+                closeButtonText: UiCopy.Cancel,
                 defaultIsPrimary: false);
             if (!confirmed) return;
         }

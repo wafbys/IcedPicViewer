@@ -138,7 +138,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     public Func<CancellationToken, Task<string?>>? PickFolderAsync { get; set; }
 
-    public Func<string, string, Task<bool>>? ConfirmAsync { get; set; }
+    /// <summary>title, message, alertOnly (true = info, false = confirm).</summary>
+    public Func<string, string, bool, Task<bool>>? ConfirmAsync { get; set; }
 
     public Action<bool>? ApplyFullscreen { get; set; }
 
@@ -361,7 +362,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             $"LGPL text:\n{licenseLine}\n\n" +
             $"Settings:\n{Path.Combine(settingsDir, "settings.json")}";
 
-        await ConfirmAsync("About IcedPicViewer", body).ConfigureAwait(true);
+        await ConfirmAsync("关于 IcedPicViewer", body, true).ConfigureAwait(true);
     }
 
     // ── Dispose ──────────────────────────────────────────────────────

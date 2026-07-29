@@ -66,7 +66,7 @@
             <AppBarButton Icon="Cancel"
                           Label="Close"
                           Command="{x:Bind ViewModel.CloseCommand}"
-                          ToolTipService.ToolTip="Close"/>
+                          ToolTipService.ToolTip="关闭"/>
             <AppBarSeparator/>
             <AppBarButton Icon="Previous"
                           Label="上一张"
@@ -104,7 +104,7 @@
                           Label="Load More"
                           Command="{x:Bind ViewModel.LoadMoreCommand}"
                           Visibility="{x:Bind ViewModel.LoadMoreVisibility, Mode=OneWay}"
-                          ToolTipService.ToolTip="Load More (扫描更多图片)"/>
+                          ToolTipService.ToolTip="加载更多"/>
             <!--
                 Slideshow toggle. Click to start / stop the auto-advance
                 timer. Glyph + label + tooltip all switch on
@@ -173,7 +173,7 @@
             <AppBarElementContainer>
                 <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
                             Margin="8,0,0,0">
-                    <TextBlock Text="Interval:"
+                    <TextBlock Text="间隔:"
                                VerticalAlignment="Center"
                                FontSize="12"
                                Opacity="0.7"/>
@@ -186,7 +186,7 @@
                             StepFrequency="0.5"
                             SmallChange="0.5"
                             LargeChange="5"
-                            ToolTipService.ToolTip="Slideshow auto-advance interval (seconds)"/>
+                            ToolTipService.ToolTip="幻灯片间隔（秒）"/>
                     <TextBlock Text="{x:Bind ViewModel.SlideshowIntervalText, Mode=OneWay}"
                                VerticalAlignment="Center"
                                FontSize="12"
@@ -491,7 +491,7 @@
                     <Button x:Name="PlayPauseBtn"
                             Grid.Column="0"
                             Click="PlayPauseBtn_Click"
-                            ToolTipService.ToolTip="Play / Pause (Space)">
+                            ToolTipService.ToolTip="播放 / 暂停 (Space)">
                         <FontIcon x:Name="PlayPauseGlyph" Glyph="&#xE768;"/>
                     </Button>
                     <Slider x:Name="PositionSlider"
@@ -587,7 +587,7 @@
                         x:Name="CopyErrorBtn"
                         Click="CopyErrorBtn_Click"
                         VerticalAlignment="Top"
-                        ToolTipService.ToolTip="复制全部错误信息到剪贴板">
+                        ToolTipService.ToolTip="复制错误信息">
                     <StackPanel x:Name="CopyBtnContent" Orientation="Horizontal" Spacing="6">
                         <FontIcon x:Name="CopyBtnGlyph" Glyph="&#xE8C8;" FontSize="14"/>
                         <TextBlock x:Name="CopyBtnLabel" Text="复制"/>

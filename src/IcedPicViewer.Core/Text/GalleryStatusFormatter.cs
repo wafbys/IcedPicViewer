@@ -3,29 +3,24 @@
 namespace IcedPicViewer.Core.Text;
 
 /// <summary>
-/// Shared status-bar copy for WinUI and Avalonia.
-/// Keeps product wording consistent; shells only supply counts / paths / names.
+/// Shared Chinese status-bar copy for WinUI and Avalonia galleries.
+/// Shells only supply counts / paths / names.
 /// </summary>
 public static class GalleryStatusFormatter
 {
-    public const string IdleDefault = "Open a folder to start";
+    public const string IdleDefault = "打开文件夹开始浏览";
 
-    /// <summary>e.g. "12 image(s)" or "10 images, 2 videos".</summary>
+    /// <summary>e.g. "12 张图片" or "10 张图片 · 2 个视频".</summary>
     public static string FormatItemBreakdown(int imageCount, int videoCount)
     {
         if (videoCount > 0)
-            return $"{imageCount} images, {videoCount} videos";
-        return $"{imageCount} image(s)";
+            return $"{imageCount} 张图片 · {videoCount} 个视频";
+        return $"{imageCount} 张图片";
     }
 
-    /// <summary>LoadDirectory just started (before first batch lands).</summary>
     public static string FormatScanningStarted()
-        => "Scanning…";
+        => "扫描中…";
 
-    /// <summary>
-    /// While scanning. Prefer path form when <paramref name="currentPath"/> is set
-    /// (WinUI live path); otherwise count + already-shown breakdown (Avalonia).
-    /// </summary>
     public static string FormatScanning(
         int discoveredCount,
         string itemBreakdown,
@@ -36,11 +31,10 @@ public static class GalleryStatusFormatter
     {
         var err = FormatErrorSuffix(scanErrorCount, firstSkippedFileName, firstSkippedReason);
         if (!string.IsNullOrEmpty(currentPath))
-            return $"Scanning: {currentPath}  ({discoveredCount} found){err}";
-        return $"Scanning… found {discoveredCount}, showing {itemBreakdown}{err}";
+            return $"扫描中：{currentPath}（已发现 {discoveredCount}）{err}";
+        return $"扫描中… 已发现 {discoveredCount}，显示 {itemBreakdown}{err}";
     }
 
-    /// <summary>After scan settle (or between Load More waves).</summary>
     public static string FormatGallery(
         string itemBreakdown,
         int discoveredCount,
@@ -51,51 +45,50 @@ public static class GalleryStatusFormatter
     {
         var err = FormatErrorSuffix(scanErrorCount, firstSkippedFileName, firstSkippedReason);
         if (remainingCount > 0)
-            return $"Showing {itemBreakdown} / {discoveredCount} ({remainingCount} more){err}";
-        return $"Loaded {itemBreakdown}{err}";
+            return $"显示 {itemBreakdown} / {discoveredCount}（还可加载 {remainingCount}）{err}";
+        return $"已加载 {itemBreakdown}{err}";
     }
 
-    /// <summary>In-flight Load More.</summary>
     public static string FormatLoadingMore(int loadedCount, int discoveredCount)
-        => $"Loading {loadedCount} / {discoveredCount}…";
+        => $"加载中 {loadedCount} / {discoveredCount}…";
 
     public static string FormatError(string message)
-        => $"Error: {message}";
+        => $"错误：{message}";
 
     public static string FormatCancelled()
-        => "Cancelled";
+        => "已取消";
 
     public static string FormatFolderPickerUnavailable()
-        => "Folder picker not wired";
+        => "文件夹选择器未就绪";
 
     public static string FormatWatchUnavailable(string message)
-        => $"File monitoring unavailable: {message}";
+        => $"目录监视不可用：{message}";
 
     public static string FormatDeleteFailed(string error)
-        => $"Delete failed: {error}";
+        => $"删除失败：{error}";
 
     public static string FormatDeleted(string name, bool movedToTrash)
-        => movedToTrash ? $"Moved to trash: {name}" : $"Deleted: {name}";
+        => movedToTrash ? $"已移至回收站：{name}" : $"已删除：{name}";
 
     public static string FormatArchiveDeleteNotSupported()
-        => "Cannot delete: media inside archives is not supported";
+        => "无法删除：不支持删除压缩包内媒体";
 
     public static string FormatSlideshowActive(double intervalSeconds, bool looping, bool shuffling)
     {
-        var text = $"Slideshow every {intervalSeconds:0.#}s";
-        if (looping) text += " · loop";
-        if (shuffling) text += " · shuffle";
+        var text = $"幻灯片 每 {intervalSeconds:0.#} 秒";
+        if (looping) text += " · 循环";
+        if (shuffling) text += " · 随机";
         return text;
     }
 
     public static string FormatSlideshowFinished()
-        => "Slideshow finished";
+        => "幻灯片结束";
 
     public static string FormatVideoLoadFailed()
-        => "Video load failed (codec / path)";
+        => "视频加载失败（编解码 / 路径）";
 
     public static string FormatVideoError(string message)
-        => $"Video error: {message}";
+        => $"视频错误：{message}";
 
     public static string FormatErrorSuffix(
         int scanErrorCount,
@@ -108,13 +101,13 @@ public static class GalleryStatusFormatter
         if (scanErrorCount == 1 && !string.IsNullOrEmpty(firstSkippedFileName))
         {
             return string.IsNullOrEmpty(firstSkippedReason)
-                ? $" — 1 file skipped ({firstSkippedFileName})"
-                : $" — 1 file skipped ({firstSkippedFileName}: {firstSkippedReason})";
+                ? $" — 跳过 1 个文件（{firstSkippedFileName}）"
+                : $" — 跳过 1 个文件（{firstSkippedFileName}：{firstSkippedReason}）";
         }
 
         if (!string.IsNullOrEmpty(firstSkippedFileName))
-            return $" — {scanErrorCount} files skipped (first: {firstSkippedFileName})";
+            return $" — 跳过 {scanErrorCount} 个文件（首个：{firstSkippedFileName}）";
 
-        return $" · {scanErrorCount} scan error(s)";
+        return $" · {scanErrorCount} 个扫描错误";
     }
 }

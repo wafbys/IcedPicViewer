@@ -121,7 +121,8 @@ dotnet test IcedPicViewer.slnx -c Debug
 | flush 链 | `FlushScanBatch` → `IngestScanBatch` → `DrainPageFillAsync` | |
 | Load More | `LoadMoreAsync` / `LoadMoreCommand` + `CanLoadMore` / `IsLoadingMore` | |
 | 缩略图 | `LoadThumbnailAsync` + `_thumbnailLoadSemaphore`（`ThumbConcurrency = 6`） | |
-| 状态文案 | `StatusText` + `UpdateStatus` | **一律**经 Core `GalleryStatusFormatter`（扫描/完成/删除/幻灯片/视频/监视失败）；禁止两壳各写一套字符串 |
+| 状态文案 | `StatusText` + `UpdateStatus` | **一律**经 Core `GalleryStatusFormatter`（**中文**）；禁止两壳各写一套字符串 |
+| 对话框 / 工具栏 | `UiCopy` | **中文**公共文案（删除确认、打开文件夹、加载更多…）；壳 XAML 与 VM 标签对齐 |
 | 查看器已加载数 | WinUI：`ItemCount`（=`Items.Count`）；Avalonia：直接绑 `Items.Count` | 勿与 `DiscoveredCount` 混淆 |
 
 #### 仅平台差异（技术栈，不是第二套产品词）
