@@ -4,6 +4,7 @@ using System.Diagnostics;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Core.Media;
+using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
 using IcedPicViewer.Services.Interfaces;
@@ -266,7 +267,7 @@ public partial class MainViewModel
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 LoadingState = LoadingState.Completed;
-                StatusText = "Cancelled";
+                StatusText = GalleryStatusFormatter.FormatCancelled();
                 RefreshCommand.NotifyCanExecuteChanged();
                 OpenFolderCommand.NotifyCanExecuteChanged();
             });
@@ -277,7 +278,7 @@ public partial class MainViewModel
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 LoadingState = LoadingState.Error;
-                StatusText = $"Error: {ex.Message}";
+                StatusText = GalleryStatusFormatter.FormatError(ex.Message);
                 RefreshCommand.NotifyCanExecuteChanged();
                 OpenFolderCommand.NotifyCanExecuteChanged();
             });
@@ -404,21 +405,18 @@ public partial class MainViewModel
     {
         int remaining;
         lock (_remainingLock) remaining = _remainingSources.Count;
-        var err = _scanErrors > 0 ? $" · {_scanErrors} scan error(s)" : "";
         var videos = Items.Count(i => i.IsVideo);
         var images = Items.Count - videos;
-        var loaded = videos > 0
-            ? $"{images} images, {videos} videos"
-            : $"{images} image(s)";
+        var breakdown = GalleryStatusFormatter.FormatItemBreakdown(images, videos);
 
         if (IsScanning || !_scanComplete)
         {
-            StatusText = $"Scanning… found {DiscoveredCount}, showing {loaded}{err}";
+            StatusText = GalleryStatusFormatter.FormatScanning(
+                DiscoveredCount, breakdown, scanErrorCount: _scanErrors);
             return;
         }
 
-        StatusText = remaining > 0
-            ? $"Showing {loaded} / {DiscoveredCount} ({remaining} more){err}"
-            : $"Loaded {loaded}{err}";
+        StatusText = GalleryStatusFormatter.FormatGallery(
+            breakdown, DiscoveredCount, remaining, scanErrorCount: _scanErrors);
     }
 }

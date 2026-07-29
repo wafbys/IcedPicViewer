@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Avalonia.Services;
 using IcedPicViewer.Core.Media;
+using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
 using IcedPicViewer.Services.Interfaces;
@@ -56,7 +57,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
-    public partial string StatusText { get; set; } = "Open a folder to start";
+    public partial string StatusText { get; set; } = GalleryStatusFormatter.IdleDefault;
 
     [ObservableProperty]
     public partial string FolderPath { get; set; } = "";

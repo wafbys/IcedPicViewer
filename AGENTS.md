@@ -121,7 +121,7 @@ dotnet test IcedPicViewer.slnx -c Debug
 | flush 链 | `FlushScanBatch` → `IngestScanBatch` → `DrainPageFillAsync` | |
 | Load More | `LoadMoreAsync` / `LoadMoreCommand` + `CanLoadMore` / `IsLoadingMore` | |
 | 缩略图 | `LoadThumbnailAsync` + `_thumbnailLoadSemaphore`（`ThumbConcurrency = 6`） | |
-| 状态文案 | `StatusText` + `UpdateStatus` | 默认 `"Open a folder to start"`；扫描中 WinUI 可另有 `UpdateScanningStatusText`（路径提示） |
+| 状态文案 | `StatusText` + `UpdateStatus` | 文案由 Core `GalleryStatusFormatter` 生成；默认 `IdleDefault`；WinUI 扫描中可带 `CurrentScanningPath` |
 | 查看器已加载数 | WinUI：`ItemCount`（=`Items.Count`）；Avalonia：直接绑 `Items.Count` | 勿与 `DiscoveredCount` 混淆 |
 
 #### 仅平台差异（技术栈，不是第二套产品词）

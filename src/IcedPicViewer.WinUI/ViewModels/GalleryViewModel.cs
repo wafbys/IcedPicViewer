@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
 using IcedPicViewer.Services.Interfaces;
@@ -151,7 +152,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
 
     [ObservableProperty]
-    public partial string StatusText { get; set; } = "Open a folder to start";
+    public partial string StatusText { get; set; } = GalleryStatusFormatter.IdleDefault;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
@@ -500,7 +501,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             Trace.TraceError($"LoadDirectoryAsync error: {ex}");
             LoadingState = LoadingState.Error;
-            StatusText = $"Error: {ex.Message}";
+            StatusText = GalleryStatusFormatter.FormatError(ex.Message);
         }
     }
 
@@ -800,7 +801,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 // from a previous folder sneaking into the new Items collection.
                 if (ct.IsCancellationRequested) return;
                 Items.Add(item);
-                StatusText = $"Loading {Items.Count} / {DiscoveredCount}...";
+                StatusText = GalleryStatusFormatter.FormatLoadingMore(Items.Count, DiscoveredCount);
             });
 
             _ = LoadThumbnailAsync(item, ct);
@@ -863,66 +864,57 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Centralized status text formatter used after collection mutations so the
-    /// "Loaded X / Y images" wording stays consistent across Created / Deleted /
-    /// LoadDirectory / LoadMore paths. If the scanner reported any unreadable
-    /// files (typically a corrupt or unsupported archive), append a short
-    /// summary so the user knows which file to investigate.
+    /// Status bar after settle / Load More / watcher mutations.
+    /// Wording from shared <see cref="GalleryStatusFormatter"/> (same as Avalonia).
     /// </summary>
     private void UpdateStatus()
     {
-        var loaded = Items.Count;
-        // Video count out of the loaded set. We don't have a separate
-        // video count is derived from Items because the scanner reports a single combined
-        // discovered count (extensions are filtered per-source as we go,
-        // not pre-bucketed into image-vs-video totals). Showing only
-        // "N videos loaded" — without a total denominator — is the
-        // honest version. A user scanning for "how many videos are in
-        // this folder" can read the number once Load More has caught
-        // up to the scanner's progress.
-        var videos = loaded > 0 ? Items.Count(i => i.IsVideo) : 0;
-        var imageText = (DiscoveredCount > 0 && DiscoveredCount != loaded)
-            ? $"Loaded {loaded} / {DiscoveredCount}"
-            : $"Loaded {loaded} images";
-        // Append the video count only when non-zero — a pure-photo
-        // folder shouldn't grow the status text with a ", 0 videos"
-        // suffix.
-        string baseText = videos > 0
-            ? $"{imageText}, {videos} videos"
-            : imageText;
-
-        if (_scanErrors.Count == 0)
+        int remaining;
+        lock (_remainingLock) remaining = _remainingSources.Count;
+        var videos = Items.Count(i => i.IsVideo);
+        var images = Items.Count - videos;
+        var breakdown = GalleryStatusFormatter.FormatItemBreakdown(images, videos);
+        string? firstName = null;
+        string? firstReason = null;
+        if (_scanErrors.Count > 0)
         {
-            StatusText = baseText;
-            return;
+            firstName = Path.GetFileName(_scanErrors[0].Path);
+            firstReason = _scanErrors[0].Reason;
         }
 
-        // Show the count + the first offender. Filename only — the full path
-        // is usually too long for the status bar.
-        var first = Path.GetFileName(_scanErrors[0].Path);
-        StatusText = _scanErrors.Count == 1
-            ? $"{baseText} — 1 file skipped ({first}: {_scanErrors[0].Reason})"
-            : $"{baseText} — {_scanErrors.Count} files skipped (first: {first})";
+        StatusText = GalleryStatusFormatter.FormatGallery(
+            breakdown,
+            DiscoveredCount,
+            remaining,
+            scanErrorCount: _scanErrors.Count,
+            firstSkippedFileName: firstName,
+            firstSkippedReason: firstReason);
     }
 
     /// <summary>
-    /// Formats the "Scanning: ..." status text shown while the directory
-    /// scanner is running. Called from both the discovered-count and
-    /// current-path throttled progress sinks so the rendered text is always
-    /// self-consistent — the most recent path + the most recent count,
-    /// regardless of which progress source fired last.
+    /// Status while scanner is running. Uses path form when
+    /// <see cref="CurrentScanningPath"/> is available (WinUI-only live path UI).
     /// </summary>
     private void UpdateScanningStatusText()
     {
-        if (string.IsNullOrEmpty(CurrentScanningPath))
+        var videos = Items.Count(i => i.IsVideo);
+        var images = Items.Count - videos;
+        var breakdown = GalleryStatusFormatter.FormatItemBreakdown(images, videos);
+        string? firstName = null;
+        string? firstReason = null;
+        if (_scanErrors.Count > 0)
         {
-            // Pre-first-throttle window: no path reported yet.
-            StatusText = $"Scanning… found {DiscoveredCount}";
+            firstName = Path.GetFileName(_scanErrors[0].Path);
+            firstReason = _scanErrors[0].Reason;
         }
-        else
-        {
-            StatusText = $"Scanning: {CurrentScanningPath}  ({DiscoveredCount} found)";
-        }
+
+        StatusText = GalleryStatusFormatter.FormatScanning(
+            DiscoveredCount,
+            breakdown,
+            currentPath: string.IsNullOrEmpty(CurrentScanningPath) ? null : CurrentScanningPath,
+            scanErrorCount: _scanErrors.Count,
+            firstSkippedFileName: firstName,
+            firstSkippedReason: firstReason);
     }
 
     private void StartWatching(string path)
