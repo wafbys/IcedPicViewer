@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
+using IcedPicViewer.Services;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -16,6 +17,7 @@ using System.Threading;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Storage;
+using VlcMediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace IcedPicViewer.ViewModels;
 
@@ -34,6 +36,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _fullResCts;
     private MediaPlayer? _mediaPlayer;
     private string? _currentPlaybackPath;
+    private readonly VlcPlaybackService _vlc = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActualWidth))]
@@ -436,9 +439,27 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(PrePlayStripVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerFitContainerVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerActualSizeContainerVisibility))]
+    [NotifyPropertyChangedFor(nameof(VlcSurfaceVisibility))]
     [NotifyPropertyChangedFor(nameof(PlayerStretch))]
     [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
     public partial bool IsVideoPlaying { get; set; }
+
+    /// <summary>
+    /// True when playback uses LibVLC soft-render (MF cannot decode the codec).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PlayerFitContainerVisibility))]
+    [NotifyPropertyChangedFor(nameof(PlayerActualSizeContainerVisibility))]
+    [NotifyPropertyChangedFor(nameof(VlcSurfaceVisibility))]
+    [NotifyCanExecuteChangedFor(nameof(PlayCommand))]
+    public partial bool IsUsingVlc { get; set; }
+
+    /// <summary>LibVLC player for <see cref="Controls.VlcImageSurface"/> binding.</summary>
+    [ObservableProperty]
+    public partial VlcMediaPlayer? VlcPlayer { get; set; }
+
+    public Visibility VlcSurfaceVisibility =>
+        IsVideo && IsVideoPlaying && IsUsingVlc ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
     /// True while PlayAsync is running its preparation phase (remux /
@@ -617,8 +638,14 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
                 Trace.TraceWarning($"ViewerViewModel.OnVolumeChanged: failed to push to MediaPlayer: {ex.GetType().Name}: {ex.Message}");
             }
         }
-        // Persist. Same write-back pattern as the other preference
-        // properties — see OnIsSlideshowLoopingChanged.
+        if (IsUsingVlc)
+        {
+            try { _vlc.Volume = value; }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning($"ViewerViewModel.OnVolumeChanged VLC: {ex.Message}");
+            }
+        }
         _settingsService.Current.VideoVolume = value;
         _settingsService.ScheduleSave();
     }
@@ -663,7 +690,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     /// events on the first interaction.
     /// </summary>
     public Visibility PlayerFitContainerVisibility =>
-        IsVideo && IsFitMode && IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
+        IsVideo && IsFitMode && IsVideoPlaying && !IsUsingVlc ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
     /// Visibility for the ScrollViewer that hosts the MediaPlayerElement
@@ -671,7 +698,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     /// (so the PlayOverlay button can be clicked).
     /// </summary>
     public Visibility PlayerActualSizeContainerVisibility =>
-        IsVideo && !IsFitMode && IsVideoPlaying ? Visibility.Visible : Visibility.Collapsed;
+        IsVideo && !IsFitMode && IsVideoPlaying && !IsUsingVlc ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility FitModeBtnVisibility => !IsVideo ? Visibility.Visible : Visibility.Collapsed;
 
@@ -702,98 +729,73 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     private async Task PlayAsync()
     {
         if (SelectedItem is not VideoItem video) return;
-        if (_mediaPlayer != null) return;
+        if (_mediaPlayer != null || IsUsingVlc) return;
 
         string? playbackPath = null;
         IsVideoPreparing = true;
+        ErrorMessage = null;
         try
         {
-            // Get a file path MediaPlayer can read. For loose files this
-            // is just source.Path; for archive entries the service
-            // extracts to a tracked temp file. The temp file must be
-            // released via _videoMetadataService.ReleasePlaybackFilePath
-            // when playback ends — StopAndDisposePlayer does that.
+            // Prefer LibVLC for codecs MF cannot remux/decode (VP8/WebM, …)
+            // — same engine as Avalonia shell.
+            if (PreferLibVlcPlayback(video))
+            {
+                await PlayWithVlcAsync(video).ConfigureAwait(true);
+                return;
+            }
+
+            // Get a file path Media Foundation can read (may remux to MP4).
             playbackPath = await _videoMetadataService.GetPlaybackFilePathAsync(video.Media);
 
-            // StorageFile is the supported handle for CreateFromStorageFile
-            // in MSIX packaged apps. GetFileFromPathAsync works for any path
-            // the process can read (it has already read the same file via
-            // FileStream in the gallery's thumbnail pipeline, so access is
-            // guaranteed). A bare `new Uri(path)` / MediaSource.CreateFromUri
-            // would be simpler but hits the file:// sandbox restrictions in
-            // some packaged-app configurations.
             var file = await StorageFile.GetFileFromPathAsync(playbackPath);
             var source = MediaSource.CreateFromStorageFile(file);
 
             var player = new MediaPlayer();
-            // Push the user-configured volume in BEFORE Source / Play()
-            // so the very first decoded frame already plays at the
-            // user's level — MediaPlayer defaults to 1.0 (100%) on
-            // construction. OnVolumeChanged handles live updates while
-            // playback is active, but the initial set has to happen here
-            // explicitly because the player didn't exist when the user
-            // last dragged the slider.
             player.Volume = Math.Clamp(Volume, 0.0, 1.0);
-            // WinRT MediaPlayer uses Source (IMediaPlaybackSource), not Media.
             player.Source = source;
-            // Subscribe before / with Source so we don't miss a fast-failing
-            // decode (e.g. unsupported codec → MediaFailed fires within
-            // tens of milliseconds on a clean Win10/11 install). The
-            // handlers are named so StopAndDisposePlayer can unsubscribe
-            // without keeping a lambda capture alive past the player's
-            // lifetime — see AGENTS.md "MemFree event handlers" rule.
             player.MediaOpened += OnMediaPlayerOpened;
             player.MediaFailed += OnMediaPlayerFailed;
-            // Order: set MediaPlayer first so the MediaPlayerElement binds
-            // to the live instance, then flip IsVideoPlaying so the player
-            // surface becomes visible, then call Play(). Calling Play()
-            // before the element is visible still works (the player keeps
-            // rendering into the surface even when collapsed) but feels
-            // less responsive on slow first frames.
             MediaPlayer = player;
             _currentPlaybackPath = playbackPath;
+            IsUsingVlc = false;
             IsVideoPlaying = true;
             player.Play();
         }
         catch (Exception ex)
         {
             Trace.TraceError($"ViewerViewModel.PlayAsync error for {SelectedItem?.Id}: {ex.GetType().Name}: {ex.Message}");
-            // Surface as a non-playing state so the user can retry. Don't
-            // throw — the play overlay stays visible and CanPlay stays true.
-            // Order: null MediaPlayer first so CanPlay() sees _mediaPlayer==null
-            // when IsVideoPlaying=false fires CanExecuteChanged below.
+
+            // Remux/MF prep failed — try LibVLC on original container before giving up.
+            if (ex is not OperationCanceledException && SelectedItem is VideoItem vRetry)
+            {
+                try
+                {
+                    if (playbackPath != null)
+                    {
+                        _videoMetadataService.ReleasePlaybackFilePath(playbackPath);
+                        playbackPath = null;
+                        _currentPlaybackPath = null;
+                    }
+                    MediaPlayer = null;
+                    await PlayWithVlcAsync(vRetry).ConfigureAwait(true);
+                    return;
+                }
+                catch (Exception vlcEx)
+                {
+                    Trace.TraceError($"ViewerViewModel.PlayAsync VLC fallback: {vlcEx.Message}");
+                }
+            }
+
             MediaPlayer = null;
+            IsUsingVlc = false;
+            VlcPlayer = null;
             IsVideoPlaying = false;
-            // If we successfully created a temp file before the
-            // MediaPlayer construction failed, release it so we don't
-            // leak the extract. If the failure was before
-            // GetPlaybackFilePathAsync returned a path, playbackPath
-            // is still null and the call below is a no-op.
             if (playbackPath != null)
             {
                 _videoMetadataService.ReleasePlaybackFilePath(playbackPath);
                 _currentPlaybackPath = null;
             }
 
-            // Surface a user-visible hint for the pre-MediaPlayer failure
-            // path. The MediaPlayer.MediaFailed handler covers the case
-            // where MediaPlayer.Source is set and MF later refuses to
-            // decode, but THIS path fails BEFORE MediaPlayer exists —
-            // GetPlaybackFilePathAsync (FFmpeg remux) is the most common
-            // culprit: a .mov / .mkv containing a codec MP4 can't carry
-            // (ProRes, DNxHD, ...) hits avformat_write_header failure →
-            // re-thrown → caught here. Without this hint the user clicks
-            // ▶, nothing happens, and they have no idea why.
-            //
-            // OperationCanceledException = the user navigated away
-            // mid-prep (Close / Next / Prev) — no hint in that case, the
-            // page is already gone or about to be.
-            //
-            // Pinned InfoBar: no auto-dismiss, no close button. Cleared
-            // only when the user moves to a different item (see
-            // OnSelectedItemChanged). The view's TextBox-based content
-            // makes the codec / HRESULT / system message selectable +
-            // Ctrl+C-able for troubleshooting.
             if (ex is not OperationCanceledException)
             {
                 var codec = SelectedItem is VideoItem v ? v.Codec : string.Empty;
@@ -806,7 +808,88 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         }
     }
 
-    private bool CanPlay() => IsVideo && !IsVideoPlaying && !IsVideoPreparing && _mediaPlayer == null;
+    private bool CanPlay() =>
+        IsVideo && !IsVideoPlaying && !IsVideoPreparing && _mediaPlayer == null && !IsUsingVlc;
+
+    /// <summary>
+    /// Codecs / containers that Windows Media Foundation cannot remux into MP4
+    /// or decode natively — use LibVLC (same as Avalonia).
+    /// </summary>
+    internal static bool PreferLibVlcPlayback(VideoItem video)
+    {
+        var c = (video.Codec ?? string.Empty).Trim().ToLowerInvariant();
+        if (c is "vp8" or "vp9" or "av1" or "theora" ||
+            c.StartsWith("vp8", StringComparison.Ordinal) ||
+            c.StartsWith("vp9", StringComparison.Ordinal) ||
+            c.StartsWith("av1", StringComparison.Ordinal) ||
+            c.StartsWith("prores", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var path = video.Media.IsInArchive
+            ? (video.Media.ArchiveEntry ?? string.Empty)
+            : video.Media.Path;
+        var ext = Path.GetExtension(path);
+        // WebM is almost always VP8/VP9/AV1 — remux-to-MP4 fails; MF demux is weak.
+        if (ext.Equals(".webm", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    private async Task PlayWithVlcAsync(VideoItem video)
+    {
+        _vlc.EnsureInitialized();
+        if (!_vlc.IsAvailable)
+        {
+            throw new InvalidOperationException(
+                "LibVLC 不可用（VideoLAN.LibVLC.Windows 未正确加载）。无法播放此 codec。");
+        }
+
+        // Original container — no MP4 remux (VP8 cannot live in MP4).
+        var path = await _videoMetadataService
+            .GetPlaybackFilePathAsync(video.Media, remuxIfNeeded: false, ct: CancellationToken.None)
+            .ConfigureAwait(true);
+
+        if (!_vlc.LoadPath(path))
+        {
+            _videoMetadataService.ReleasePlaybackFilePath(path);
+            throw new InvalidOperationException($"LibVLC 无法打开: {path}");
+        }
+
+        _vlc.Volume = Volume;
+        VlcPlayer = _vlc.Player;
+        _currentPlaybackPath = path;
+        IsUsingVlc = true;
+        IsVideoPlaying = true;
+        _vlc.Play();
+    }
+
+    /// <summary>0–100 seek for WH_KEYBOARD digit keys (MF + VLC).</summary>
+    public void SeekPlaybackToPercent(int percent)
+    {
+        percent = Math.Clamp(percent, 0, 100);
+        if (IsUsingVlc)
+        {
+            _vlc.SeekFraction(percent / 100.0);
+            return;
+        }
+
+        var player = _mediaPlayer;
+        if (player is null) return;
+        var duration = player.PlaybackSession.NaturalDuration;
+        if (duration == TimeSpan.Zero) return;
+        var wasPlaying = player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+        if (wasPlaying) player.Pause();
+        player.PlaybackSession.Position = TimeSpan.FromSeconds(duration.TotalSeconds * percent / 100.0);
+        if (wasPlaying) player.Play();
+    }
+
+    public void ToggleVlcPlayPause()
+    {
+        if (IsUsingVlc) _vlc.TogglePlayPause();
+    }
 
     // ----------------------------------------------------------------
     // MediaPlayer event handlers.
@@ -953,50 +1036,41 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     {
         var oldPlayer = MediaPlayer;
         var oldPath = _currentPlaybackPath;
+        var wasVlc = IsUsingVlc;
         MediaPlayer = null;
+        VlcPlayer = null;
+        IsUsingVlc = false;
         _currentPlaybackPath = null;
         IsVideoPlaying = false;
         IsVideoPreparing = false;
-        if (oldPlayer is null && oldPath is null) return;
+
+        if (wasVlc)
+        {
+            try { _vlc.Stop(); }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"ViewerViewModel.StopAndDisposePlayer VLC: {ex.Message}");
+            }
+        }
+
+        if (oldPlayer is null && oldPath is null && !wasVlc) return;
 
         if (oldPlayer is not null)
         {
             try
             {
-                // Unsubscribe BEFORE dispose so a synchronous final
-                // MediaFailed from the teardown can't reach a half-
-                // disposed handler. Named handlers only — lambdas
-                // wouldn't unsubscribe cleanly.
                 oldPlayer.MediaOpened -= OnMediaPlayerOpened;
                 oldPlayer.MediaFailed -= OnMediaPlayerFailed;
                 oldPlayer.Pause();
-                // Drop the MediaSource before Dispose so the source's underlying
-                // file handle is released before the player tears down its
-                // render pipeline. Order matters: Source = null on a still-
-                // playing player can race with Dispose; pausing first makes the
-                // release sequence deterministic.
                 oldPlayer.Source = null;
-                // The WinRT MediaPlayer implements IDisposable (not Close) in
-                // the Windows.Media.Playback contract exposed to .NET — Dispose
-                // walks the same teardown path as the UWP Close() sequence.
                 oldPlayer.Dispose();
             }
             catch (Exception ex)
             {
-                // Best-effort cleanup. A leaked native handle here is much
-                // less bad than a crash in the disposal path.
                 Trace.TraceError($"ViewerViewModel.StopAndDisposePlayer error: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
-        // Release the temp file the service allocated for archive
-        // playback. For loose files the path IS the user's real file
-        // and ReleasePlaybackFilePath is a no-op on it. Always
-        // unconditional: the VM may have been constructed before
-        // _videoMetadataService was wired (e.g. during static init),
-        // but the only path that goes through the dependency
-        // injection is the constructor above, so by the time
-        // playback ever happens _videoMetadataService is non-null.
         if (oldPath is not null)
         {
             try
@@ -1441,6 +1515,8 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             // while a video is playing, this is what stops audio output
             // and releases the surface.
             StopAndDisposePlayer();
+            try { _vlc.Dispose(); }
+            catch (Exception ex) { Trace.TraceError($"ViewerViewModel.Dispose VLC: {ex.Message}"); }
             StopSlideshow();
             // Clear the pinned error hint so the singleton doesn't
             // outlive its window with a stale message. The InfoBar

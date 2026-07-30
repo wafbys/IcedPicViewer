@@ -3,6 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:IcedPicViewer"
+    xmlns:controls="using:IcedPicViewer.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
@@ -295,6 +296,13 @@
             -->
             <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
                    Stretch="Uniform"/>
+            <!--
+                LibVLC soft-render surface for codecs MF cannot play
+                (VP8/WebM, ProRes, …). Same approach as Avalonia.
+            -->
+            <controls:VlcImageSurface x:Name="VlcSurface"
+                                      MediaPlayer="{x:Bind ViewModel.VlcPlayer, Mode=OneWay}"
+                                      Visibility="{x:Bind ViewModel.VlcSurfaceVisibility, Mode=OneWay}"/>
             <!--
                 Loading indicator during playback preparation. Shown while
                 PlayAsync is waiting on the FFmpeg remux / extract step,

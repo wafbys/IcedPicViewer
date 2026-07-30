@@ -307,15 +307,10 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
                 vm.CloseCommand.Execute(null);
                 break;
             case Windows.System.VirtualKey.Space:
-                // Space is the keyboard shortcut to start video playback
-                // from the static first-frame state (matches the gallery
-                // card's click-to-play affordance). The PlayCommand's
-                // CanExecute returns false once IsVideoPlaying is true, so
-                // we don't fight the MediaPlayerElement's built-in
-                // transport controls for Space-to-pause once the player
-                // surface is up. See ViewerViewModel.PlayAsync + the
-                // CanPlay guard for the gate that makes this safe.
-                if (vm.PlayCommand.CanExecute(null))
+                // Start playback, or toggle LibVLC pause (MF uses built-in controls).
+                if (vm.IsUsingVlc && vm.IsVideoPlaying)
+                    vm.ToggleVlcPlayPause();
+                else if (vm.PlayCommand.CanExecute(null))
                     vm.PlayCommand.Execute(null);
                 break;
             case Windows.System.VirtualKey.Number0:
@@ -357,28 +352,8 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
     private static void HandleNumberKeySeek(ViewerViewModel vm, int percent)
     {
         if (!vm.IsVideo) return;
-        var player = vm.MediaPlayer;
-        if (player == null) return;
-
-        var duration = player.PlaybackSession.NaturalDuration;
-        if (duration == TimeSpan.Zero) return;
-
-        var wasPlaying = player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
-        if (wasPlaying)
-        {
-            // Pause before seeking — seeking on a playing video
-            // can stutter the native pipeline.
-            player.Pause();
-        }
-        player.PlaybackSession.Position = TimeSpan.FromSeconds(duration.TotalSeconds * percent / 100.0);
-        if (wasPlaying)
-        {
-            // Resume so the user lands at the new position while
-            // the video is rolling. The 200ms controls-timer tick
-            // in the viewer will refresh the slider / time-text
-            // glyphs in the next frame.
-            player.Play();
-        }
+        // Covers Media Foundation + LibVLC (VP8/WebM etc.).
+        vm.SeekPlaybackToPercent(percent);
     }
 
     private void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)

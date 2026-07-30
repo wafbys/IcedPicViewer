@@ -304,37 +304,23 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         return bitmapImage2;
     }
 
-    public async Task<string> GetPlaybackFilePathAsync(MediaRef media, CancellationToken ct = default)
+    public async Task<string> GetPlaybackFilePathAsync(
+        MediaRef media,
+        bool remuxIfNeeded = true,
+        CancellationToken ct = default)
     {
         if (!media.IsInArchive)
         {
-            // Loose file. Fast path: container is one Windows Media
-            // Foundation (the engine behind WinUI MediaPlayer) recognizes
-            // natively — just hand the path back. The user already paid
-            // for the disk allocation; no temp extraction, no tracking.
-            if (!NeedsRemuxToMp4(media.Path))
+            // Loose file. Fast path: already MP4-family, or caller asked
+            // for original container (LibVLC can play WebM/VP8 natively).
+            if (!remuxIfNeeded || !NeedsRemuxToMp4(media.Path))
             {
                 return media.Path;
             }
 
             // Slow path: container is one MF can't play (.mov, .mkv,
-            // .avi, ...). Remux the loose file into a fresh MP4 temp
-            // file via FFmpeg and return that path. The temp file is
-            // tracked so ReleasePlaybackFilePath reclaims it when
-            // playback ends.
-            //
-            // Why remux vs transcode: remux is container-copy only
-            // (no codec work), so a 1 GB H.264/AAC .mov becomes a
-            // ~1 GB H.264/AAC .mp4 in 1-2 s on a fast SSD. Quality is
-            // identical because no re-encode happens.
-            //
-            // Why this is necessary at all: since the 2018 QuickTime
-            // CVE cleanup Microsoft removed the .mov container demuxer
-            // from Media Foundation; .mkv and .avi are also not in the
-            // stock MF media-resolver list. Without remux, MediaPlayer
-            // surfaces "Error: Unsupported video type or invalid file
-            // path" the moment Play() is called on one of these files.
-            // See RemuxToMp4 for the native implementation.
+            // .avi, .webm...). Remux into MP4 via FFmpeg (stream copy —
+            // fails when the codec cannot live in MP4, e.g. VP8/VP9/ProRes).
             var remuxedPath = Path.Combine(_tempDir, $"ipv-video-{Guid.NewGuid():N}.mp4");
             try
             {
@@ -342,19 +328,11 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             }
             catch
             {
-                // Remux aborted partway. The partially-written output (if
-                // any) is junk — delete it so the temp dir doesn't
-                // accumulate garbage over time. The media loose file is
-                // untouched (we never wrote to it).
                 TryDeleteTempFileUntracked(remuxedPath);
                 throw;
             }
             if (!File.Exists(remuxedPath))
             {
-                // Defensive: RemuxToMp4 should always close the output,
-                // but if it returned without throwing and without
-                // producing a file (shouldn't happen) we still don't
-                // want to hand back a path MediaPlayer can't open.
                 TryDeleteTempFileUntracked(remuxedPath);
                 throw new FileNotFoundException(
                     $"RemuxToMp4 produced no output for {media.Path}", remuxedPath);
@@ -366,27 +344,17 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             return remuxedPath;
         }
 
-        // Archive entry: extract to a fresh temp file. We pick the
-        // extension from the entry key because FFmpeg's container
-        // detector uses it as a hint, and on cleanup we want to be
-        // able to tell at a glance which file is which. The file
-        // lives until the caller invokes ReleasePlaybackFilePath (or
-        // the service's Dispose on app shutdown).
+        // Archive entry: always extract first.
         var extractPath = CreateTempFilePathForSource(media);
         ct.ThrowIfCancellationRequested();
         await Task.Run(() => ArchiveHelper.ExtractEntryToFile(media.Path, media.ArchiveEntry!, extractPath), ct);
         if (!File.Exists(extractPath))
         {
-            // Extraction silently failed (corrupt entry, I/O
-            // error, ...). Don't track a non-existent path.
             throw new FileNotFoundException($"Failed to extract archive entry to {extractPath}", extractPath);
         }
 
-        if (!NeedsRemuxToMp4(extractPath))
+        if (!remuxIfNeeded || !NeedsRemuxToMp4(extractPath))
         {
-            // MP4 / M4V archive entry: hand the extracted temp file
-            // to MF. Tracking happens here so ReleasePlaybackFilePath
-            // finds the entry on cleanup.
             lock (_tempLock)
             {
                 _playbackTempFiles.Add(extractPath);
@@ -394,13 +362,6 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             return extractPath;
         }
 
-        // .mov / .mkv / .avi archive entry: extract gave us a file
-        // MF still can't play, so we remux to a fresh .mp4 temp file
-        // the same way the loose-file branch does. We deliberately do
-        // NOT track the extracted file — it's an intermediate artifact
-        // that's deleted as soon as the remux finishes, so the
-        // tracking list only ever contains paths the caller can
-        // actually hand to ReleasePlaybackFilePath.
         var remuxedArchivePath = Path.Combine(_tempDir, $"ipv-video-{Guid.NewGuid():N}.mp4");
         try
         {
@@ -408,9 +369,6 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         }
         catch
         {
-            // Both the partial .mp4 and the extracted media are
-            // untracked — clean them up so they don't linger in the
-            // temp dir between launches.
             TryDeleteTempFileUntracked(remuxedArchivePath);
             TryDeleteTempFileUntracked(extractPath);
             throw;

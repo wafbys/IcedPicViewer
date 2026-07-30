@@ -61,15 +61,19 @@ public interface IVideoMetadataService
     Task<BitmapImage?> ExtractVideoThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default);
 
     /// <summary>
-    /// Returns a file path that <c>MediaPlayer</c> / <c>MediaSource</c> can
-    /// read. For a loose file, this is just <see cref="MediaRef.Path"/>.
+    /// Returns a file path that a player can open on disk.
+    /// For a loose file, this is just <see cref="MediaRef.Path"/> (optionally
+    /// remuxed to MP4 when Media Foundation needs it).
     /// For an archive entry, the entry is extracted to a fresh temp
     /// file (in the service's temp dir) that lives until the caller
-    /// invokes <see cref="ReleasePlaybackFilePath"/>. The caller is
-    /// responsible for invoking that release exactly once for every
-    /// successful GetPlaybackFilePathAsync call.
+    /// invokes <see cref="ReleasePlaybackFilePath"/>.
     /// </summary>
-    Task<string> GetPlaybackFilePathAsync(MediaRef media, CancellationToken ct = default);
+    /// <param name="remuxIfNeeded">
+    /// When true (default), non-MP4 containers are remuxed for Windows Media
+    /// Foundation. When false, the original container is kept (for LibVLC
+    /// fallback — e.g. VP8/WebM which cannot be remuxed into MP4).
+    /// </param>
+    Task<string> GetPlaybackFilePathAsync(MediaRef media, bool remuxIfNeeded = true, CancellationToken ct = default);
 
     /// <summary>
     /// Releases a previously-returned playback file path. For loose

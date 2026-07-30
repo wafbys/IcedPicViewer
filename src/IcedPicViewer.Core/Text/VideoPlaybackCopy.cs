@@ -45,18 +45,21 @@ public static class VideoPlaybackCopy
            "建议: Microsoft Store 搜索 'HEVC Video Extensions' (免费 / 收费版功能一致)，装完即可在本应用播放。\n" +
            "或者用 FFmpeg 转 H.264 之后再用 — ffmpeg -i input.mov -c:v libx264 -crf 20 -c:a aac output.mp4";
 
+    public static string CodecHintVp8()
+        => "此文件用 VP8 编码（常见于 .webm）。Windows Media Foundation 无法解码；本应用会改用内置 LibVLC 播放。\n" +
+           "若仍失败，请确认已安装 VideoLAN LibVLC 运行库，或用系统 VLC / mpv 打开。";
+
     public static string CodecHintVp9()
-        => "此文件用 VP9 编码。Windows Media Foundation 不带 VP9 decoder。\n\n" +
-           "建议: 用 FFmpeg 转 H.264 / H.265，或者用 Chrome / VLC 播放原始文件。\n" +
-           "ffmpeg -i input.webm -c:v libx264 -crf 22 -c:a aac output.mp4";
+        => "此文件用 VP9 编码。Windows Media Foundation 通常不带 VP9 decoder；本应用会改用内置 LibVLC 播放。\n" +
+           "也可转码: ffmpeg -i input.webm -c:v libx264 -crf 22 -c:a aac output.mp4";
 
     public static string CodecHintAv1()
-        => "此文件用 AV1 编码。Win10 没有 AV1 decoder；Win11 24H2+ 默认带 AV1 解码，旧版需要装 'AV1 Video Extension' (Microsoft Store 免费)。\n\n" +
-           "建议: 升级到最新 Windows 11，或用 FFmpeg 转 H.264 / H.265 后再播放。";
+        => "此文件用 AV1 编码。Win10 / 部分 Win11 缺少 MF decoder；本应用会改用内置 LibVLC 播放。\n" +
+           "也可安装 Microsoft Store「AV1 Video Extension」，或 FFmpeg 转 H.264。";
 
     public static string CodecHintGeneric(string codec)
         => $"此文件用非主流 codec ({codec}) 编码，Windows Media Foundation 很可能无法解码。\n" +
-           "建议: 用 FFmpeg 转 H.264 + AAC 的 mp4 后再播放，或者用 VLC / mpv 直接打开本文件。";
+           "本应用会优先用内置 LibVLC 尝试播放；仍失败时请用 VLC / mpv 打开，或转 H.264+AAC 的 mp4。";
 
     public static string GetCodecSpecificHint(string? codec)
     {
@@ -66,6 +69,8 @@ public static class VideoPlaybackCopy
             return CodecHintProRes(codec);
         if (c is "hevc" or "h265" || c.StartsWith("hevc", StringComparison.Ordinal))
             return CodecHintHevc();
+        if (c is "vp8" || c.StartsWith("vp8", StringComparison.Ordinal))
+            return CodecHintVp8();
         if (c is "vp9" || c.StartsWith("vp9", StringComparison.Ordinal))
             return CodecHintVp9();
         if (c is "av1" || c.StartsWith("av1", StringComparison.Ordinal))
