@@ -278,7 +278,7 @@
                             </StackPanel>
                             <Button Classes="toolbar" Content="位置" Command="{Binding RevealSelectedCommand}" />
                             <Button Classes="toolbar-danger" Content="删除" Command="{Binding DeleteSelectedCommand}"
-                                    ToolTip.Tip="Delete" />
+                                    ToolTip.Tip="删除" />
                             <Button Classes="toolbar" Content="全屏" Command="{Binding ToggleFullscreenCommand}"
                                     ToolTip.Tip="F11" />
                             <Button Classes="toolbar" Content="关闭" Command="{Binding CloseViewerCommand}"

@@ -226,10 +226,10 @@ public class DirectoryScanner : IDirectoryScanner
     /// </summary>
     private static string ClassifyArchiveError(Exception ex) => ex switch
     {
-        FileNotFoundException => "file missing",
-        IOException => "I/O error",
-        UnauthorizedAccessException => "access denied",
-        _ => "unsupported or corrupt archive"
+        FileNotFoundException => IcedPicViewer.Core.Text.UiCopy.ArchiveFileMissing,
+        IOException => IcedPicViewer.Core.Text.UiCopy.ArchiveIoError,
+        UnauthorizedAccessException => IcedPicViewer.Core.Text.UiCopy.ArchiveAccessDenied,
+        _ => IcedPicViewer.Core.Text.UiCopy.ArchiveUnsupportedOrCorrupt
     };
 
     public IDisposable Watch(string rootPath, bool recursive, Action<FileChangeInfo> onChanged)

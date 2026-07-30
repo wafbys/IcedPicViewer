@@ -18,19 +18,38 @@ public static class UiCopy
     public const string LoadMore = "加载更多";
     public const string Slideshow = "幻灯片";
     public const string Fullscreen = "全屏";
+    public const string ExitFullscreen = "退出全屏";
+    public const string FullscreenTooltip = "全屏 (F11)";
+    public const string ExitFullscreenTooltip = "退出全屏 (F11)";
     public const string About = "关于";
     public const string Close = "关闭";
     public const string RevealInFolder = "打开文件位置";
+    public const string Fit = "适应";
+    public const string FitOneToOne = "1:1";
     public const string FitToggle = "适应 / 1:1";
     public const string Loop = "循环";
     public const string Shuffle = "随机";
     public const string Interval = "间隔";
+    public const string SecondsSuffix = "秒";
     public const string Location = "位置";
     public const string Volume = "音量";
     public const string Play = "播放";
     public const string Pause = "暂停";
     public const string StopSlideshow = "停止幻灯片";
     public const string SelectFolderHint = "选择文件夹开始浏览";
+    public const string UnknownSize = "未知";
+    public const string FileNotFound = "找不到文件";
+    public const string NotFoundPrefix = "未找到：";
+    public const string UnknownError = "未知错误";
+    public const string ArchiveUnsupportedOrCorrupt = "不支持或已损坏的压缩包";
+    public const string ArchiveFileMissing = "文件不存在";
+    public const string ArchiveIoError = "读写错误";
+    public const string ArchiveAccessDenied = "无访问权限";
+    public const string ArchiveUnsupportedFormat = "不支持的压缩格式";
+    public const string LibVlcUnavailable =
+        "LibVLC 不可用（VideoLAN.LibVLC.Windows 未正确加载）。无法播放此编码格式。";
+    public static string LibVlcOpenFailed(string path)
+        => $"LibVLC 无法打开：{path}";
 
     // ── Dialogs ──────────────────────────────────────────────────────
     public const string CannotDeleteTitle = "无法删除";

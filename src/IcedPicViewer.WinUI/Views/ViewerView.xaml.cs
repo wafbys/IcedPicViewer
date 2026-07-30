@@ -44,10 +44,12 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; reading is delegated to the static helper below.")]
     public bool IsFullscreen => IsFullscreenStatic();
     public string IsFullscreenGlyph => IsFullscreen ? "\uE93C" : "\uE827"; // BackToWindow / FullScreen
-    public string IsFullscreenLabel => IsFullscreen ? "Exit Fullscreen" : "Fullscreen";
+    public string IsFullscreenLabel => IsFullscreen
+        ? IcedPicViewer.Core.Text.UiCopy.ExitFullscreen
+        : IcedPicViewer.Core.Text.UiCopy.Fullscreen;
     public string IsFullscreenTooltip => IsFullscreen
-        ? "Exit fullscreen (F11)"
-        : "Fullscreen (F11)";
+        ? IcedPicViewer.Core.Text.UiCopy.ExitFullscreenTooltip
+        : IcedPicViewer.Core.Text.UiCopy.FullscreenTooltip;
 
     private static bool IsFullscreenStatic() => App.MainWindow?.IsFullscreen ?? false;
 
@@ -710,7 +712,9 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         // automatically through x:Bind. The view's only job here is
         // to flip the state and keep the button label in sync.
         ViewModel.IsFitMode = !ViewModel.IsFitMode;
-        FitModeBtn.Content = ViewModel.IsFitMode ? "Fit" : "1:1";
+        FitModeBtn.Label = ViewModel.IsFitMode
+            ? IcedPicViewer.Core.Text.UiCopy.Fit
+            : IcedPicViewer.Core.Text.UiCopy.FitOneToOne;
     }
 
     private void ActualSizeContainer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)

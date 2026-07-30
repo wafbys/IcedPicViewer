@@ -1,5 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using IcedPicViewer.Core.Text;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,7 +13,7 @@ public sealed class DialogService : IDialogService
     public async Task ShowInfoAsync(
         string title,
         string content,
-        string closeButtonText = "OK")
+        string closeButtonText = UiCopy.Ok)
     {
         var xamlRoot = TryGetXamlRoot();
         if (xamlRoot is null) return;
@@ -32,7 +33,7 @@ public sealed class DialogService : IDialogService
         string title,
         string content,
         string primaryButtonText,
-        string closeButtonText = "Cancel",
+        string closeButtonText = UiCopy.Cancel,
         bool defaultIsPrimary = false)
     {
         var xamlRoot = TryGetXamlRoot();

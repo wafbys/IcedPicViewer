@@ -354,7 +354,7 @@ public partial class MainViewModel
 
         if (!_shell.TryDelete(path, preferTrash, out var error))
         {
-            StatusText = GalleryStatusFormatter.FormatDeleteFailed(error ?? "unknown");
+            StatusText = GalleryStatusFormatter.FormatDeleteFailed(error ?? UiCopy.UnknownError);
             return;
         }
 

@@ -91,7 +91,7 @@ public sealed class DesktopShellService : IShellService
         errorMessage = null;
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
-            errorMessage = "File not found";
+            errorMessage = IcedPicViewer.Core.Text.UiCopy.FileNotFound;
             return false;
         }
 

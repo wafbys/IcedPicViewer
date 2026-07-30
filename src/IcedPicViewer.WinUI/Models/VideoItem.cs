@@ -50,7 +50,7 @@ public sealed partial class VideoItem : MediaItem
         get
         {
             var size = MediaDisplay.FormatPixelSize(OriginalWidth, OriginalHeight);
-            if (string.IsNullOrEmpty(size)) size = "Unknown";
+            if (string.IsNullOrEmpty(size)) size = UiCopy.UnknownSize;
             if (Duration > TimeSpan.Zero)
                 return $"{size} · {MediaDisplay.FormatDuration(Duration)}";
             return size;

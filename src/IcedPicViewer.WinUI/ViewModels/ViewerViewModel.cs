@@ -843,8 +843,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         _vlc.EnsureInitialized();
         if (!_vlc.IsAvailable)
         {
-            throw new InvalidOperationException(
-                "LibVLC 不可用（VideoLAN.LibVLC.Windows 未正确加载）。无法播放此 codec。");
+            throw new InvalidOperationException(UiCopy.LibVlcUnavailable);
         }
 
         // Original container — no MP4 remux (VP8 cannot live in MP4).
@@ -855,7 +854,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         if (!_vlc.LoadPath(path))
         {
             _videoMetadataService.ReleasePlaybackFilePath(path);
-            throw new InvalidOperationException($"LibVLC 无法打开: {path}");
+            throw new InvalidOperationException(UiCopy.LibVlcOpenFailed(path));
         }
 
         _vlc.Volume = Volume;

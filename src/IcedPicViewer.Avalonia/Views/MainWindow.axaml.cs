@@ -162,7 +162,7 @@ public partial class MainWindow : Window
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Open folder",
+            Title = IcedPicViewer.Core.Text.UiCopy.OpenFolder,
             AllowMultiple = false,
         }).ConfigureAwait(true);
 

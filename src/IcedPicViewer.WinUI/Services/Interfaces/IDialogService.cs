@@ -17,7 +17,7 @@ public interface IDialogService
     Task ShowInfoAsync(
         string title,
         string content,
-        string closeButtonText = "OK");
+        string closeButtonText = IcedPicViewer.Core.Text.UiCopy.Ok);
 
     /// <summary>
     /// Shows a two-button confirmation dialog. Returns <c>true</c> when the
@@ -27,6 +27,6 @@ public interface IDialogService
         string title,
         string content,
         string primaryButtonText,
-        string closeButtonText = "Cancel",
+        string closeButtonText = IcedPicViewer.Core.Text.UiCopy.Cancel,
         bool defaultIsPrimary = false);
 }

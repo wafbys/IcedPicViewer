@@ -1135,10 +1135,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// </summary>
     private static string ClassifyArchiveError(Exception ex) => ex switch
     {
-        FileNotFoundException => "file missing",
-        IOException => "I/O error",
-        UnauthorizedAccessException => "access denied",
-        _ => "unsupported or corrupt archive"
+        FileNotFoundException => UiCopy.ArchiveFileMissing,
+        IOException => UiCopy.ArchiveIoError,
+        UnauthorizedAccessException => UiCopy.ArchiveAccessDenied,
+        _ => UiCopy.ArchiveUnsupportedOrCorrupt
     };
 
     private void HandleDeleted(FileChangeInfo info)

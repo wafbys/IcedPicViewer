@@ -27,7 +27,7 @@ public sealed partial class ImageItem : MediaItem
         get
         {
             var size = MediaDisplay.FormatPixelSize(OriginalWidth, OriginalHeight);
-            return string.IsNullOrEmpty(size) ? "Unknown" : size;
+            return string.IsNullOrEmpty(size) ? UiCopy.UnknownSize : size;
         }
     }
 }
