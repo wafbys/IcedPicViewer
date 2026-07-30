@@ -4,7 +4,9 @@ root = true
 
 [*]
 charset = utf-8
-end_of_line = crlf
+# Match .gitattributes (eol=lf). CRLF here caused IDE noise:
+# "file uses CRLF but Git will convert to LF".
+end_of_line = lf
 indent_style = space
 indent_size = 4
 insert_final_newline = true
