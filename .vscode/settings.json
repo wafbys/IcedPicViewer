@@ -1,0 +1,8 @@
+{
+  // Dual Windows + Fedora: keep working tree LF to match .gitattributes (eol=lf).
+  // Avoids: "This file uses 'CRLF' line endings, but Git is configured to convert them to 'LF'..."
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "git.autofetch": true
+}
