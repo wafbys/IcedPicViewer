@@ -214,7 +214,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     // ── Fullscreen chrome ────────────────────────────────────────────
 
-    private const double FullscreenChromeHideMs = 650;
+    // Leave-edge grace period (VLC / Photos-like); not re-armed by mid-screen moves.
+    private const double FullscreenChromeHideMs = 900;
     private bool _pointerInChromeHotZone;
 
     partial void OnIsFullscreenChanged(bool value)
@@ -224,6 +225,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
         {
             SetChromeShown(true);
             _pointerInChromeHotZone = false;
+            StopChromeHideTimer();
             ScheduleChromeHide();
         }
         else
@@ -252,9 +254,17 @@ public partial class MainViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        _pointerInChromeHotZone = false;
-        if (IsChromeVisible || ChromeOpacity > 0.01)
+        // Leaving the edge: start hide countdown once. Mid-screen motion
+        // must not keep resetting the timer (else chrome never collapses).
+        if (_pointerInChromeHotZone)
+        {
+            _pointerInChromeHotZone = false;
             ScheduleChromeHide();
+        }
+        else if ((IsChromeVisible || ChromeOpacity > 0.01) && _chromeHideTimer is null)
+        {
+            ScheduleChromeHide();
+        }
     }
 
     public void PeekChrome()
@@ -267,7 +277,10 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
         SetChromeShown(true);
         if (!_pointerInChromeHotZone)
+        {
+            StopChromeHideTimer();
             ScheduleChromeHide();
+        }
     }
 
     private void SetChromeShown(bool shown)
@@ -286,8 +299,8 @@ public partial class MainViewModel : ViewModelBase, IDisposable
 
     private void ScheduleChromeHide()
     {
-        StopChromeHideTimer();
         if (!IsFullscreen) return;
+        if (_chromeHideTimer is not null) return;
 
         _chromeHideTimer = new DispatcherTimer(
             TimeSpan.FromMilliseconds(FullscreenChromeHideMs),

@@ -98,26 +98,28 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
 
     // ----------------------------------------------------------------
-    // Auto-hide chrome (fullscreen only)
+    // Fullscreen chrome (edge hot-zone, mainstream media-player style)
     //
-    // While the window is in fullscreen the top CommandBar collapses
-    // to give the image / video the full screen. Mouse motion in the
-    // top 60 px of the window reveals it; 3 s of no activity below
-    // that line hides it again. Outside fullscreen the bar is always
-    // Visible — IsCommandBarVisible is irrelevant there and the timer
-    // never runs.
-    //
-    // Why a stateful timer + property instead of two Storyboards:
-    // - Reveal needs to be instant (no fade-in feels sluggish for a
-    //   user-driven action). Hide has a 3s grace period that
-    //   animation can't express on its own.
-    // - DispatcherQueueTimer.Start() on a non-repeating timer
-    //   restarts the countdown each time the mouse moves, so the
-    //   bar stays visible as long as the mouse is moving below the
-    //   reveal line and hides only after 3s of stillness. That's
-    //   the behaviour users expect from photo apps.
+    // Reveal: pointer in a generous top band (max of ~10% height / 96px,
+    // and the command bar's own height + slack when already shown).
+    // Hide: only after leaving the zone for ChromeHideDelayMs — not on
+    // every mid-screen move (that used to restart a timer forever while
+    // scrolling). Enter fullscreen briefly shows chrome then auto-hides
+    // so users learn the edge cue.
     // ----------------------------------------------------------------
     private bool _isCommandBarVisible = true;
+    private bool _pointerInChromeHotZone;
+    private DispatcherQueueTimer? _chromeHideTimer;
+
+    /// <summary>Delay after leaving the edge before chrome collapses.</summary>
+    private const int ChromeHideDelayMs = 900;
+
+    /// <summary>Minimum top edge band when chrome is hidden (DIP).</summary>
+    private const double ChromeTopZoneMinPx = 96;
+
+    /// <summary>Fraction of window height for top edge band when hidden.</summary>
+    private const double ChromeTopZoneHeightFraction = 0.12;
+
     public bool IsCommandBarVisible
     {
         get => _isCommandBarVisible;
@@ -126,10 +128,6 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
             if (_isCommandBarVisible == value) return;
             _isCommandBarVisible = value;
             OnPropertyChanged(nameof(IsCommandBarVisible));
-            // CommandBarVisibility depends on IsFullscreen + this,
-            // so re-raise it here too — the XAML OneWay bind to
-            // CommandBar's Visibility needs a fresh notification
-            // whenever either input changes.
             OnPropertyChanged(nameof(CommandBarVisibility));
         }
     }
@@ -139,66 +137,100 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         ? (IsCommandBarVisible ? Visibility.Visible : Visibility.Collapsed)
         : Visibility.Visible;
 
-    // Reveal strip height in DIPs. 60 px is large enough to be a
-    // forgiving landing zone on a HiDPI screen (the bar itself is
-    // 48 px tall — adding a few px of slack above and below means
-    // the user doesn't have to land precisely on the bar's bottom
-    // edge to make it appear).
-    private const double AutoHideTopHitHeight = 60.0;
+    private double ComputeTopHotZoneHeight(double viewportHeight)
+    {
+        // Hidden: large edge strip so "nudge to top" works (Photos / players).
+        var baseZone = Math.Max(ChromeTopZoneMinPx, viewportHeight * ChromeTopZoneHeightFraction);
+        if (!IsCommandBarVisible)
+            return baseZone;
 
-    /// <summary>
-    /// Mouse motion on the page-level Grid. In fullscreen, mouse in
-    /// the top 60 px reveals the CommandBar; mouse below collapses
-    /// it immediately. Outside fullscreen this is a no-op — the
-    /// bar is always Visible there. Same A-mode contract as
-    /// GalleryView.RootGrid_PointerMoved: the earlier 3 s "hide
-    /// after stillness" timer was dropped because PointerMoved
-    /// firing on every motion kept resetting the countdown and
-    /// prevented it from ever ticking.
-    /// </summary>
+        // Shown: keep entire bar (+ slack) inside the zone so moving across
+        // buttons doesn't collapse chrome mid-click.
+        var barH = ViewerCommandBar.ActualHeight;
+        if (barH <= 0) barH = 56;
+        return Math.Max(baseZone, barH + 40);
+    }
+
     private void MainContentGrid_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
         if (!IsFullscreenStatic())
+            return;
+
+        var y = e.GetCurrentPoint(MainContentGrid).Position.Y;
+        var h = MainContentGrid.ActualHeight;
+        if (h <= 0) return;
+
+        var topZone = ComputeTopHotZoneHeight(h);
+        var inZone = y <= topZone;
+        if (inZone)
         {
+            _pointerInChromeHotZone = true;
+            StopChromeHideTimer();
+            IsCommandBarVisible = true;
             return;
         }
 
-        // GetCurrentPoint(MainContentGrid) returns the pointer's
-        // position in the Grid's own coordinate space, so Y < 60
-        // means "in the top strip" without needing to subtract
-        // margins / chrome offsets manually.
-        var y = e.GetCurrentPoint(MainContentGrid).Position.Y;
-        var inTopZone = y < AutoHideTopHitHeight;
-        IsCommandBarVisible = inTopZone;
+        // Left the edge: arm hide once. Mid-screen moves must not re-arm
+        // the timer (that kept chrome stuck open while scrolling).
+        if (_pointerInChromeHotZone)
+        {
+            _pointerInChromeHotZone = false;
+            ScheduleChromeHide();
+        }
+        else if (IsCommandBarVisible && _chromeHideTimer is null)
+        {
+            ScheduleChromeHide();
+        }
+    }
+
+    private void ScheduleChromeHide()
+    {
+        if (!IsFullscreenStatic()) return;
+        if (_chromeHideTimer is not null) return; // already counting down
+        var t = DispatcherQueue.CreateTimer();
+        t.IsRepeating = false;
+        t.Interval = TimeSpan.FromMilliseconds(ChromeHideDelayMs);
+        t.Tick += OnChromeHideTick;
+        _chromeHideTimer = t;
+        t.Start();
+    }
+
+    private void OnChromeHideTick(DispatcherQueueTimer sender, object args)
+    {
+        StopChromeHideTimer();
+        if (!IsFullscreenStatic() || _pointerInChromeHotZone) return;
+        IsCommandBarVisible = false;
+    }
+
+    private void StopChromeHideTimer()
+    {
+        if (_chromeHideTimer is null) return;
+        _chromeHideTimer.Stop();
+        _chromeHideTimer.Tick -= OnChromeHideTick;
+        _chromeHideTimer = null;
     }
 
     private void OnMainWindowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainWindow.IsFullscreen))
         {
-            // Re-raise the IsFullscreen-derived properties so the
-            // button's glyph/label/tooltip follow F11 toggles
-            // (which route through MainWindow.HandleViewerKey and
-            // never call our click handler). Without this, the
-            // x:Bind OneWay would freeze on the first-render value
-            // and the button would lie about the window state.
             OnPropertyChanged(nameof(IsFullscreen));
             OnPropertyChanged(nameof(IsFullscreenGlyph));
             OnPropertyChanged(nameof(IsFullscreenLabel));
             OnPropertyChanged(nameof(IsFullscreenTooltip));
 
-            // Auto-hide chrome: when entering fullscreen the bar
-            // disappears (immersive view) and the reveal-on-mouse-
-            // near-top logic in MainContentGrid_PointerMoved takes
-            // over. When leaving, force-show and stop the pending
-            // hide timer so the bar doesn't blink back to hidden
-            // right after exit.
             if (IsFullscreen)
             {
-                IsCommandBarVisible = false;
+                // Brief show so users know chrome exists, then auto-hide.
+                _pointerInChromeHotZone = false;
+                IsCommandBarVisible = true;
+                StopChromeHideTimer();
+                ScheduleChromeHide();
             }
             else
             {
+                StopChromeHideTimer();
+                _pointerInChromeHotZone = false;
                 IsCommandBarVisible = true;
             }
         }

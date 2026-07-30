@@ -140,12 +140,9 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     // hiding the chrome therefore does NOT resize the content area;
     // the user's thumbnail layout stays exactly where it was.
     //
-    // Outside fullscreen the chrome is always Visible (the user
-    // expects to see the toolbar in a normal window — fullscreen
-    // is the "I'm presenting this" state). Inside fullscreen the
-    // chrome defaults to Collapsed; mouse motion in the top 60 px
-    // (or the bottom 40 px) reveals the corresponding bar, and 3 s
-    // of stillness in the middle region collapses both.
+    // Outside fullscreen the chrome is always Visible. Inside fullscreen:
+    // large top/bottom edge hot-zones reveal header/status; leave-edge
+    // schedules a short delayed hide (media-player style).
     //
     // HeaderVisibility / StatusVisibility derive from both
     // IsFullscreenStatic() (windowed = always Visible) and the
@@ -194,14 +191,18 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         }
     }
 
-    // Hit-zone heights. 60 px top / 40 px bottom are forgiving
-    // landing zones for HiDPI pointers — bigger than the chrome
-    // itself so the user doesn't need pixel-precise aim to make
-    // the bar appear. Both are smaller than the bars' own heights
-    // (48 / 32) plus a few pixels of slack so the zone starts just
-    // outside the visible chrome edge.
-    private const double AutoHideTopHitHeight = 60.0;
-    private const double AutoHideBottomHitHeight = 40.0;
+    // Mainstream edge hot-zones (DIP / height fraction). Larger than the
+    // chrome so "nudge to edge" works; expand further while a bar is open
+    // so moving across buttons does not collapse it.
+    private const double ChromeTopZoneMinPx = 96;
+    private const double ChromeBottomZoneMinPx = 72;
+    private const double ChromeTopZoneHeightFraction = 0.12;
+    private const double ChromeBottomZoneHeightFraction = 0.08;
+    private const int ChromeHideDelayMs = 900;
+
+    private bool _pointerInTopHotZone;
+    private bool _pointerInBottomHotZone;
+    private DispatcherQueueTimer? _chromeHideTimer;
 
     private static bool IsFullscreenStatic() => App.MainWindow?.IsFullscreen ?? false;
 
@@ -210,20 +211,21 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         if (e.PropertyName == nameof(MainWindow.IsFullscreen))
         {
             var fs = IsFullscreenStatic();
-            // Entering fullscreen: chrome defaults to hidden so the
-            // masonry fills the screen. The reveal-on-hover logic in
-            // RootGrid_PointerMoved takes over once the mouse moves.
-            // Leaving fullscreen: chrome pins to visible and any
-            // pending hide timer is cancelled (a late tick would
-            // otherwise flip the bar back to hidden right after
-            // exit, which is the "blink" we want to avoid).
             if (fs)
             {
-                IsHeaderVisible = false;
-                IsStatusVisible = false;
+                // Brief show then auto-hide (cue that edges work).
+                _pointerInTopHotZone = false;
+                _pointerInBottomHotZone = false;
+                IsHeaderVisible = true;
+                IsStatusVisible = true;
+                StopChromeHideTimer();
+                ScheduleChromeHide();
             }
             else
             {
+                StopChromeHideTimer();
+                _pointerInTopHotZone = false;
+                _pointerInBottomHotZone = false;
                 IsHeaderVisible = true;
                 IsStatusVisible = true;
             }
@@ -272,46 +274,82 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     }
 
     /// <summary>
-    /// Mouse motion on the root grid. In fullscreen, pointer in the
-    /// top 60 px reveals the header; pointer in the bottom 40 px
-    /// reveals the status bar; pointer in the middle starts (or
-    /// restarts) a 3 s hide timer for both. Outside fullscreen this
-    /// is a no-op — the chrome is always Visible there and the
-    /// timer shouldn't burn dispatcher ticks.
-    ///
-    /// PointerMoved on the root Grid (not the ScrollViewer) catches
-    /// motion even when the cursor is over an empty area between
-    /// cards; the ScrollViewer only fires when the pointer is over
-    /// a rendered child or its own chrome, which would leave the
-    /// hit-test blind to most of the page background.
+    /// Fullscreen edge hot-zones (Photos / media-player style).
+    /// Top band → header; bottom band → status. Leaving both schedules
+    /// a single delayed hide (not re-armed by mid-screen scroll moves).
     /// </summary>
     private void RootGrid_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
         if (!IsFullscreenStatic())
-        {
             return;
-        }
 
         var pos = e.GetCurrentPoint(RootGrid).Position;
         var height = RootGrid.ActualHeight;
+        if (height <= 0) return;
 
-        // Two independent hit-zones: top reveals the header, bottom
-        // reveals the status bar. Outside either zone both bars
-        // collapse — Visibility is keyed directly off hit-zone
-        // membership with no timer in the loop. Earlier revisions
-        // tried a 3 s "hide after stillness" timer (matching Photos /
-        // PowerPoint), but PointerMoved only fires on MOTION and on
-        // this app a continuous mouse drag (scrolling the gallery,
-        // scrubbing the image, etc.) fires PointerMoved every 30-50
-        // ms, which reset the timer and prevented it from ever
-        // ticking. User feedback was "mouse leaves bar → bar should
-        // hide" — that's the simpler A-mode contract, so the timer
-        // is gone.
-        var inTopZone = pos.Y < AutoHideTopHitHeight;
-        var inBottomZone = height > 0 && pos.Y > height - AutoHideBottomHitHeight;
+        var topZone = Math.Max(ChromeTopZoneMinPx, height * ChromeTopZoneHeightFraction);
+        if (IsHeaderVisible)
+            topZone = Math.Max(topZone, HeaderChrome.ActualHeight > 0 ? HeaderChrome.ActualHeight + 40 : 120);
 
-        IsHeaderVisible = inTopZone;
-        IsStatusVisible = inBottomZone;
+        var bottomZone = Math.Max(ChromeBottomZoneMinPx, height * ChromeBottomZoneHeightFraction);
+        if (IsStatusVisible)
+            bottomZone = Math.Max(bottomZone, StatusChrome.ActualHeight > 0 ? StatusChrome.ActualHeight + 32 : 96);
+
+        var inTop = pos.Y <= topZone;
+        var inBottom = pos.Y >= height - bottomZone;
+
+        if (inTop || inBottom)
+        {
+            StopChromeHideTimer();
+            _pointerInTopHotZone = inTop;
+            _pointerInBottomHotZone = inBottom;
+            if (inTop) IsHeaderVisible = true;
+            if (inBottom) IsStatusVisible = true;
+            // Independent: leaving one edge while staying on the other
+            // should hide only the unused bar after delay — when only
+            // one edge is active, clear the other immediately.
+            if (!inTop) IsHeaderVisible = false;
+            if (!inBottom) IsStatusVisible = false;
+            return;
+        }
+
+        // Completely outside both edges — arm hide once, not on every scroll move.
+        var wasInEdge = _pointerInTopHotZone || _pointerInBottomHotZone;
+        _pointerInTopHotZone = false;
+        _pointerInBottomHotZone = false;
+        if (wasInEdge)
+            ScheduleChromeHide();
+        else if ((IsHeaderVisible || IsStatusVisible) && _chromeHideTimer is null)
+            ScheduleChromeHide();
+    }
+
+    private void ScheduleChromeHide()
+    {
+        if (!IsFullscreenStatic()) return;
+        if (_chromeHideTimer is not null) return;
+        var t = DispatcherQueue.CreateTimer();
+        t.IsRepeating = false;
+        t.Interval = TimeSpan.FromMilliseconds(ChromeHideDelayMs);
+        t.Tick += OnChromeHideTick;
+        _chromeHideTimer = t;
+        t.Start();
+    }
+
+    private void OnChromeHideTick(DispatcherQueueTimer sender, object args)
+    {
+        StopChromeHideTimer();
+        if (!IsFullscreenStatic()) return;
+        if (_pointerInTopHotZone || _pointerInBottomHotZone) return;
+        IsHeaderVisible = false;
+        IsStatusVisible = false;
+    }
+
+    private void StopChromeHideTimer()
+    {
+        if (_chromeHideTimer is null) return;
+        _chromeHideTimer.Stop();
+        _chromeHideTimer.Tick -= OnChromeHideTick;
+        _chromeHideTimer = null;
     }
 
     private void ApplyThumbnailCardWidth(double availableWidth)
@@ -522,6 +560,8 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             _loadMoreDebounceTimer.Stop();
             _loadMoreDebounceTimer = null;
         }
+
+        StopChromeHideTimer();
 
         if (App.MainWindow is not null)
         {

@@ -32,7 +32,8 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <CommandBar Grid.Row="0" Grid.RowSpan="2"
+        <CommandBar x:Name="ViewerCommandBar"
+                    Grid.Row="0" Grid.RowSpan="2"
                     VerticalAlignment="Top"
                     Canvas.ZIndex="100"
                     DefaultLabelPosition="Collapsed"

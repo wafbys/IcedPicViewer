@@ -208,11 +208,12 @@ public partial class MainWindow : Window
         return null;
     }
 
-    // Fullscreen: only top/bottom strips re-show chrome (not every move).
-    // Tall enough to hit the bar once shown; not so tall that center browsing
-    // keeps flicking the toolbar on.
-    private const double ChromeHotZoneTopPx = 48;
-    private const double ChromeHotZoneBottomPx = 40;
+    // Fullscreen edge hot-zones (media-player style): large edge bands,
+    // expand while chrome is open so toolbar interaction stays stable.
+    private const double ChromeTopZoneMinPx = 96;
+    private const double ChromeBottomZoneMinPx = 72;
+    private const double ChromeTopZoneHeightFraction = 0.12;
+    private const double ChromeBottomZoneHeightFraction = 0.08;
 
     private void Window_PointerMoved(object? sender, PointerEventArgs e)
     {
@@ -228,10 +229,15 @@ public partial class MainWindow : Window
         var h = Bounds.Height;
         if (h <= 0) return;
 
-        // Expand top zone while chrome is visible so moving within the toolbar
-        // does not count as "left hot zone".
-        var topZone = vm.IsChromeVisible ? Math.Max(ChromeHotZoneTopPx, 72) : ChromeHotZoneTopPx;
-        var bottomZone = vm.IsChromeVisible ? Math.Max(ChromeHotZoneBottomPx, 48) : ChromeHotZoneBottomPx;
+        var topZone = Math.Max(ChromeTopZoneMinPx, h * ChromeTopZoneHeightFraction);
+        var bottomZone = Math.Max(ChromeBottomZoneMinPx, h * ChromeBottomZoneHeightFraction);
+        if (vm.IsChromeVisible)
+        {
+            // Keep open while the pointer stays over the chrome strips.
+            topZone = Math.Max(topZone, 140);
+            bottomZone = Math.Max(bottomZone, 96);
+        }
+
         var inHotZone = p.Y <= topZone || p.Y >= h - bottomZone;
         vm.NotifyPointerHotZone(inHotZone);
     }
