@@ -759,7 +759,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // early-exit.
             if (ct.IsCancellationRequested) break;
 
-            var media = entry.Media;
+            var media = entry.Source;
             var (size, mtime) = entry.Meta;
 
             // Construct the right concrete subtype. Both share the same

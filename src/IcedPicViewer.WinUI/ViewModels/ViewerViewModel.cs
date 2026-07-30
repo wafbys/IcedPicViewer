@@ -734,8 +734,9 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             // explicitly because the player didn't exist when the user
             // last dragged the slider.
             player.Volume = Math.Clamp(Volume, 0.0, 1.0);
-            player.Media = media;
-            // Subscribe before SetSource so we don't miss a fast-failing
+            // WinRT MediaPlayer uses Source (IMediaPlaybackSource), not Media.
+            player.Source = source;
+            // Subscribe before / with Source so we don't miss a fast-failing
             // decode (e.g. unsupported codec → MediaFailed fires within
             // tens of milliseconds on a clean Win10/11 install). The
             // handlers are named so StopAndDisposePlayer can unsubscribe
