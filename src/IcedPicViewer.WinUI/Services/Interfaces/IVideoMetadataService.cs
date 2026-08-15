@@ -1,7 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
 using IcedPicViewer.Models;
-using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace IcedPicViewer.Services.Interfaces;
 
@@ -49,16 +48,11 @@ public interface IVideoMetadataService
     Task<VideoMetadata?> GetVideoMetadataAsync(MediaRef media, CancellationToken ct = default);
 
     /// <summary>
-    /// Decodes one frame from the video (seeked to ~10% of duration to
-    /// avoid black leader frames common at t=0) and returns it as a
-    /// <see cref="BitmapImage"/> scaled to fit <paramref name="maxSize"/>
-    /// on the longer edge. The returned bitmap has DecodePixelWidth set,
-    /// so the WIC pipeline only materialises the scaled pixels in
-    /// managed memory. For archive sources, the entry is extracted to a
-    /// temp file for the duration of the call, then deleted. Returns
-    /// null on any decode / open failure.
+    /// One scaled frame plus container source size and duration.
+    /// Uses the same FFmpeg open as Core <c>VideoFrameExtractor</c>
+    /// (no PNG wrap).
     /// </summary>
-    Task<BitmapImage?> ExtractVideoThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default);
+    Task<CachedThumb?> ExtractVideoThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default);
 
     /// <summary>
     /// Returns a file path that a player can open on disk.

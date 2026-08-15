@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcedPicViewer.Core.Layout;
 using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
@@ -53,13 +54,6 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private const int ThumbConcurrency = 6;
 
     private readonly SemaphoreSlim _thumbnailLoadSemaphore = new(initialCount: ThumbConcurrency, maxCount: ThumbConcurrency);
-
-    // Same ThumbConcurrency cap, but for the metadata + size fetch in LoadNextPageAsync.
-    // Without this, 150 sequential awaits on GetImageSizeAsync would freeze
-    // the perceived responsiveness for ~5 s on a populated page. The bound
-    // is intentionally equal to the thumbnail cap so the two phases share
-    // roughly the same number of in-flight WinRT marshal calls.
-    private readonly SemaphoreSlim _sizeFetchSemaphore = new(initialCount: ThumbConcurrency, maxCount: ThumbConcurrency);
 
     // For incremental loading while keeping masonry visual.
     // Both LoadNextPageAsync (worker thread) and OnFileChanged (dispatcher thread) read/write
@@ -286,7 +280,6 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 _loadCts?.Cancel();
                 _loadCts?.Dispose();
                 _thumbnailLoadSemaphore.Dispose();
-                _sizeFetchSemaphore.Dispose();
                 Items.CollectionChanged -= OnItemsCollectionChanged;
             }
             _disposed = true;
@@ -697,128 +690,72 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             CanLoadMore = _remainingSources.Count > 0;
         }
 
-        // Fetchahead: pre-fetch (size, mtime, WxH [+ duration / hasAudio
-        // for videos]) for the whole batch with bounded concurrency before
-        // producing any MediaItem. Two reasons:
-        //   1. GetImageSizeAsync opens a FileStream + BitmapDecoder for
-        //      each image, and GetVideoMetadataAsync opens a format
-        //      context for each video; on a 30-item batch that is several
-        //      seconds of sequential I/O. Running them with a 6-wide cap
-        //      drops the wall time by ~5x.
-        //   2. Each `Items.Add` triggers a MasonryPanel layout pass, and
-        //      the panel is non-virtualising — emitting 150 Add work items
-        //      in one Tick freezes the UI for the entire layout burst. With
-        //      pageSize=30 the burst is small enough to feel incremental.
-        //
-        // The dispatch on media.Kind happens inside the per-media async
-        // lambda so videos and images can hit their own metadata path
-        // (BitmapDecoder vs FFmpeg) without sharing a "one method does
-        // both" abstraction. The sizeFetchSemaphore applies to both so
-        // the total in-flight count is bounded the same way regardless
-        // of mix — important on a folder that's 80% videos, where a naive
-        // dispatcher would fire 24 FFmpeg opens at once and saturate the
-        // disk.
-        var fetched = await Task.WhenAll(batch.Select(async media =>
+        // Same as Avalonia: FileInfo (or archive entry size) then add
+        // placeholders immediately. Oriented W×H / duration arrive with
+        // the thumbnail — no extra BitmapDecoder / FFmpeg open first.
+        var created = new List<MediaItem>(batch.Count);
+        foreach (var media in batch)
         {
-            var meta = await GetSourceMetadataAsync(media, ct);
-            await _sizeFetchSemaphore.WaitAsync(ct);
-            try
-            {
-                if (media.Kind == MediaKind.Video)
-                {
-                    // Reads only the container header (~ms even for large
-                    // .mkv files). Populates VideoItem.OriginalWidth /
-                    // OriginalHeight / Duration / HasAudio so the gallery
-                    // overlay shows the WxH and the m:ss duration instead
-                    // of "Unknown".
-                    var videoMeta = await _videoMetadataService.GetVideoMetadataAsync(media, ct);
-                    return new FetchedMedia(media, meta, videoMeta, null);
-                }
-                else
-                {
-                    // Reads only the image header (BitmapDecoder, ~ms even
-                    // for multi-MP files). Populates ImageItem.OriginalWidth
-                    // / OriginalHeight so the gallery overlay and the
-                    // image viewer info bar show real dimensions instead
-                    // of "Unknown".
-                    var dimensions = await _imageLoader.GetImageSizeAsync(media, ct);
-                    return new FetchedMedia(media, meta, null, dimensions);
-                }
-            }
-            finally
-            {
-                _sizeFetchSemaphore.Release();
-            }
-        }));
+            if (ct.IsCancellationRequested) return;
+            var (size, mtime) = await GetSourceMetadataAsync(media, ct);
+            created.Add(CreatePlaceholderItem(media, size, mtime));
+        }
 
-        foreach (var entry in fetched)
+        await RunOnUiAsync(() =>
         {
-            // If a new LoadDirectoryAsync fired while we were awaiting the
-            // batch, ct is now cancelled — abandon the rest. Items already
-            // enqueued below will see the cancelled token when they run and
-            // early-exit.
-            if (ct.IsCancellationRequested) break;
-
-            var media = entry.Source;
-            var (size, mtime) = entry.Meta;
-
-            // Construct the right concrete subtype. Both share the same
-            // (size, mtime) media info and the same OriginalWidth /
-            // OriginalHeight slots — the video path additionally needs
-            // Duration and HasAudio. The Kind tag tells us which arm
-            // of FetchedMedia was populated; the other arm is null.
-            MediaItem item;
-            if (media.Kind == MediaKind.Video)
+            foreach (var item in created)
             {
-                var videoMeta = entry.VideoMeta;
-                item = new VideoItem(
-                    media: media,
-                    fileSize: size,
-                    modifiedTime: mtime,
-                    originalWidth: videoMeta?.Width ?? 0,
-                    originalHeight: videoMeta?.Height ?? 0,
-                    duration: videoMeta?.Duration ?? TimeSpan.Zero,
-                    hasAudio: videoMeta?.HasAudio ?? false,
-                    codec: videoMeta?.VideoCodec ?? string.Empty);
-            }
-            else
-            {
-                var dimensions = entry.ImageDimensions;
-                item = new ImageItem(
-                    media: media,
-                    fileSize: size,
-                    modifiedTime: mtime,
-                    originalWidth: dimensions?.Width ?? 0,
-                    originalHeight: dimensions?.Height ?? 0);
-            }
-
-            _dispatcher.TryEnqueue(() =>
-            {
-                // Guard against running after cancellation: prevents stale items
-                // from a previous folder sneaking into the new Items collection.
                 if (ct.IsCancellationRequested) return;
                 Items.Add(item);
-                StatusText = GalleryStatusFormatter.FormatLoadingMore(Items.Count, DiscoveredCount);
-            });
-
-            _ = LoadThumbnailAsync(item, ct);
-        }
+                _ = LoadThumbnailAsync(item, ct);
+            }
+            StatusText = GalleryStatusFormatter.FormatLoadingMore(Items.Count, DiscoveredCount);
+        });
     }
 
-    /// <summary>
-    /// Per-media metadata result from the LoadNextPageAsync fetchahead.
-    /// Either <see cref="VideoMeta"/> or <see cref="ImageDimensions"/>
-    /// is populated (the other is null) — which one is determined by
-    /// <see cref="Source"/>.<see cref="MediaRef.Kind"/>. Using a
-    /// single record for both arms (instead of two separate tuples)
-    /// keeps Task.WhenAll's inference happy and avoids the awkward
-    /// union-type access in the consumer loop.
-    /// </summary>
-    private sealed record FetchedMedia(
-        MediaRef Source,
-        (long Size, DateTime Mtime) Meta,
-        VideoMetadata? VideoMeta,
-        (int Width, int Height)? ImageDimensions);
+    private static MediaItem CreatePlaceholderItem(MediaRef media, long size, DateTime mtime)
+    {
+        if (media.Kind == MediaKind.Video)
+        {
+            return new VideoItem(
+                media: media,
+                fileSize: size,
+                modifiedTime: mtime,
+                originalWidth: 0,
+                originalHeight: 0,
+                duration: TimeSpan.Zero,
+                hasAudio: false,
+                codec: string.Empty);
+        }
+
+        return new ImageItem(
+            media: media,
+            fileSize: size,
+            modifiedTime: mtime,
+            originalWidth: 0,
+            originalHeight: 0);
+    }
+
+    private Task RunOnUiAsync(Action action)
+    {
+        var tcs = new TaskCompletionSource();
+        if (!_dispatcher.TryEnqueue(() =>
+        {
+            try
+            {
+                action();
+                tcs.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        }))
+        {
+            tcs.TrySetCanceled();
+        }
+        return tcs.Task;
+    }
 
     /// <summary>
     /// Returns the (uncompressed size, modification time) for the given
@@ -843,14 +780,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             try
             {
                 var archiveInfo = new FileInfo(media.Path);
-                var entries = ArchiveHelper.ListEntries(media.Path, extensionFilter: null);
-                foreach (var entry in entries)
-                {
-                    if (entry.Key == media.ArchiveEntry)
-                    {
-                        return (entry.UncompressedSize, archiveInfo.Exists ? archiveInfo.LastWriteTime : DateTime.MinValue);
-                    }
-                }
+                var size = ArchiveHelper.GetEntryUncompressedSize(media.Path, media.ArchiveEntry!);
+                return (size, archiveInfo.Exists ? archiveInfo.LastWriteTime : DateTime.MinValue);
             }
             catch (Exception ex)
             {
@@ -1011,34 +942,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         var (size, mtime) = await GetSourceMetadataAsync(media, token);
         if (token.IsCancellationRequested) return;
 
-        // Dispatch on kind for the metadata fetch + ctor — same shape as
-        // LoadNextPageAsync but for a single new file from the watcher.
-        MediaItem item;
-        if (kind == MediaKind.Video)
-        {
-            var videoMeta = await _videoMetadataService.GetVideoMetadataAsync(media, token);
-            if (token.IsCancellationRequested) return;
-            item = new VideoItem(
-                media: media,
-                fileSize: size,
-                modifiedTime: mtime,
-                originalWidth: videoMeta?.Width ?? 0,
-                originalHeight: videoMeta?.Height ?? 0,
-                duration: videoMeta?.Duration ?? TimeSpan.Zero,
-                hasAudio: videoMeta?.HasAudio ?? false,
-                codec: videoMeta?.VideoCodec ?? string.Empty);
-        }
-        else
-        {
-            var dimensions = await _imageLoader.GetImageSizeAsync(media, token);
-            if (token.IsCancellationRequested) return;
-            item = new ImageItem(
-                media: media,
-                fileSize: size,
-                modifiedTime: mtime,
-                originalWidth: dimensions?.Width ?? 0,
-                originalHeight: dimensions?.Height ?? 0);
-        }
+        var item = CreatePlaceholderItem(media, size, mtime);
 
         Items.Add(item);
         DiscoveredCount++;
@@ -1086,36 +990,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                     var media = MediaRef.FromArchive(archivePath, entry.Key, kind);
                     if (_imageIndex.ContainsKey(media.ToString())) continue;
 
-                    // Dispatch on kind: image goes through the cheap
-                    // BitmapDecoder header read, video through
-                    // FFmpeg's container parse. Both are bounded by
-                    // the per-entry 6-wide _sizeFetchSemaphore
-                    // indirectly (LoadNextPageAsync is the only
-                    // concurrent caller; AddArchiveEntriesAsync is
-                    // called serially from the watcher event handler).
-                    if (kind == MediaKind.Video)
-                    {
-                        var videoMeta = await _videoMetadataService.GetVideoMetadataAsync(media, token);
-                        result.Add(new VideoItem(
-                            media: media,
-                            fileSize: entry.UncompressedSize,
-                            modifiedTime: mtime,
-                            originalWidth: videoMeta?.Width ?? 0,
-                            originalHeight: videoMeta?.Height ?? 0,
-                            duration: videoMeta?.Duration ?? TimeSpan.Zero,
-                            hasAudio: videoMeta?.HasAudio ?? false,
-                            codec: videoMeta?.VideoCodec ?? string.Empty));
-                    }
-                    else
-                    {
-                        var dims = await _imageLoader.GetImageSizeAsync(media, token);
-                        result.Add(new ImageItem(
-                            media: media,
-                            fileSize: entry.UncompressedSize,
-                            modifiedTime: mtime,
-                            originalWidth: dims?.Width ?? 0,
-                            originalHeight: dims?.Height ?? 0));
-                    }
+                    result.Add(CreatePlaceholderItem(media, entry.UncompressedSize, mtime));
                 }
             }, token);
         }
@@ -1253,12 +1128,6 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     private async Task LoadThumbnailAsync(MediaItem item, CancellationToken ct)
     {
-        // Outer try/finally so the gallery template's "thumbnail loading"
-        // spinner is always cleared — regardless of whether we hit the
-        // cache, succeeded, failed to decode, or were cancelled while
-        // waiting on the semaphore. The setter must be marshalled to the
-        // UI thread (Progress<T> / PropertyChanged notifications expect
-        // a single thread) so it goes through the dispatcher.
         try
         {
             if (item.Thumbnail != null)
@@ -1267,9 +1136,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 {
                     var fileInfo = new FileInfo(item.Media.Path);
                     if (fileInfo.LastWriteTime == item.ModifiedTime)
-                    {
                         return;
-                    }
                 }
                 item.Thumbnail = null;
             }
@@ -1277,35 +1144,24 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             await _thumbnailLoadSemaphore.WaitAsync(ct);
             try
             {
-                // Dispatch on Kind: image thumbnails go through the
-                // BitmapDecoder path (with the IMediaLoader LRU), videos
-                // through the FFmpeg first-frame path. The mtime check
-                // above is intentionally only on the loose-file image
-                // path — videos don't share the IMediaLoader LRU so the
-                // "is this cached" check is implicit on the item itself
-                // (we got here because Thumbnail was null), and the cost
-                // of re-decoding a video is high enough that we don't
-                // pretend to cache invalidation across file changes.
-                BitmapImage? thumbnail = item.Media.Kind == MediaKind.Video
-                    ? await _videoMetadataService.ExtractVideoThumbnailAsync(item.Media, 400, ct)
-                    : await _imageLoader.LoadThumbnailAsync(item.Media, 400, ct);
-                if (thumbnail != null)
+                var thumb = item.Media.Kind == MediaKind.Video
+                    ? await _videoMetadataService.ExtractVideoThumbnailAsync(item.Media, GalleryMetrics.ThumbMaxEdge, ct)
+                    : await _imageLoader.LoadThumbnailAsync(item.Media, GalleryMetrics.ThumbMaxEdge, ct);
+
+                if (thumb is { } t)
                 {
-                    _dispatcher.TryEnqueue(() =>
+                    await RunOnUiAsync(async () =>
                     {
-                        item.Thumbnail = thumbnail;
+                        if (ct.IsCancellationRequested) return;
+                        var src = new SoftwareBitmapSource();
+                        await src.SetBitmapAsync(t.Bitmap);
+                        item.Thumbnail = src;
+                        item.ApplyOriginalSize(t.OriginalWidth, t.OriginalHeight);
                         if (item.Media.Kind == MediaKind.Video)
                         {
-                            // VideoItem has no separate "full" decode —
-                            // the first frame IS the gallery-quality
-                            // preview and the viewer's default static
-                            // preview. Wire FullImage to the same
-                            // BitmapImage so the viewer's existing
-                            // FullImage-short-circuit kicks in and
-                            // shows the first frame without re-decoding.
-                            // The future MediaPlayerElement session
-                            // will replace this with a real player.
-                            item.FullImage = thumbnail;
+                            item.FullImage = src;
+                            if (item is VideoItem video && t.Duration is { } d)
+                                video.ApplyDuration(d);
                         }
                     });
                 }
@@ -1323,5 +1179,26 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             _dispatcher.TryEnqueue(() => item.IsThumbnailLoading = false);
         }
+    }
+
+    private Task RunOnUiAsync(Func<Task> action)
+    {
+        var tcs = new TaskCompletionSource();
+        if (!_dispatcher.TryEnqueue(async () =>
+        {
+            try
+            {
+                await action();
+                tcs.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        }))
+        {
+            tcs.TrySetCanceled();
+        }
+        return tcs.Task;
     }
 }

@@ -177,7 +177,12 @@ public static class AvaloniaMediaLoader
             var scale = maxEdge / (double)longest;
             var tw = Math.Max(1, (int)Math.Round(originalWidth * scale));
             var th = Math.Max(1, (int)Math.Round(originalHeight * scale));
-            image.Mutate(ctx => ctx.Resize(tw, th));
+            image.Mutate(ctx => ctx.Resize(new ResizeOptions
+            {
+                Size = new SixLabors.ImageSharp.Size(tw, th),
+                Mode = ResizeMode.Stretch,
+                Sampler = KnownResamplers.Lanczos3,
+            }));
         }
 
         var ms = new MemoryStream();

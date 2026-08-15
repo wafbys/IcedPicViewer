@@ -4,7 +4,6 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using IcedPicViewer.Core.Text;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Media.Imaging;
 using WinImageSource = Microsoft.UI.Xaml.Media.ImageSource;
 
 namespace IcedPicViewer.Models;
@@ -41,11 +40,10 @@ public abstract partial class MediaItem : ObservableObject, IMediaEntry
     public long FileSize { get; }
     public DateTime ModifiedTime { get; }
 
-    // Oriented original pixel size (BitmapDecoder / FFmpeg codec
-    // params). Gallery hover, tooltip, and viewer chrome bind
-    // InfoLine (W×H · duration · file size). 0 / 0 means unknown.
-    public int OriginalWidth { get; }
-    public int OriginalHeight { get; }
+    // Oriented original pixel size. Filled when the thumbnail decodes
+    // (same pass as Avalonia). 0 / 0 until then / if unknown.
+    public int OriginalWidth { get; private set; }
+    public int OriginalHeight { get; private set; }
 
     // True when the current concrete type represents a video. Pure
     // function of Media.Kind (which is immutable after construction),
@@ -54,7 +52,7 @@ public abstract partial class MediaItem : ObservableObject, IMediaEntry
     public Visibility IsVideoVisibility => IsVideo ? Visibility.Visible : Visibility.Collapsed;
 
     [ObservableProperty]
-    public partial BitmapImage? Thumbnail { get; set; }
+    public partial WinImageSource? Thumbnail { get; set; }
 
     [ObservableProperty]
     public partial WinImageSource? FullImage { get; set; }
@@ -92,6 +90,19 @@ public abstract partial class MediaItem : ObservableObject, IMediaEntry
         // the LRU still go through LoadThumbnailAsync — the finally
         // there clears the bit even on the early-return cache-hit path.
         IsThumbnailLoading = true;
+    }
+
+    /// <summary>Set oriented original pixels after thumbnail decode. Notifies InfoLine.</summary>
+    public void ApplyOriginalSize(int width, int height)
+    {
+        if (width <= 0 || height <= 0) return;
+        if (width == OriginalWidth && height == OriginalHeight) return;
+        OriginalWidth = width;
+        OriginalHeight = height;
+        OnPropertyChanged(nameof(OriginalWidth));
+        OnPropertyChanged(nameof(OriginalHeight));
+        OnPropertyChanged(nameof(InfoLine));
+        OnPropertyChanged(nameof(OriginalSizeText));
     }
 
     public string FileSizeText => MediaDisplay.FormatFileSize(FileSize);

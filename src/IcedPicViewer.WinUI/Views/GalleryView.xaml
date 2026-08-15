@@ -136,7 +136,7 @@
                                                FontWeight="SemiBold"
                                                FontSize="12"
                                                TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{x:Bind InfoLine, Mode=OneTime}"
+                                    <TextBlock Text="{x:Bind InfoLine, Mode=OneWay}"
                                                Foreground="#E0FFFFFF"
                                                FontSize="11"
                                                TextTrimming="CharacterEllipsis"/>

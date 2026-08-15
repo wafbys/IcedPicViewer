@@ -71,30 +71,39 @@ public class MediaLoader : IMediaLoader
         }
     }
 
-    public async Task<BitmapImage?> LoadThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default)
+    public async Task<CachedThumb?> LoadThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default)
     {
         var cacheKey = $"{media}|{maxSize}|{media.Kind}";
-        if (_thumbnailCache.TryGet(cacheKey, out var cached))
-        {
+        if (_thumbnailCache.TryGet(cacheKey, out var cached) && cached is not null)
             return cached;
-        }
 
         ct.ThrowIfCancellationRequested();
-        BitmapImage? bitmapImage;
+        CachedThumb? thumb;
         if (media.IsInArchive)
         {
-            bitmapImage = await LoadThumbnailFromArchiveAsync(media, maxSize, ct);
+            thumb = await LoadThumbnailFromArchiveAsync(media, maxSize, ct);
         }
         else
         {
             if (!File.Exists(media.Path)) return null;
-            bitmapImage = await LoadThumbnailFromFileAsync(media.Path, maxSize, ct);
+            thumb = await LoadThumbnailFromFileAsync(media.Path, maxSize, ct);
         }
-        if (bitmapImage != null)
-        {
-            _thumbnailCache.Store(cacheKey, bitmapImage);
-        }
-        return bitmapImage;
+        if (thumb is { } t)
+            _thumbnailCache.Store(cacheKey, t);
+        return thumb;
+    }
+
+    /// <summary>Top-down BGRA8 → SoftwareBitmap (gallery thumbs, no PNG).</summary>
+    public static SoftwareBitmap? CreateSoftwareBitmap(byte[] bgra, int width, int height)
+    {
+        if (width <= 0 || height <= 0 || bgra.Length < width * height * 4)
+            return null;
+        return SoftwareBitmap.CreateCopyFromBuffer(
+            bgra.AsBuffer(),
+            BitmapPixelFormat.Bgra8,
+            width,
+            height,
+            BitmapAlphaMode.Premultiplied);
     }
 
     public async Task<(int Width, int Height)?> GetImageSizeAsync(MediaRef media, CancellationToken ct = default)
@@ -185,7 +194,7 @@ public class MediaLoader : IMediaLoader
 
             var transform = new BitmapTransform
             {
-                InterpolationMode = BitmapInterpolationMode.Linear,
+                InterpolationMode = BitmapInterpolationMode.Fant,
                 ScaledWidth = scaledWidth,
                 ScaledHeight = scaledHeight
             };
@@ -229,7 +238,7 @@ public class MediaLoader : IMediaLoader
         }
     }
 
-    private static async Task<BitmapImage?> LoadThumbnailFromFileAsync(string path, int maxSize, CancellationToken ct)
+    private static async Task<CachedThumb?> LoadThumbnailFromFileAsync(string path, int maxSize, CancellationToken ct)
     {
         try
         {
@@ -241,7 +250,7 @@ public class MediaLoader : IMediaLoader
                 FileShare.Read,
                 bufferSize: 4096,
                 FileOptions.Asynchronous);
-            return await DecodeToBitmapImageAsync(fileStream.AsRandomAccessStream(), maxSize, ct);
+            return await DecodeToSoftwareBitmapAsync(fileStream.AsRandomAccessStream(), maxSize, ct);
         }
         catch (Exception ex)
         {
@@ -250,13 +259,13 @@ public class MediaLoader : IMediaLoader
         }
     }
 
-    private static async Task<BitmapImage?> LoadThumbnailFromArchiveAsync(MediaRef media, int maxSize, CancellationToken ct)
+    private static async Task<CachedThumb?> LoadThumbnailFromArchiveAsync(MediaRef media, int maxSize, CancellationToken ct)
     {
         try
         {
             ct.ThrowIfCancellationRequested();
             using var entryStream = ArchiveHelper.OpenEntryStream(media.Path, media.ArchiveEntry!);
-            return await DecodeToBitmapImageAsync(entryStream.AsRandomAccessStream(), maxSize, ct);
+            return await DecodeToSoftwareBitmapAsync(entryStream.AsRandomAccessStream(), maxSize, ct);
         }
         catch (Exception ex)
         {
@@ -330,7 +339,7 @@ public class MediaLoader : IMediaLoader
         }
     }
 
-    private static async Task<BitmapImage?> DecodeToBitmapImageAsync(
+    private static async Task<CachedThumb?> DecodeToSoftwareBitmapAsync(
         IRandomAccessStream stream,
         int? targetMaxSize,
         CancellationToken ct)
@@ -342,11 +351,13 @@ public class MediaLoader : IMediaLoader
             if (decoder.PixelWidth == 0 || decoder.PixelHeight == 0) return null;
             ct.ThrowIfCancellationRequested();
 
+            var originalWidth = (int)decoder.OrientedPixelWidth;
+            var originalHeight = (int)decoder.OrientedPixelHeight;
             var (scaledWidth, scaledHeight) = ComputeScaledDimensions(decoder, targetMaxSize);
 
             var transform = new BitmapTransform
             {
-                InterpolationMode = BitmapInterpolationMode.Linear,
+                InterpolationMode = BitmapInterpolationMode.Fant,
                 ScaledWidth = scaledWidth,
                 ScaledHeight = scaledHeight
             };
@@ -360,25 +371,13 @@ public class MediaLoader : IMediaLoader
             ct.ThrowIfCancellationRequested();
             var bytes = pixelData.DetachPixelData();
 
-            var bitmapImage = new BitmapImage();
-            using var pngStream = new InMemoryRandomAccessStream();
-            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, pngStream);
-            encoder.SetPixelData(
-                BitmapPixelFormat.Bgra8,
-                BitmapAlphaMode.Premultiplied,
-                scaledWidth,
-                scaledHeight,
-                96.0,
-                96.0,
-                bytes);
-            await encoder.FlushAsync();
-            pngStream.Seek(0);
-            await bitmapImage.SetSourceAsync(pngStream);
-            return bitmapImage;
+            var sb = CreateSoftwareBitmap(bytes, (int)scaledWidth, (int)scaledHeight);
+            if (sb is null) return null;
+            return new CachedThumb(sb, originalWidth, originalHeight);
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"DecodeToBitmapImageAsync error: {ex.GetType().Name}: {ex.Message}");
+            Trace.TraceError($"DecodeToSoftwareBitmapAsync error: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
     }

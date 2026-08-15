@@ -6,8 +6,8 @@ namespace IcedPicViewer.Models;
 
 public sealed partial class VideoItem : MediaItem
 {
-    public TimeSpan Duration { get; }
-    public bool HasAudio { get; }
+    public TimeSpan Duration { get; private set; }
+    public bool HasAudio { get; private set; }
 
     /// <summary>
     /// FFmpeg short name of the video codec (e.g. <c>"h264"</c>,
@@ -19,7 +19,7 @@ public sealed partial class VideoItem : MediaItem
     /// container, so the user needs either LAV Filters or to convert
     /// the file to H.264/AAC with FFmpeg / HandBrake.
     /// </summary>
-    public string Codec { get; }
+    public string Codec { get; private set; }
 
     public VideoItem(
         MediaRef media,
@@ -60,4 +60,25 @@ public sealed partial class VideoItem : MediaItem
     public string DurationText => MediaDisplay.FormatDuration(Duration);
 
     protected override string InfoDurationText => DurationText;
+
+    public void ApplyDuration(TimeSpan duration)
+    {
+        if (duration <= TimeSpan.Zero || duration == Duration) return;
+        Duration = duration;
+        OnPropertyChanged(nameof(Duration));
+        OnPropertyChanged(nameof(DurationText));
+        OnPropertyChanged(nameof(InfoLine));
+        OnPropertyChanged(nameof(OriginalSizeText));
+    }
+
+    public void ApplyCodec(string codec, bool hasAudio)
+    {
+        if (!string.IsNullOrEmpty(codec))
+        {
+            Codec = codec;
+            OnPropertyChanged(nameof(Codec));
+        }
+        HasAudio = hasAudio;
+        OnPropertyChanged(nameof(HasAudio));
+    }
 }

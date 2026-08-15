@@ -5,7 +5,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using IcedPicViewer.Services.Interfaces;
-using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace IcedPicViewer.Services.Implementations;
 
@@ -18,14 +17,9 @@ namespace IcedPicViewer.Services.Implementations;
 /// constant.
 ///
 /// <para>
-/// A 400 px BitmapImage averages ~150-400 KB. We target roughly 1 %
-/// of available physical memory for the cache (so 1 GB free → ~10 MB
-/// of thumbnails → ~40-60 entries; 4 GB free → ~40 MB → ~150-260
-/// entries; 8 GB+ free → capped at the upper bound). The actual cap
-/// is clamped to <see cref="MinCapacity"/> / <see cref="MaxCapacity"/>
-/// so we never end up with a degenerate cache on either end (a 5-entry
-/// cache thrashes on a big gallery; a 5000-entry cache wastes a GB on
-/// a machine that doesn't have it).
+/// A 768-edge SoftwareBitmap is ~1–2 MB raw. Budget is ~1 % of
+/// available physical memory, clamped to
+/// <see cref="MinCapacity"/> / <see cref="MaxCapacity"/>.
 /// </para>
 ///
 /// <para>
@@ -46,16 +40,11 @@ public sealed class ThumbnailCache : IThumbnailCache
     private const int MinCapacity = 50;
 
     /// <summary>Maximum capacity — a generous upper bound that
-    /// corresponds to ~100 MB of thumbnail memory at the high end of
-    /// the per-entry size range. Beyond this, the marginal hit rate
-    /// gain doesn't justify the working-set pressure.</summary>
-    private const int MaxCapacity = 500;
+    /// corresponds to ~240 MB of 768-edge BGRA at the high end.</summary>
+    private const int MaxCapacity = 200;
 
-    /// <summary>Average per-entry footprint used to translate the
-    /// memory budget into an entry count. ~300 KB lands in the middle
-    /// of the 150-400 KB range observed for 400 px BitmapImage across
-    /// JPEG / PNG / WebP inputs.</summary>
-    private const int AvgEntryBytes = 300 * 1024;
+    /// <summary>Average per-entry footprint for a 768-edge BGRA thumb.</summary>
+    private const int AvgEntryBytes = 1200 * 1024;
 
     /// <summary>Fraction of available physical memory to dedicate to
     /// the cache. 1 % is a conservative number — bigger would risk
@@ -69,7 +58,7 @@ public sealed class ThumbnailCache : IThumbnailCache
     private readonly LinkedList<Entry> _order = new();
     private readonly object _lock = new();
 
-    private readonly record struct Entry(string Key, BitmapImage Image);
+    private readonly record struct Entry(string Key, CachedThumb Thumb);
 
     public ThumbnailCache() : this(ComputeCapacityFromAvailableMemory()) { }
 
@@ -137,31 +126,26 @@ public sealed class ThumbnailCache : IThumbnailCache
         public ulong ullAvailExtendedVirtual;
     }
 
-    public bool TryGet(string key, out BitmapImage? image)
+    public bool TryGet(string key, out CachedThumb? thumb)
     {
         lock (_lock)
         {
             if (_map.TryGetValue(key, out var node))
             {
-                // Hit: move to tail (most recently used). _order.Remove
-                // is O(1) for a doubly-linked list, so the cost is
-                // bounded regardless of cache size.
                 _order.Remove(node);
                 _order.AddLast(node);
-                image = node.Value.Image;
+                thumb = node.Value.Thumb;
                 return true;
             }
-            image = null;
+            thumb = null;
             return false;
         }
     }
 
-    public void Store(string key, BitmapImage image)
+    public void Store(string key, CachedThumb thumb)
     {
         lock (_lock)
         {
-            // Replace an existing entry: drop the old node before
-            // adding the new one so the count invariant stays tight.
             if (_map.TryGetValue(key, out var existing))
             {
                 _order.Remove(existing);
@@ -169,9 +153,6 @@ public sealed class ThumbnailCache : IThumbnailCache
             }
             else if (_map.Count >= _capacity)
             {
-                // Evict the least-recently-used entry (head of the
-                // linked list). _order.First is null only on an empty
-                // list, which the capacity check above rules out.
                 var oldest = _order.First;
                 if (oldest is not null)
                 {
@@ -180,7 +161,7 @@ public sealed class ThumbnailCache : IThumbnailCache
                 }
             }
 
-            var node = new LinkedListNode<Entry>(new Entry(key, image));
+            var node = new LinkedListNode<Entry>(new Entry(key, thumb));
             _order.AddLast(node);
             _map[key] = node;
         }

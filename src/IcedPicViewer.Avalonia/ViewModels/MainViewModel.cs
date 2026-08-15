@@ -6,6 +6,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Avalonia.Services;
+using IcedPicViewer.Core.Layout;
 using IcedPicViewer.Core.Media;
 using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
@@ -27,7 +28,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     private const int PageSize = 200;
     private const int ScanBatchSize = 100;
     private const int ScanBatchMs = 50;
-    private const int ThumbMaxEdge = 256;
+    private const int ThumbMaxEdge = GalleryMetrics.ThumbMaxEdge;
     private const int FullMaxEdge = 5120;
     private const int ThumbConcurrency = 6;
 

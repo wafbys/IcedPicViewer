@@ -61,6 +61,7 @@
                                 <Grid MinHeight="120">
                                     <Image Source="{Binding Thumbnail}"
                                            Stretch="Uniform"
+                                           RenderOptions.BitmapInterpolationMode="HighQuality"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                                     <TextBlock Text="加载中…"

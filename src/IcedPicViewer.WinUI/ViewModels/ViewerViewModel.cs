@@ -736,6 +736,13 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         ErrorMessage = null;
         try
         {
+            if (string.IsNullOrEmpty(video.Codec))
+            {
+                var meta = await _videoMetadataService.GetVideoMetadataAsync(video.Media);
+                if (meta is { } m)
+                    video.ApplyCodec(m.VideoCodec, m.HasAudio);
+            }
+
             // Prefer LibVLC for codecs MF cannot remux/decode (VP8/WebM, …)
             // — same engine as Avalonia shell.
             if (PreferLibVlcPlayback(video))

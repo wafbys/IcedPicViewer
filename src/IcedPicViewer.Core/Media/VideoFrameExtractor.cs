@@ -168,7 +168,7 @@ public static class VideoFrameExtractor
             swsCtx = ffmpeg.sws_getContext(
                 srcW, srcH, codecCtx->pix_fmt,
                 outW, outH, AVPixelFormat.AV_PIX_FMT_BGRA,
-                (int)SwsFlags.SWS_BILINEAR, null, null, null);
+                (int)SwsFlags.SWS_LANCZOS, null, null, null);
             if (swsCtx == null) return null;
 
             var bgraLineSize = outW * 4;

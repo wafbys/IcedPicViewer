@@ -56,14 +56,17 @@ public interface IMediaLoader
     /// bitmap's <c>PixelWidth</c> / <c>PixelHeight</c> reflect the
     /// oriented (post-rotation) dimensions, so a 4000x3000 EXIF-6
     /// portrait photo comes back as a 3000x4000 bitmap — viewer
-    /// layout and masonry aspect use this bitmap. InfoLine W×H is
-    /// <see cref="GetImageSizeAsync"/> (original), not this decode
-    /// size. Returns null
-    /// if the source can't be opened or decoded.
+    /// layout uses this bitmap. Gallery InfoLine W×H comes from the
+    /// thumbnail decode (oriented original), not this possibly-capped
+    /// bitmap. Returns null if the source can't be opened or decoded.
     /// </summary>
     Task<WinImageSource?> LoadFullAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default);
 
-    Task<BitmapImage?> LoadThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default);
+    /// <summary>
+    /// Masonry thumbnail as a <see cref="CachedThumb"/> (SoftwareBitmap +
+    /// oriented original size). No PNG re-encode.
+    /// </summary>
+    Task<CachedThumb?> LoadThumbnailAsync(MediaRef media, int maxSize, CancellationToken ct = default);
 
     /// <summary>
     /// Returns the (oriented) pixel dimensions of the source. EXIF
