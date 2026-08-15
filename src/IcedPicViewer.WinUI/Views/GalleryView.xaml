@@ -56,24 +56,10 @@
                             Padding="4"
                             DoubleTapped="ImageItem_DoubleTapped"
                             RightTapped="ImageItem_RightTapped"
+                            PointerEntered="Tile_PointerEntered"
+                            PointerExited="Tile_PointerExited"
                             AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"
                             AutomationProperties.HelpText="{x:Bind DisplayLocation, Mode=OneWay}">
-                        <ToolTipService.ToolTip>
-                            <StackPanel>
-                                <TextBlock Text="{x:Bind Name, Mode=OneTime}" FontWeight="SemiBold"/>
-                                <TextBlock FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                                    <Run Text="{x:Bind OriginalSizeText, Mode=OneTime}"/>
-                                    <Run Text=" · "/>
-                                    <Run Text="{x:Bind FileSizeText, Mode=OneTime}"/>
-                                </TextBlock>
-                                <TextBlock Text="{x:Bind DisplayLocation, Mode=OneWay}"
-                                           FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                           TextTrimming="CharacterEllipsis"
-                                           MaxWidth="280"/>
-                            </StackPanel>
-                        </ToolTipService.ToolTip>
                         <Border.ContextFlyout>
                             <MenuFlyout>
                                 <MenuFlyoutItem Text="打开文件位置" Click="OpenFileLocation_Click"/>
@@ -132,6 +118,33 @@
                                           Foreground="White"
                                           HorizontalAlignment="Center"
                                           VerticalAlignment="Center"/>
+                            </Border>
+                            <Border Tag="hover-overlay"
+                                    Background="#33000000"
+                                    CornerRadius="2"
+                                    Opacity="0"
+                                    IsHitTestVisible="False"/>
+                            <Border Tag="hover-overlay"
+                                    VerticalAlignment="Bottom"
+                                    Background="#CC000000"
+                                    Padding="8,6"
+                                    Opacity="0"
+                                    IsHitTestVisible="False">
+                                <StackPanel Spacing="1">
+                                    <TextBlock Text="{x:Bind Name, Mode=OneWay}"
+                                               Foreground="White"
+                                               FontWeight="SemiBold"
+                                               FontSize="12"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{x:Bind InfoLine, Mode=OneTime}"
+                                               Foreground="#E0FFFFFF"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{x:Bind DisplayLocation, Mode=OneWay}"
+                                               Foreground="#B3FFFFFF"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
                             </Border>
                         </Grid>
                     </Border>

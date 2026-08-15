@@ -55,9 +55,10 @@ public interface IMediaLoader
     /// with EXIF orientation applied at the pixel level. The returned
     /// bitmap's <c>PixelWidth</c> / <c>PixelHeight</c> reflect the
     /// oriented (post-rotation) dimensions, so a 4000x3000 EXIF-6
-    /// portrait photo comes back as a 3000x4000 bitmap — the viewer
-    /// layout, the W×H text, and the masonry card aspect ratio all
-    /// work from these values without any extra logic. Returns null
+    /// portrait photo comes back as a 3000x4000 bitmap — viewer
+    /// layout and masonry aspect use this bitmap. InfoLine W×H is
+    /// <see cref="GetImageSizeAsync"/> (original), not this decode
+    /// size. Returns null
     /// if the source can't be opened or decoded.
     /// </summary>
     Task<WinImageSource?> LoadFullAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default);

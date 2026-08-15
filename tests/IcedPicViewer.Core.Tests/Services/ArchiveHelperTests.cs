@@ -122,6 +122,26 @@ public sealed class ArchiveHelperTests : IDisposable
     }
 
     [Fact]
+    public void GetEntryUncompressedSize_ShouldMatchListEntriesSize()
+    {
+        var listed = ArchiveHelper.ListEntries(_zipPath, extensionFilter: null)
+            .Single(e => e.Key == "photos/sunset.jpg");
+
+        var size = ArchiveHelper.GetEntryUncompressedSize(_zipPath, "photos/sunset.jpg");
+
+        Assert.True(listed.UncompressedSize > 0);
+        Assert.Equal(listed.UncompressedSize, size);
+        Assert.Equal(listed.UncompressedSize, ArchiveHelper.GetEntryUncompressedSize(_zipPath, "photos\\sunset.jpg"));
+    }
+
+    [Fact]
+    public void GetEntryUncompressedSize_MissingEntry_ShouldReturnZero()
+    {
+        Assert.Equal(0, ArchiveHelper.GetEntryUncompressedSize(_zipPath, "no-such.jpg"));
+        Assert.Equal(0, ArchiveHelper.GetEntryUncompressedSize(_zipPath, ""));
+    }
+
+    [Fact]
     public void OpenEntryStream_ShouldReturnStreamForExistingEntry()
     {
         using var stream = ArchiveHelper.OpenEntryStream(_zipPath, "photos/sunset.jpg");

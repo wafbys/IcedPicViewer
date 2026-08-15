@@ -41,14 +41,9 @@ public abstract partial class MediaItem : ObservableObject, IMediaEntry
     public long FileSize { get; }
     public DateTime ModifiedTime { get; }
 
-    // Pixel dimensions of the underlying media, populated from each
-    // concrete kind's metadata extractor: BitmapDecoder for images
-    // (~ms), FFmpeg codec params for videos (~ms too — no frame
-    // decode). Lives on the base because the gallery template binds
-    // OriginalSizeText and the image viewer info bar binds width /
-    // height directly, and both need to work regardless of which
-    // concrete subtype is in the collection. 0 / 0 means "unknown"
-    // (corrupt file, format that didn't yield codec params, etc.).
+    // Oriented original pixel size (BitmapDecoder / FFmpeg codec
+    // params). Gallery hover, tooltip, and viewer chrome bind
+    // InfoLine (W×H · duration · file size). 0 / 0 means unknown.
     public int OriginalWidth { get; }
     public int OriginalHeight { get; }
 
@@ -100,6 +95,18 @@ public abstract partial class MediaItem : ObservableObject, IMediaEntry
     }
 
     public string FileSizeText => MediaDisplay.FormatFileSize(FileSize);
+
+    /// <summary>
+    /// Gallery hover / viewer chrome: "W×H · m:ss · 2.1 MB".
+    /// Pixel size is the oriented original, never the decoded thumbnail.
+    /// </summary>
+    public string InfoLine => MediaDisplay.FormatInfoLine(
+        MediaDisplay.FormatPixelSize(OriginalWidth, OriginalHeight),
+        InfoDurationText,
+        FileSizeText);
+
+    /// <summary>Video duration fragment for <see cref="InfoLine"/>; empty on images.</summary>
+    protected virtual string InfoDurationText => "";
 
     /// <summary>
     /// Subtitle text shown on the gallery card — for images this is

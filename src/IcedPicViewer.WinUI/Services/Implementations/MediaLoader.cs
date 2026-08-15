@@ -312,6 +312,10 @@ public class MediaLoader : IMediaLoader
         if (!targetMaxSize.HasValue)
             return ((uint)orientedWidth, (uint)orientedHeight);
 
+        var longest = Math.Max(orientedWidth, orientedHeight);
+        if (longest <= targetMaxSize.Value)
+            return ((uint)orientedWidth, (uint)orientedHeight);
+
         if (orientedWidth >= orientedHeight)
         {
             var w = (uint)targetMaxSize.Value;

@@ -41,9 +41,9 @@ public static class AvaloniaMediaLoader
             var f = frame.Value;
             var bmp = await Task.Run(() => BgraToBitmap(f.Bgra, f.FrameWidth, f.FrameHeight), ct)
                 .ConfigureAwait(false);
-            // Prefer container media size for InfoLine; fall back to scaled frame.
-            var ow = f.SourceWidth > 0 ? f.SourceWidth : f.FrameWidth;
-            var oh = f.SourceHeight > 0 ? f.SourceHeight : f.FrameHeight;
+            // InfoLine uses container media size only — never the scaled frame.
+            var ow = f.SourceWidth > 0 ? f.SourceWidth : 0;
+            var oh = f.SourceHeight > 0 ? f.SourceHeight : 0;
             return (bmp, ow, oh, f.Duration);
         }
 
@@ -55,12 +55,7 @@ public static class AvaloniaMediaLoader
 
             return await Task.Run(() =>
             {
-                if (stream.CanSeek) stream.Position = 0;
-                var info = SkiaImage.Identify(stream);
-                var ow = info?.Width ?? 0;
-                var oh = info?.Height ?? 0;
-                if (stream.CanSeek) stream.Position = 0;
-                var bmp = DecodeWithExif(stream, maxEdge);
+                var bmp = DecodeWithExif(stream, maxEdge, out var ow, out var oh);
                 return (bmp, ow, oh, (TimeSpan?)null);
             }, ct).ConfigureAwait(false);
         }
@@ -156,23 +151,32 @@ public static class AvaloniaMediaLoader
     }
 
     private static AvBitmap DecodeWithExif(Stream stream, int maxEdge)
+        => DecodeWithExif(stream, maxEdge, out _, out _);
+
+    /// <summary>
+    /// EXIF-oriented decode. <paramref name="originalWidth"/> /
+    /// <paramref name="originalHeight"/> are the post-orient pixel size
+    /// (InfoLine), not the possibly-scaled thumbnail.
+    /// </summary>
+    private static AvBitmap DecodeWithExif(
+        Stream stream, int maxEdge, out int originalWidth, out int originalHeight)
     {
         if (stream.CanSeek) stream.Position = 0;
 
         using var image = SkiaImage.Load(stream);
         image.Mutate(ctx => ctx.AutoOrient());
 
-        var w = image.Width;
-        var h = image.Height;
-        if (w <= 0 || h <= 0)
+        originalWidth = image.Width;
+        originalHeight = image.Height;
+        if (originalWidth <= 0 || originalHeight <= 0)
             throw new InvalidOperationException("Invalid image dimensions");
 
-        var longest = Math.Max(w, h);
+        var longest = Math.Max(originalWidth, originalHeight);
         if (longest > maxEdge)
         {
             var scale = maxEdge / (double)longest;
-            var tw = Math.Max(1, (int)Math.Round(w * scale));
-            var th = Math.Max(1, (int)Math.Round(h * scale));
+            var tw = Math.Max(1, (int)Math.Round(originalWidth * scale));
+            var th = Math.Max(1, (int)Math.Round(originalHeight * scale));
             image.Mutate(ctx => ctx.Resize(tw, th));
         }
 

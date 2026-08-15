@@ -52,14 +52,6 @@
                                     Cursor="Hand"
                                     ClipToBounds="True"
                                     PointerPressed="Tile_PointerPressed">
-                                <ToolTip.Tip>
-                                    <StackPanel MaxWidth="300" Spacing="2">
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                        <TextBlock Text="{Binding InfoLine}" FontSize="11" Opacity="0.85" />
-                                        <TextBlock Text="{Binding DisplayPath}" FontSize="11" Opacity="0.7"
-                                                   TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </ToolTip.Tip>
                                 <Border.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Header="打开文件位置" Click="RevealMenu_Click" />
@@ -239,6 +231,8 @@
                 <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsViewerOpen}">
                     <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,16,0">
                         <TextBlock Classes="chrome-title" Text="{Binding SelectedItem.Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="chrome-subtle" Text="{Binding SelectedItem.InfoLine}"
+                                   TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
                         <TextBlock Classes="chrome-subtle" Text="{Binding SelectedItem.DisplayPath}"
                                    TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
                     </StackPanel>

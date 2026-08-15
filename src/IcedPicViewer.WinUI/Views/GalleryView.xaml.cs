@@ -434,6 +434,23 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         }
     }
 
+    private void Tile_PointerEntered(object sender, PointerRoutedEventArgs e)
+        => SetCardHover(sender, visible: true);
+
+    private void Tile_PointerExited(object sender, PointerRoutedEventArgs e)
+        => SetCardHover(sender, visible: false);
+
+    private static void SetCardHover(object sender, bool visible)
+    {
+        if (sender is not Border card || card.Child is not Grid grid) return;
+        var opacity = visible ? 1.0 : 0.0;
+        foreach (var child in grid.Children)
+        {
+            if (child is FrameworkElement fe && fe.Tag as string == "hover-overlay")
+                fe.Opacity = opacity;
+        }
+    }
+
     private async void DeleteMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedItemForDelete == null) return;

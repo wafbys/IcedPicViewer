@@ -25,7 +25,10 @@ public partial class MediaItemViewModel : ViewModelBase, IMediaEntry
 
     public bool IsVideo => Media.Kind == MediaKind.Video;
 
-    public long FileSize { get; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FileSizeText))]
+    [NotifyPropertyChangedFor(nameof(InfoLine))]
+    public partial long FileSize { get; set; }
 
     public string FileSizeText => MediaDisplay.FormatFileSize(FileSize);
 
@@ -92,15 +95,11 @@ public partial class MediaItemViewModel : ViewModelBase, IMediaEntry
         long size = 0;
         try
         {
-            if (media.IsInArchive)
-            {
-                if (File.Exists(media.Path))
-                    size = new FileInfo(media.Path).Length;
-            }
-            else if (File.Exists(media.Path))
-            {
+            // Archive entry size is filled after thumbnail metadata
+            // (ArchiveHelper.GetEntryUncompressedSize on a worker).
+            // Do not use the zip file's length here.
+            if (!media.IsInArchive && File.Exists(media.Path))
                 size = new FileInfo(media.Path).Length;
-            }
         }
         catch (Exception ex)
         {
@@ -129,12 +128,9 @@ public partial class MediaItemViewModel : ViewModelBase, IMediaEntry
         }
         else if (bitmap is not null && bitmap.PixelSize.Width > 0)
         {
+            // Layout can use the thumbnail aspect; InfoLine stays empty
+            // until oriented original pixels are known (never the thumb).
             AspectRatio = bitmap.PixelSize.Height / (double)bitmap.PixelSize.Width;
-            if (PixelWidth <= 0)
-            {
-                PixelWidth = bitmap.PixelSize.Width;
-                PixelHeight = bitmap.PixelSize.Height;
-            }
         }
         IsThumbnailLoading = false;
     }

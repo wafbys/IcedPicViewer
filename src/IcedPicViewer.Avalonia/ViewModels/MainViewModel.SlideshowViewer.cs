@@ -476,7 +476,16 @@ public partial class MainViewModel
                     item.Media, ThumbMaxEdge, ct)
                 .ConfigureAwait(false);
 
-            await Dispatcher.UIThread.InvokeAsync(() => item.ApplyThumbnail(bmp, ow, oh, duration));
+            var archiveSize = 0L;
+            if (item.Media.IsInArchive && item.Media.ArchiveEntry is { } entryKey)
+                archiveSize = ArchiveHelper.GetEntryUncompressedSize(item.Media.Path, entryKey);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                item.ApplyThumbnail(bmp, ow, oh, duration);
+                if (archiveSize > 0)
+                    item.FileSize = archiveSize;
+            });
         }
         catch (OperationCanceledException)
         {

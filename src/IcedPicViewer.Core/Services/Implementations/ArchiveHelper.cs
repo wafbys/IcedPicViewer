@@ -1,5 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using SharpCompress.Archives;
@@ -211,6 +212,50 @@ public static class ArchiveHelper
             useAsync: false);
         entryStream.CopyTo(destStream);
     }
+
+    /// <summary>
+    /// Uncompressed size of one archive entry (central-directory / reader
+    /// <c>Size</c>). Used by gallery InfoLine so zip entries do not show
+    /// the archive file's length. Cached per archive path + mtime so a
+    /// folder of many entries does not re-walk the container each time.
+    /// </summary>
+    public static long GetEntryUncompressedSize(string archivePath, string entryKey)
+    {
+        if (string.IsNullOrEmpty(archivePath) || string.IsNullOrEmpty(entryKey))
+            return 0;
+
+        try
+        {
+            var map = GetEntrySizeMap(archivePath);
+            if (map.TryGetValue(NormalizeEntryKey(entryKey), out var size))
+                return size;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Trace.TraceError($"ArchiveHelper.GetEntryUncompressedSize {archivePath}: {ex.Message}");
+        }
+
+        return 0;
+    }
+
+    private static readonly ConcurrentDictionary<string, (long Ticks, Dictionary<string, long> Map)> EntrySizeCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static Dictionary<string, long> GetEntrySizeMap(string archivePath)
+    {
+        var ticks = File.Exists(archivePath) ? File.GetLastWriteTimeUtc(archivePath).Ticks : 0L;
+        if (EntrySizeCache.TryGetValue(archivePath, out var cached) && cached.Ticks == ticks)
+            return cached.Map;
+
+        var map = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in ListEntries(archivePath, extensionFilter: null))
+            map[NormalizeEntryKey(entry.Key)] = entry.UncompressedSize;
+
+        EntrySizeCache[archivePath] = (ticks, map);
+        return map;
+    }
+
+    private static string NormalizeEntryKey(string key) => key.Replace('\\', '/');
 
     private static FileStream OpenArchiveFile(string archivePath) =>
         new(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);

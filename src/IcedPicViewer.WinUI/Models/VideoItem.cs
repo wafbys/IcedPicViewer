@@ -58,4 +58,6 @@ public sealed partial class VideoItem : MediaItem
     }
 
     public string DurationText => MediaDisplay.FormatDuration(Duration);
+
+    protected override string InfoDurationText => DurationText;
 }
