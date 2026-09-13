@@ -21,22 +21,31 @@ $ErrorActionPreference = 'Stop'
 $dest = Join-Path $RepoRoot "src/native/ffmpeg/$Rid"
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
-# Map RID → BtbN asset name fragment (latest n8.1 LGPL shared).
+# Map RID → BtbN asset selector, pinned to the FFmpeg 8.1 branch (LGPL shared).
+# BtbN names branch assets with the commit, e.g.
+#   ffmpeg-n8.1.2-52-g5a03dfa0f6-win64-lgpl-shared-8.1.zip
+# so the glob must stay loose around the version. Do NOT tighten this into a
+# `-latest-` name: that fragment no longer exists upstream, the fallback then
+# picks a master nightly, and master carries next-major sonames
+# (avutil-61 / avcodec-63) that FFmpeg.AutoGen 8.1.0 cannot bind to.
 $map = @{
-    'win-x64'      = @{ urlPart = 'win64';   ext = 'zip';   pattern = 'ffmpeg-n8.1-latest-win64-lgpl-shared-*.zip' }
-    'win-arm64'    = @{ urlPart = 'winarm64'; ext = 'zip';   pattern = 'ffmpeg-n8.1-latest-winarm64-lgpl-shared-*.zip' }
-    'linux-x64'    = @{ urlPart = 'linux64'; ext = 'tar.xz'; pattern = 'ffmpeg-n8.1-latest-linux64-lgpl-shared-*.tar.xz' }
-    'linux-arm64'  = @{ urlPart = 'linuxarm64'; ext = 'tar.xz'; pattern = 'ffmpeg-n8.1-latest-linuxarm64-lgpl-shared-*.tar.xz' }
+    'win-x64'      = @{ urlPart = 'win64';      ext = 'zip';    glob = 'ffmpeg-n8.1*win64-lgpl-shared*.zip' }
+    'win-arm64'    = @{ urlPart = 'winarm64';   ext = 'zip';    glob = 'ffmpeg-n8.1*winarm64-lgpl-shared*.zip' }
+    'linux-x64'    = @{ urlPart = 'linux64';    ext = 'tar.xz'; glob = 'ffmpeg-n8.1*linux64-lgpl-shared*.tar.xz' }
+    'linux-arm64'  = @{ urlPart = 'linuxarm64'; ext = 'tar.xz'; glob = 'ffmpeg-n8.1*linuxarm64-lgpl-shared*.tar.xz' }
 }
 
 $meta = $map[$Rid]
 $api = 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest'
 Write-Host "Querying $api ..."
 $rel = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'IcedPicViewer-FetchFFmpeg' }
-$asset = $rel.assets | Where-Object { $_.name -like $meta.pattern } | Select-Object -First 1
+# Master nightlies are excluded everywhere: they are FFmpeg master (next major
+# sonames) and would break the AutoGen binding at runtime, silently.
+$candidates = @($rel.assets | Where-Object { $_.name -notlike 'ffmpeg-N-*' })
+$asset = $candidates | Where-Object { $_.name -like $meta.glob } | Select-Object -First 1
 if (-not $asset) {
-    # Fallback: any *lgpl-shared* for this arch
-    $asset = $rel.assets | Where-Object {
+    # Fallback: any *lgpl-shared* for this arch, still no master nightlies.
+    $asset = $candidates | Where-Object {
         $_.name -match [regex]::Escape($meta.urlPart) -and $_.name -match 'lgpl-shared'
     } | Select-Object -First 1
 }
@@ -70,6 +79,25 @@ $libDir = Get-ChildItem -Path $extract -Recurse -Directory -ErrorAction Silently
 
 if (-not $libDir) {
     throw "Could not locate avutil shared library inside archive."
+}
+
+# Soname guard. FFmpeg.AutoGen 8.1.0 hard-codes the FFmpeg 8.x library names
+# (avutil-60 / avcodec-62 / ...); a mismatched set does not fail the build —
+# FFmpegBootstrap catches the load error and just disables video thumbs, so
+# silently fetching master here costs hours of "why is video broken".
+$expected = [ordered]@{ avutil = 60; avcodec = 62; avformat = 62; avfilter = 11; swscale = 9; swresample = 6 }
+$names = @(Get-ChildItem $libDir.FullName -Force | Select-Object -ExpandProperty Name)
+$missing = @()
+foreach ($lib in $expected.Keys) {
+    if (-not ($names | Where-Object { $_ -match "^(?:lib)?$lib[^0-9]*$($expected[$lib])" })) {
+        $missing += "$lib/$($expected[$lib])"
+    }
+}
+if ($missing.Count -gt 0) {
+    throw ("FFmpeg natives do not match FFmpeg.AutoGen 8.1.0 — missing sonames: $($missing -join ', '). " +
+           "Asset '$($asset.name)' is likely a master/nightly build; pick an n8.1 (lgpl-shared) asset from " +
+           "https://github.com/BtbN/FFmpeg-Builds/releases. Do not 'upgrade' the sonames without bumping " +
+           "FFmpeg.AutoGen and the avutil-60/avcodec-62 checks in src/IcedPicViewer.WinUI/IcedPicViewer.csproj.")
 }
 
 Write-Host "Copying from $($libDir.FullName) → $dest"
