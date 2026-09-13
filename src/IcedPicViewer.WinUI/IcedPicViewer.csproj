@@ -276,8 +276,17 @@
 
     Build 时只清 $(OutDir);publish 时还要清 $(PublishDir) —— 这两个目录都包含 .NET
     自带的 culture satellite 资源,只清一个会留 ~86 个 culture 目录在 publish 目录里。
+
+    ⚠️ 非打包(self-contained 绿色版)不能删这些目录:那里 Microsoft.ui.xaml.dll 就在
+    自己目录里,它的本地化资源是 <culture>\Microsoft.ui.xaml.dll.mui。删掉后应用启动后
+    若干秒会抛未处理 COMException "The resource loader cache doesn't have loaded MUI
+    entry"(2026-09-13/14 在绿色版上复现),MRT 相关路径还可能连着报
+    Windows.ApplicationModel.LimitedAccessFeatures。打包版由 WindowsAppRuntime 框架包
+    提供 MUI,所以删掉无害。
+
+    绿色版脚本传 -p:IcedPicViewerKeepCultures=true 关闭本 target(代价 ~3 MB)。
   -->
-  <Target Name="RemoveUnwantedCultures" AfterTargets="Build;Publish">
+  <Target Name="RemoveUnwantedCultures" AfterTargets="Build;Publish" Condition="'$(IcedPicViewerKeepCultures)' != 'true'">
     <PropertyGroup>
       <_CultureDirsToClean>$(OutDir)</_CultureDirsToClean>
       <_CultureDirsToClean Condition="'$(PublishDir)' != '' AND '$(PublishDir)' != '$(OutDir)'">$(OutDir);$(PublishDir)</_CultureDirsToClean>

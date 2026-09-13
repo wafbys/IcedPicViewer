@@ -63,11 +63,36 @@ public partial class App : Application
         // (e.g. on Insider builds where the runtime's OS build check trips).
         UnhandledException += OnUnhandledException;
 
+        // Diagnostics for the unpackaged/green crashes seen 2026-09-13/14: the
+        // failure surfaces as XAML UnhandledException with an EMPTY StackTrace
+        // (the WinRT call that fails is native), so the only way to attribute it
+        // to a managed call site is to record the exception as it is first
+        // thrown. Off unless IPV_FIRSTCHANCE_LOG=1; writes <app data>\firstchance.log.
+        if (Environment.GetEnvironmentVariable("IPV_FIRSTCHANCE_LOG") == "1")
+        {
+            AppDomain.CurrentDomain.FirstChanceException += OnFirstChanceException;
+        }
+
         InitializeComponent();
 
         var services = new ServiceCollection();
         ConfigureServices(services);
         _services = services.BuildServiceProvider();
+    }
+
+    private static void OnFirstChanceException(
+        object? sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)
+    {
+        try
+        {
+            var entry = $"[{DateTime.Now:HH:mm:ss.fff}] {e.Exception.GetType().FullName}: {e.Exception.Message}\n" +
+                        $"{e.Exception.StackTrace}\n\n";
+            File.AppendAllText(Path.Combine(AppDataPaths.EnsureRoot(), "firstchance.log"), entry);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"App.OnFirstChanceException: logging failed: {ex.Message}");
+        }
     }
 
     private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
@@ -92,6 +117,12 @@ public partial class App : Application
             fullError += $"\n原始 UnhandledException 消息: {e.Message}\n" +
                          $"建议: 如果是组件/解码相关，可尝试安装 Windows App Runtime 2.3\n" +
                          $"下载: https://aka.ms/windowsappsdk/2.0/latest/windowsappruntimeinstall-x64.exe";
+
+            // ToString() carries the full chain (type + message + stack + inner
+            // exceptions, including the WinRT activation context); the fields
+            // above lose it when StackTrace is empty, which is exactly what
+            // happens for the unpackaged COMExceptions.
+            fullError += $"\n完整异常:\n{ex}";
 
             // Attach current viewer state if possible (for easier diagnosis)
             try

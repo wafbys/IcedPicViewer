@@ -99,6 +99,14 @@ $publishArgs = @(
     '-c', 'Release',
     '-p:Platform=x64',
     '-p:WindowsPackageType=None',
+    # Keep the culture folders. In an unpackaged/self-contained build
+    # Microsoft.ui.xaml.dll lives in this folder and loads its localized
+    # resources from <culture>\Microsoft.ui.xaml.dll.mui. The project's
+    # RemoveUnwantedCultures target deletes every culture folder (fine for
+    # MSIX, where the Windows App Runtime framework package supplies MUI), and
+    # without them the app throws an unhandled COMException a few seconds in:
+    # "The resource loader cache doesn't have loaded MUI entry". Costs ~3 MB.
+    '-p:IcedPicViewerKeepCultures=true',
     '-o', $Output
 )
 if ($Flavor -eq 'selfcontained') {
@@ -143,6 +151,15 @@ foreach ($item in $required) {
 # the framework resources, so only its presence is checked, not its size.
 $priPath = Join-Path $Output 'IcedPicViewer.pri'
 if (-not (Test-Path $priPath)) { throw "Portable build incomplete — missing MRT index: $priPath" }
+
+# The native WinUI MUI resources must survive (see the KeepCultures note above).
+# Missing them = "The resource loader cache doesn't have loaded MUI entry" crash.
+$mui = Get-ChildItem -Path $Output -Recurse -File -Filter 'Microsoft.ui.xaml.dll.mui' -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if (-not $mui) {
+    throw ("Portable build incomplete — no Microsoft.ui.xaml.dll.mui under $Output. " +
+           "The culture folders were stripped (RemoveUnwantedCultures target); pass -p:IcedPicViewerKeepCultures=true.")
+}
 
 $sizeMb = [math]::Round(((Get-ChildItem -Recurse -Force -File $Output | Measure-Object -Property Length -Sum).Sum / 1MB), 1)
 Write-Host "Done: $Output ($sizeMb MB)"
