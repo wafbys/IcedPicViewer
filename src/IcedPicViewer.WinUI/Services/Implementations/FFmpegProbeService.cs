@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FFmpeg.AutoGen;
+using IcedPicViewer.Core.Settings;
 
 namespace IcedPicViewer.Services.Implementations;
 
@@ -43,10 +44,8 @@ public sealed class FFmpegProbeService
 
     public FFmpegProbeService()
     {
-        _logDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IcedPicViewer");
-        Directory.CreateDirectory(_logDir);
+        // %LOCALAPPDATA%\IcedPicViewer, or <exe>\data for portable builds.
+        _logDir = AppDataPaths.EnsureRoot();
         _logPath = Path.Combine(_logDir, LogFileName);
     }
 
@@ -58,8 +57,8 @@ public sealed class FFmpegProbeService
     /// packaged context you must either:
     ///   1. Set the env var inside App.OnLaunched before _window.Activate()
     ///      (compile-time override), or
-    ///   2. Place a flag file at %LOCALAPPDATA%\IcedPicViewer\ffmpeg-probe.flag
-    ///      (probe also checks for this — see RunAsync), or
+    ///   2. Place a flag file at <app data>\ffmpeg-probe.flag
+    ///      (%LOCALAPPDATA%\IcedPicViewer, or <exe>\data when portable), or
     ///   3. Temporarily flip _forceRunForDiagnostic below.
     /// </summary>
     public static bool IsProbeRequested =>

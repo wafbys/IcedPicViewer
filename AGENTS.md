@@ -53,8 +53,21 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 
 - WASDK **2.3.x** ↔ 目标机 Windows App Runtime **2.3**（MSIX 拉 framework；跨主版本会启动失败）。
 - WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
-- ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。
+- ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。想要双击即用走下面的绿色版。
 - 平台固定 **x64**（`Platform=x64`）；solution 里 WinUI 仅映射 x64。
+
+#### 绿色版（未打包 / 双击即用）
+
+```powershell
+./tools/Build-Portable.ps1                     # selfcontained（默认）：自带 .NET + WASDK 运行时，~482 MB
+./tools/Build-Portable.ps1 -Flavor framework   # 需目标机装 .NET 10 + Windows App Runtime，~342 MB
+./tools/Build-Portable.ps1 -Zip                # 追加 zip
+```
+
+- 产物默认 `artifacts/portable/`（git-ignored），**双击 `IcedPicViewer.exe` 即用**：`-p:WindowsPackageType=None` 去掉 MSIX identity 依赖；`WindowsAppSDKSelfContained` + `SelfContained` 决定是否自带运行时。
+- **数据不落用户目录**：脚本在产物根写 `portable.marker`，Core `AppDataPaths` 据此把 `settings.json` / `window_settings.txt` / `crash.log` / `TempVideo` 全部放到 **`<exe>\data\`**，整目录可随意改名搬移；打包版与 dev 版没有 marker，行为不变（仍 `%LOCALAPPDATA%\IcedPicViewer`）。
+- **新增任何持久化路径必须走 `AppDataPaths`**（`Root` / `SettingsFile` / `TempVideoDir` / `CrashLogFile`，或在其上 `Path.Combine`），不要再手写 `LocalApplicationData`，否则绿色版会漏写到用户 profile。`IPV_DATA_ROOT` 可强制覆盖（测试 / CI）。
+- About 页 LGPL 链接在非打包下 `ms-appx:///` 可能解析不到，已回退到 `<exe>\License\ffmpeg-LGPL.txt`；改该页时别把 fallback 删了。
 
 ### Avalonia（Win / macOS / Linux）
 

@@ -1,5 +1,6 @@
-﻿// Copyright (c) IcedPicViewer. All rights reserved.
+// Copyright (c) IcedPicViewer. All rights reserved.
 
+using IcedPicViewer.Core.Settings;
 using IcedPicViewer.Services.Implementations;
 using IcedPicViewer.Services.Interfaces;
 using IcedPicViewer.ViewModels;
@@ -104,13 +105,11 @@ public partial class App : Application
             catch { }
 
             // 1. 写入 crash.log 文件（主要存储方式，用户可手动打开复制完整堆栈）
+            string crashLogPath = AppDataPaths.CrashLogFile;
             try
             {
-                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                string dir = Path.Combine(localAppData, "IcedPicViewer");
-                Directory.CreateDirectory(dir);
-                string logPath = Path.Combine(dir, "crash.log");
-                File.AppendAllText(logPath, fullError + "\n\n" + new string('=', 60) + "\n\n");
+                AppDataPaths.EnsureRoot();
+                File.AppendAllText(crashLogPath, fullError + "\n\n" + new string('=', 60) + "\n\n");
             }
             catch { /* 日志失败忽略 */ }
 
@@ -118,7 +117,7 @@ public partial class App : Application
             var caption = "IcedPicViewer 发生错误";
             var message = "发生未处理异常。\n\n" +
                           "完整错误详情已写入：\n" +
-                          "%LOCALAPPDATA%\\IcedPicViewer\\crash.log\n\n" +
+                          crashLogPath + "\n\n" +
                           "请打开该文件复制堆栈给开发者。\n\n" +
                           "摘要：\n" +
                           ex.GetType().Name + ": " + ex.Message;
@@ -223,18 +222,16 @@ public partial class App : Application
         // FFmpeg probe (development-only). Runs only when:
 //   - IPV_FFMPEG_PROBE=1 env var (does NOT propagate through MSIX
 //     `winapp.exe launch` — see FFmpegProbeService doc comment), OR
-//   - %LOCALAPPDATA%\IcedPicViewer\ffmpeg-probe.flag file exists, OR
+//   - an ffmpeg-probe.flag file exists in the app data folder
+//     (%LOCALAPPDATA%\IcedPicViewer, or <exe>\data when portable), OR
 //   - FFmpegProbeService.ForceRunForDiagnostic is flipped at compile time.
 // By default the app boots without touching FFmpeg, so users who don't
 // enable the probe see no behavior change. Results go to
-// %LOCALAPPDATA%\IcedPicViewer\ffmpeg-probe.log. See FFmpegProbeService.
+// ffmpeg-probe.log in the same folder. See FFmpegProbeService.
 // Fire-and-forget — OnLaunched is void and the probe's RunAsync does
 // its own Task.Run to keep decode off the UI thread.
 if (FFmpegProbeService.IsProbeRequested || File.Exists(
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IcedPicViewer",
-            "ffmpeg-probe.flag")))
+        Path.Combine(AppDataPaths.Root, "ffmpeg-probe.flag")))
 {
     _ = new FFmpegProbeService().RunAsync();
 }

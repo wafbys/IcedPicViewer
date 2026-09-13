@@ -2,6 +2,7 @@
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using IcedPicViewer.Core.Settings;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
 using LibVLCSharp.Shared;
@@ -221,9 +222,7 @@ public sealed class VlcPlaybackService : IDisposable
         if (!media.IsInArchive)
             return media.Path;
 
-        var tempDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IcedPicViewer", "TempVideo");
+        var tempDir = AppDataPaths.TempVideoDir;
         Directory.CreateDirectory(tempDir);
         var ext = Path.GetExtension(media.ArchiveEntry ?? ".mp4");
         if (string.IsNullOrEmpty(ext)) ext = ".mp4";

@@ -8,6 +8,7 @@ using Avalonia.Markup.Xaml;
 using IcedPicViewer.Avalonia.ViewModels;
 using IcedPicViewer.Avalonia.Views;
 using IcedPicViewer.Core.Media;
+using IcedPicViewer.Core.Settings;
 
 namespace IcedPicViewer.Avalonia;
 
@@ -40,9 +41,7 @@ public partial class App : Application
     {
         try
         {
-            var tempDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "IcedPicViewer", "TempVideo");
+            var tempDir = AppDataPaths.TempVideoDir;
             if (!Directory.Exists(tempDir)) return;
 
             var cutoff = DateTime.UtcNow.AddHours(-24);

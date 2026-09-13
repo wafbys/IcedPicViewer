@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using IcedPicViewer.Core.Settings;
 using IcedPicViewer.Services.Interfaces;
 
 namespace IcedPicViewer.Services.Implementations;
@@ -75,11 +76,10 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
 
     private static string GetDefaultSettingsPath()
     {
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IcedPicViewer");
-        Directory.CreateDirectory(dir);
-        return Path.Combine(dir, "settings.json");
+        // %LOCALAPPDATA%\IcedPicViewer by default; next to the exe when the
+        // build is portable (see AppDataPaths).
+        AppDataPaths.EnsureRoot();
+        return AppDataPaths.SettingsFile;
     }
 
     public void Load()

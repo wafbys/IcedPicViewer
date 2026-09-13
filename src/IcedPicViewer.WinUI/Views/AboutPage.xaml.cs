@@ -43,6 +43,10 @@ public sealed partial class AboutPage : Page
     /// path is correct regardless of where the AppX package was
     /// installed (Program Files\WindowsApps\<hash>\ on most machines,
     /// but MSIX can install to other locations per machine policy).
+    ///
+    /// Portable (unpackaged) builds have no package identity, so ms-appx
+    /// may not resolve; License\ ships next to the exe in that layout, so
+    /// fall back to the loose file path.
     /// </summary>
     private async void LicenseLink_Click(object sender, RoutedEventArgs e)
     {
@@ -59,7 +63,27 @@ public sealed partial class AboutPage : Page
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"AboutPage.LicenseLink_Click failed: {ex.GetType().Name}: {ex.Message}");
+            Trace.TraceWarning(
+                $"AboutPage.LicenseLink_Click: ms-appx lookup failed ({ex.GetType().Name}: {ex.Message}); " +
+                "falling back to the loose License\\ffmpeg-LGPL.txt next to the exe.");
+
+            try
+            {
+                var loose = Path.Combine(AppContext.BaseDirectory, "License", "ffmpeg-LGPL.txt");
+                if (!File.Exists(loose))
+                {
+                    Trace.TraceError($"AboutPage.LicenseLink_Click: license not found at {loose}");
+                    return;
+                }
+
+                var looseFile = await StorageFile.GetFileFromPathAsync(loose);
+                await Launcher.LaunchFileAsync(looseFile);
+            }
+            catch (Exception fallbackEx)
+            {
+                Trace.TraceError(
+                    $"AboutPage.LicenseLink_Click fallback failed: {fallbackEx.GetType().Name}: {fallbackEx.Message}");
+            }
         }
     }
 }

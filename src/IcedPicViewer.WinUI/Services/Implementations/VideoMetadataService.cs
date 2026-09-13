@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FFmpeg.AutoGen;
 using IcedPicViewer.Core.Media;
+using IcedPicViewer.Core.Settings;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Interfaces;
 
@@ -91,17 +92,15 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
     private readonly List<string> _playbackTempFiles = new();
     private readonly object _tempLock = new();
 
-    // %LOCALAPPDATA%\IcedPicViewer\TempVideo\ — created on first use,
-    // cleaned (files deleted) at construction + Dispose.
+    // <app data>\TempVideo\ — created on first use, cleaned (files deleted)
+    // at construction + Dispose. <app data> is %LOCALAPPDATA%\IcedPicViewer,
+    // or <exe>\data for portable builds (AppDataPaths).
     private readonly string _tempDir;
 
     public VideoMetadataService(IThumbnailCache thumbnailCache)
     {
         _thumbnailCache = thumbnailCache;
-        _tempDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IcedPicViewer",
-            "TempVideo");
+        _tempDir = AppDataPaths.TempVideoDir;
         Directory.CreateDirectory(_tempDir);
 
         // Sweep any stale temp files from a previous (possibly crashed)

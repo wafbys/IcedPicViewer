@@ -95,6 +95,18 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 前置：.NET 10 + **Windows App Runtime 2.3**。  
 **不要**直接双击 MSIX 产物里的 `.exe`（需 package identity）。请用 `dotnet run`。
 
+### 绿色版（未打包，双击即用）
+
+```powershell
+./tools/Build-Portable.ps1                        # 真绿色：自带 .NET + Windows App SDK 运行时，~482 MB
+./tools/Build-Portable.ps1 -Flavor framework      # 轻绿色：目标机需 .NET 10 + Windows App Runtime，~342 MB
+./tools/Build-Portable.ps1 -Zip                   # 额外产出 <输出目录>.zip
+```
+
+产物默认在 `artifacts/portable/`（`.gitignore` 覆盖），**双击 `IcedPicViewer.exe` 即可运行**，无需安装、无 MSIX、无注册表痕迹。
+
+**100% 绿色**：产物里的 `portable.marker` 会让应用把所有可变数据放到 **exe 旁的 `data\`**（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\`），不再写 `%LOCALAPPDATA%`。整个目录可随意改名/搬移（路径按 exe 位置解析）。删掉 `portable.marker` 即回到 `%LOCALAPPDATA%\IcedPicViewer`。
+
 ### Avalonia（Win / macOS / Linux）
 
 ```bash
@@ -120,7 +132,8 @@ dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c
 
 - `IPV_FFMPEG_ROOT` — 含 `avutil` / `libavutil` 的目录（Core 抽帧，WinUI / Avalonia 共用）
 - `IPV_LIBVLC_ROOT` — 含 `libvlc` 的目录（**Avalonia/Linux**）
-- 设置文件：`%LocalApplicationData%/IcedPicViewer/settings.json`（Windows 即 `%LOCALAPPDATA%\…`）
+- `IPV_DATA_ROOT` — 覆盖数据目录（测试 / 特殊部署用；优先级最高）
+- 设置文件：默认 `%LocalApplicationData%/IcedPicViewer/settings.json`（Windows 即 `%LOCALAPPDATA%\…`）；绿色版为 `<exe>\data\settings.json`。路径统一由 Core `AppDataPaths` 解析（marker / 环境变量 / 默认三级）
 
 FFmpeg 拉取产物在 `src/native/ffmpeg/{rid}/`（**不进 git**）。
 

@@ -2,6 +2,7 @@
 
 using System.Diagnostics;
 using FFmpeg.AutoGen;
+using IcedPicViewer.Core.Settings;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
 
@@ -42,9 +43,7 @@ public static class VideoFrameExtractor
 
             if (media.IsInArchive)
             {
-                var tempDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "IcedPicViewer", "TempVideo");
+                var tempDir = AppDataPaths.TempVideoDir;
                 Directory.CreateDirectory(tempDir);
                 var ext = Path.GetExtension(media.ArchiveEntry ?? ".mp4");
                 if (string.IsNullOrEmpty(ext)) ext = ".mp4";

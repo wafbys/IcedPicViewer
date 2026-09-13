@@ -1,5 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using IcedPicViewer.Core.Settings;
 using IcedPicViewer.Services.Interfaces;
 using IcedPicViewer.ViewModels;
 using IcedPicViewer.Views;
@@ -17,18 +18,14 @@ namespace IcedPicViewer;
 public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPropertyChanged
 {
     private const string SettingsFile = "window_settings.txt";
-    private const string AppDataFolder = "IcedPicViewer";
 
     private Windows.Graphics.RectInt32 _lastWindowedBounds;
 
     private static string GetSettingsPath()
     {
-        // Unpackaged WinUI apps should not write next to the exe (Program Files may be
-        // read-only or flagged by AV). Use %LOCALAPPDATA%\<AppName>\ instead.
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            AppDataFolder);
-        Directory.CreateDirectory(dir);
+        // Packaged / dev builds keep window geometry in %LOCALAPPDATA%\IcedPicViewer.
+        // Portable builds redirect it next to the exe (AppDataPaths).
+        var dir = AppDataPaths.EnsureRoot();
         return Path.Combine(dir, SettingsFile);
     }
 

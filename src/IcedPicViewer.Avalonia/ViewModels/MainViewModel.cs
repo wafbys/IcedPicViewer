@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Avalonia.Services;
 using IcedPicViewer.Core.Layout;
 using IcedPicViewer.Core.Media;
+using IcedPicViewer.Core.Settings;
 using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
@@ -359,9 +360,7 @@ public partial class MainViewModel : ViewModelBase, IDisposable
     {
         if (ConfirmAsync is null) return;
 
-        var settingsDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IcedPicViewer");
+        var settingsDir = AppDataPaths.Root;
         var licensePath = Path.Combine(AppContext.BaseDirectory, "License", "ffmpeg-LGPL.txt");
         var licenseLine = File.Exists(licensePath)
             ? licensePath
