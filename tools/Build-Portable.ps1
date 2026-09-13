@@ -63,6 +63,37 @@ if (-not (Test-Path $ffmpegProbe)) {
 
 if (Test-Path $Output) { Remove-Item -Recurse -Force $Output }
 
+# Flavor-clean build. A packaged build and an unpackaged build write DIFFERENT
+# resource indexes into the same bin tree: packaged merges the Windows App SDK
+# framework resources into IcedPicViewer.pri (~2.3 MB), unpackaged leaves them
+# in the separate Microsoft.UI.*.pri files (~66 KB index). MSBuild's incremental
+# build happily reuses the other flavor's index, and the app then dies with an
+# unhandled COMException a few seconds after launch:
+#   "The resource loader cache doesn't have loaded MUI entry" /
+#   "Cannot locate resource from ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml".
+# Observed 2026-09-13 on a portable build published right after a packaged one.
+# Removing just the flavor-sensitive artifacts keeps the build fast (no full
+# re-restore) and still forces both the index and the AppX leftovers to be
+# regenerated for the unpackaged layout.
+$outDir = Join-Path $RepoRoot 'src/IcedPicViewer.WinUI/bin/x64/Release/net10.0-windows10.0.26100.0/win-x64'
+$staleItems = @(
+    (Join-Path $outDir 'IcedPicViewer.pri'),   # stale merged index → MRT failures
+    (Join-Path $outDir 'resources.pri'),       # packaged index, wrong for unpackaged
+    (Join-Path $outDir 'AppX')                 # packaged layout leftovers
+)
+foreach ($item in $staleItems) {
+    if (Test-Path $item) {
+        Write-Host "Removing stale packaged artifact: $item"
+        try {
+            Remove-Item -Recurse -Force $item -ErrorAction Stop
+        }
+        catch {
+            throw ("Could not remove $item ($($_.Exception.Message)). Close anything holding the build output " +
+                   "(editor, grep tool, running app) and retry — a stale resource index silently breaks the app at runtime.")
+        }
+    }
+}
+
 $publishArgs = @(
     'publish', $project,
     '-c', 'Release',
@@ -104,6 +135,14 @@ if ($Flavor -eq 'selfcontained') {
 foreach ($item in $required) {
     if (-not (Test-Path $item)) { throw "Portable build incomplete — missing: $item" }
 }
+
+# MRT index must exist next to the exe. Without it (or with one generated for a
+# different layout) the app starts, then dies seconds later on the first
+# resource lookup with an unhandled COMException. The index is small for
+# framework-dependent builds and ~2 MB when WindowsAppSDKSelfContained merges
+# the framework resources, so only its presence is checked, not its size.
+$priPath = Join-Path $Output 'IcedPicViewer.pri'
+if (-not (Test-Path $priPath)) { throw "Portable build incomplete — missing MRT index: $priPath" }
 
 $sizeMb = [math]::Round(((Get-ChildItem -Recurse -Force -File $Output | Measure-Object -Property Length -Sum).Sum / 1MB), 1)
 Write-Host "Done: $Output ($sizeMb MB)"

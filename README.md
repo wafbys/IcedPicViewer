@@ -107,6 +107,8 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 
 **100% 绿色**：产物里的 `portable.marker` 会让应用把所有可变数据放到 **exe 旁的 `data\`**（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\`），不再写 `%LOCALAPPDATA%`。整个目录可随意改名/搬移（路径按 exe 位置解析）。删掉 `portable.marker` 即回到 `%LOCALAPPDATA%\IcedPicViewer`。
 
+非打包进程没有 package identity，因此绿色版**不启用 Mica**（窗口用纯主题背景）；要强制开启做对比，设环境变量 `IPV_FORCE_MICA=1`。同理，构建绿色版前不要让 `bin`/`obj` 里残留打包版的资源索引 —— 直接用脚本，它会自动清理。
+
 ### Avalonia（Win / macOS / Linux）
 
 ```bash

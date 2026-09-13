@@ -67,6 +67,8 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 - 产物默认 `artifacts/portable/`（git-ignored），**双击 `IcedPicViewer.exe` 即用**：`-p:WindowsPackageType=None` 去掉 MSIX identity 依赖；`WindowsAppSDKSelfContained` + `SelfContained` 决定是否自带运行时。
 - **数据不落用户目录**：脚本在产物根写 `portable.marker`，Core `AppDataPaths` 据此把 `settings.json` / `window_settings.txt` / `crash.log` / `TempVideo` 全部放到 **`<exe>\data\`**，整目录可随意改名搬移；打包版与 dev 版没有 marker，行为不变（仍 `%LOCALAPPDATA%\IcedPicViewer`）。
 - **新增任何持久化路径必须走 `AppDataPaths`**（`Root` / `SettingsFile` / `TempVideoDir` / `CrashLogFile`，或在其上 `Path.Combine`），不要再手写 `LocalApplicationData`，否则绿色版会漏写到用户 profile。`IPV_DATA_ROOT` 可强制覆盖（测试 / CI）。
+- **别把打包发布和绿色版发布混在同一个 `bin`/`obj` 里**：两种 Flavor 的 MRT 资源索引不同（打包版把 WASDK 框架资源合并进 `IcedPicViewer.pri`，非打包版留在 `Microsoft.UI.*.pri`），MSBuild 增量会复用另一 Flavor 的索引，产出的应用会在启动后几秒～几十秒抛未处理 `COMException`（`resource loader cache doesn't have loaded MUI entry` / `cannot locate resource from ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml`）。脚本每次都会清掉 packaged 遗留（`IcedPicViewer.pri` / `resources.pri` / `AppX`）；**不要绕过脚本直接 `dotnet publish -p:WindowsPackageType=None`**。
+- **Mica 只在有 package identity 时启用**（`MainWindow.ApplySystemBackdrop`，非打包进程跳过）。非打包下 WASDK 的 backdrop 路径会触到需要 identity 的 `Windows.ApplicationModel.LimitedAccessFeatures`，激活失败抛 `COMException: ClassFactory cannot supply requested class`。要复现"非打包 + Mica"这一配置，跑 `IPV_FORCE_MICA=1`。
 - About 页 LGPL 链接在非打包下 `ms-appx:///` 可能解析不到，已回退到 `<exe>\License\ffmpeg-LGPL.txt`；改该页时别把 fallback 删了。
 
 ### Avalonia（Win / macOS / Linux）

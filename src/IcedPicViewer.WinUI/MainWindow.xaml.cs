@@ -8,6 +8,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -27,6 +28,65 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         // Portable builds redirect it next to the exe (AppDataPaths).
         var dir = AppDataPaths.EnsureRoot();
         return Path.Combine(dir, SettingsFile);
+    }
+
+    /// <summary>
+    /// Mica is applied only when the process has a package identity (MSIX /
+    /// packaged). In unpackaged runs — the portable "green" build, or the
+    /// "IcedPicViewer (Unpackaged)" launch profile — the Windows App SDK
+    /// backdrop controller activates
+    /// <c>Windows.ApplicationModel.LimitedAccessFeatures</c>, a WinRT class
+    /// the OS refuses to activate without package identity. That throws
+    /// <c>COMException: ClassFactory cannot supply requested class</c> on the
+    /// XAML thread long after launch (observed 16-90 s in), where it surfaces
+    /// as an unhandled crash instead of a caught failure. Verified 2026-09-13
+    /// on a self-contained portable build.
+    /// </summary>
+    private void ApplySystemBackdrop()
+    {
+        if (!HasPackageIdentity())
+        {
+            // Diagnostics: IPV_FORCE_MICA=1 re-enables Mica in unpackaged runs so
+            // the LimitedAccessFeatures crash below can be reproduced on demand.
+            if (Environment.GetEnvironmentVariable("IPV_FORCE_MICA") == "1")
+            {
+                Trace.TraceWarning("MainWindow: IPV_FORCE_MICA=1 — applying MicaBackdrop without package identity (diagnostic).");
+            }
+            else
+            {
+                Trace.TraceInformation("MainWindow: unpackaged process — skipping MicaBackdrop (no package identity).");
+                return;
+            }
+        }
+
+        try
+        {
+            SystemBackdrop = new MicaBackdrop();
+        }
+        catch (Exception ex)
+        {
+            // Backdrop is cosmetic: a plain theme background is a fine fallback.
+            Trace.TraceWarning($"MainWindow: MicaBackdrop unavailable: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// True when the process runs with MSIX package identity. Both markers are
+    /// checked because <c>Package.Current</c> is the authoritative one and only
+    /// falls back to the portable marker when the API itself is unavailable.
+    /// </summary>
+    private static bool HasPackageIdentity()
+    {
+        try
+        {
+            _ = Windows.ApplicationModel.Package.Current;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceInformation($"MainWindow: no package identity ({ex.GetType().Name}) — portable/unpackaged run.");
+            return false;
+        }
     }
 
     /// <summary>
@@ -119,6 +179,8 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         }
 
         InitializeComponent();
+
+        ApplySystemBackdrop();
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);

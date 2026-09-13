@@ -8,9 +8,13 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Title="IcedPicViewer"
     mc:Ignorable="d">
-    <Window.SystemBackdrop>
-        <MicaBackdrop />
-    </Window.SystemBackdrop>
+    <!--
+        SystemBackdrop is assigned in code-behind (MainWindow.ApplySystemBackdrop)
+        instead of declared here: MicaBackdrop must not be used in unpackaged
+        processes, where its controller's LimitedAccessFeatures activation
+        throws COMException on the XAML thread (unhandled crash seconds after
+        launch). See that method's doc comment.
+    -->
 
     <Grid x:Name="RootGrid">
         <Grid.RowDefinitions>
