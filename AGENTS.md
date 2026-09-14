@@ -114,8 +114,31 @@ dotnet test IcedPicViewer.slnx -c Debug
 ### WinUI 禁忌
 - 不用 `Window.Current`、`CoreDispatcher` 等已废弃 API。
 - 大列表优先虚拟化（但本项目 MasonryPanel 除外）。
-- **ThemeResource brush 名只认 Fluent 2 命名**。`SubtleFillColorSecondaryBrush` / `SolidBackgroundFillColorBaseBrush` / `ControlStrokeColorDefaultBrush` / `CardStrokeColorDefaultBrush` / `LayerFillColorDefaultBrush` 等真实存在；Fluent 1 旧名（`SystemControlBackgroundChromeMediumLowBrush` 等）在 WinAppSDK 2.2+ 全不存在，build 不报但运行时 `XamlParseException`。
-- **键盘事件只用 WH_KEYBOARD hook**（详见下方"键盘导航"章节）。不用 `AddHandler(KeyDownEvent)` / `KeyboardAccelerator` / `SetWindowSubclass`。
+- **ThemeResource brush 名只认 Fluent 2 命名**。`SubtleFillColorSecondaryBrush` / `SolidBackgroundFillColorBaseBrush` / `ControlStrokeColorDefaultBrush` / `CardStrokeColorDefaultBrush` / `LayerFillColorDefaultBrush` 等真实存在；Fluent 1 旧名（`SystemControlBackgroundChromeMediumLowBrush` 等）在 WinAppSDK 2.2+（本项目 2.4）全不存在，build 不报但运行时 `XamlParseException`。
+- **键盘事件只用 WH_KEYBOARD hook**（详见下方"键盘导航"子章节）。不用 `AddHandler(KeyDownEvent)` / `KeyboardAccelerator` / `SetWindowSubclass`。
+
+#### 键盘导航（WinUI：`WH_KEYBOARD` thread-scope hook）
+
+> **仅 WinUI。** Avalonia 用窗口 `KeyDown` / 命令绑定，不适用本节。
+
+最终方案在 `src/IcedPicViewer.WinUI/MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallKeyboardHook` / `KeyboardHookProc` / `UnhookWindowsHookEx`）。
+
+**为什么继续用 WH_KEYBOARD（不要换）**：
+- `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId` 在 WASDK 文档里仍是 **Experimental**（仅 experimental moniker），**不能**当作生产键盘方案替换 WH_KEYBOARD。
+- XAML `KeyDown` / `AddHandler(KeyDownEvent)` / `KeyboardAccelerator` 在 MSIX 下对**不依赖焦点**的查看器快捷键不可靠（焦点在 `Frame.Navigate` 后不稳定；Accelerator 文档写 global 仍常依赖焦点启动路由）。
+- `SetWindowSubclass` 拿到的 HWND 往往是 XAML island 子窗，不是真正收键盘的顶层 window——注册成功但 `WM_KEYDOWN` 不来。
+- 因此生产路径固定为 thread-scope `WH_KEYBOARD`；窗口关闭时在 `AppWindow_Closing` 里 `UnhookWindowsHookEx` 清理（`_hookHandle != IntPtr.Zero` 才卸，失败 `Trace.TraceError`，禁止空 catch）。
+
+**机制**：`SetWindowsHookEx(WH_KEYBOARD, ..., dwThreadId=GetCurrentThreadId())` 装到 UI thread message queue → 收到所有键盘事件（不依赖焦点/HWND/XAML 路由）→ 回调 `TryEnqueue` 投递 `HandleViewerKey`。
+
+**3 个关键实现细节**：
+1. hook callback 同步 return（`TryEnqueue` 投递，await 链从 work item 开始跑）
+2. try-catch 双层防护，不允许异常 reach OS
+3. `wParam`/`lParam` 用 `unchecked((int)IntPtr)` cast（不用 `IntPtr.ToInt32()`，Win11 25H2 下 64-bit 高 32 位有 garbage 会抛 `OverflowException`）
+
+**易错点**：`HandleViewerKey` 从 `viewer.ViewModel` 拿 VM，不是 `viewer.DataContext`（`ViewerView` 用 `x:Bind`，DataContext 始终是 null）。
+
+**调试**：键盘 hook 问题可通过 crash.log（未处理异常）和 Trace 输出诊断。
 
 ### Gallery 扫描/加载 pipeline 不变量
 
@@ -142,21 +165,23 @@ dotnet test IcedPicViewer.slnx -c Debug
 | 缩略图 | `LoadThumbnailAsync` + `_thumbnailLoadSemaphore`（`ThumbConcurrency = 6`） | |
 | 状态文案 | `StatusText` + `UpdateStatus` | **一律**经 Core `GalleryStatusFormatter`（**中文**）；禁止两壳各写一套字符串 |
 | 对话框 / 工具栏 | `UiCopy` | **中文**公共文案（删除确认、打开文件夹、加载更多…）；壳 XAML 与 VM 标签对齐 |
-| 查看器已加载数 | WinUI：`ItemCount`（=`Items.Count`）；Avalonia：直接绑 `Items.Count` | 勿与 `DiscoveredCount` 混淆 |
+| 查看器已加载数 | WinUI：`ItemCount`（`x:Bind` 不能绑 `Items.Count`，故镜像一个 `int` 属性）；Avalonia：直接绑 `Items.Count` | 勿与 `DiscoveredCount` 混淆 |
 
-#### 仅平台差异（技术栈，**不是**第二套产品词；勿再统一）
+#### 仅平台差异（永久分叉 — 禁止再「统一」）
 
-| 点 | WinUI | Avalonia |
-|----|-------|----------|
-| VM 拆分 | `GalleryViewModel` + `ViewerViewModel` + `ViewerView` | `MainViewModel` partials（单 Window） |
-| 项实现 | `MediaItem` + `ImageItem`/`VideoItem` | `MediaItemViewModel`（单类） |
-| 缩略图/全图像素类型 | `BitmapImage` / `WinImageSource` | Avalonia `Bitmap` |
-| 加载器 | `IMediaLoader` / `MediaLoader` | `AvaloniaMediaLoader` |
-| drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` | 随缩略图/解码 |
-| UI marshal | `DispatcherQueue.TryEnqueue` | `Dispatcher.UIThread` |
-| 解码 / 播放 | WIC / `MediaPlayerElement` | ImageSharp / LibVLC + `VlcBitmapSurface` |
-| 键盘 | `WH_KEYBOARD` | 窗口 `KeyDown` |
-| 扫描路径提示 | `CurrentScanningPath` | 无 |
+| 点 | WinUI | Avalonia | 分叉原因 |
+|----|-------|----------|---------|
+| VM 拆分 | `GalleryViewModel` + `ViewerViewModel` + `ViewerView` | `MainViewModel` partials（单 Window） | 技术栈 |
+| 项实现 | `MediaItem` + `ImageItem`/`VideoItem` | `MediaItemViewModel`（单类） | 契约 `IMediaEntry` 已统一；实现可不同 |
+| 缩略图/全图像素类型 | `BitmapImage` / `WinImageSource` | Avalonia `Bitmap` | 平台 API |
+| 加载器 | `IMediaLoader` / `MediaLoader` | `AvaloniaMediaLoader` | 技术栈 |
+| drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` | 随缩略图/解码 | 技术栈 |
+| UI marshal | `DispatcherQueue.TryEnqueue` | `Dispatcher.UIThread` | 平台 API |
+| 解码 / 播放 | WIC / `MediaPlayerElement` | ImageSharp / LibVLC + `VlcBitmapSurface` | 平台能力 |
+| 键盘 | `WH_KEYBOARD` | 窗口 `KeyDown` | WinUI 生产约束（详见 WinUI 禁忌 → 键盘导航） |
+| 扫描路径提示 | `CurrentScanningPath` | 无 | 仅 WinUI 提供 |
+| `ImageItem` 类名 | `ImageItem` | (无对应) | 表示 `MediaKind.Image` 子类，不是历史误名 |
+| 历史旧名 | — | — | CHANGELOG / AGENTS 禁词列表保留作为历史记录 |
 
 **共用流程**：
 
@@ -169,60 +194,26 @@ RunScanAndBatchAsync ── ScanBatchSize/ScanBatchMs ── FlushScanBatch
 
 **不变量**：scanner 在 worker；`batchStartTick`；`_pageFillInFlight` ≠ `IsLoadingMore`；drain gate `Items.Count < PageSize`；缩略图经 UI 线程回写；切目录取消 CTS。
 
-**禁止**：`Images` / `AutoCap` / `_remainingFilePaths` / `CurrentFolderPath` / `IsBusy`（作加载态）/ `LoadMoreImages*` / `CurrentImage` / Gallery 级 `TotalCount` / 领域模型 `ImageSource` / `ImageViewerView` / `ImageViewModel` / `GalleryItemViewModel` / `IImageLoader` 等旧名重现。
-
 ## 定稿架构（终点站）
 
 以下为 **一致性工作的终点**。达到即收手；**不要**再为「更统一」做下列之外的重构。
 
 ### 已定稿（必须保持）
 
+领域命名 / 项契约 / 加载器 / UI marshal 等见上方"统一术语表"（line 124-）和"仅平台差异"表（line 149-）。补充：
+
 1. **三工程平等**：Core / WinUI / Avalonia。
-2. **领域命名**：`MediaRef`、`MediaKind`、`IMediaEntry`、`Items`、`SelectedItem`、`FolderPath`、`DiscoveredCount`、`LoadingState`、`PageSize`/`ScanPageSize`/`ScanBatch*`、flush 链、`LoadMore*`、`LoadThumbnailAsync`、`_remainingSources`、`_thumbnailLoadSemaphore`。
-3. **中文 UI 文案**：状态栏 `GalleryStatusFormatter`；对话框/按钮 `UiCopy`；About `AboutCopy`；WinUI 视频错误 `VideoPlaybackCopy`。
-4. **展示格式**：`MediaDisplay`（大小/时长/像素/InfoLine）。
-5. **壳入口命名**：WinUI `ViewerView` + `ViewerViewModel` + `IMediaLoader`；Avalonia `MediaItemViewModel` + `AvaloniaMediaLoader` + `ViewerMinimap`。
-6. **图库 pipeline 语义**两壳一致（边扫边灌 200）；`DiscoveredCount` 扫描期单写源。
-
-### 永久分叉（禁止再「统一」）
-
-| 分叉 | 原因 |
-|------|------|
-| 位图 / 控件类型（`Bitmap` vs `BitmapImage`） | 平台 API |
-| 项实现形状（`MediaItem` 继承树 vs `MediaItemViewModel` 单类） | 契约 `IMediaEntry` 已统一；实现可不同 |
-| 播放栈（MF vs LibVLC） | 平台能力 |
-| 键盘（hook vs KeyDown） | WinUI 生产约束 |
-| `ImageItem` 类名 | 表示 `MediaKind.Image` 子类，不是历史误名 |
-| CHANGELOG 历史旧名 | 历史记录，不改 |
+2. **中文 UI 文案**：状态栏 `GalleryStatusFormatter`；对话框/按钮 `UiCopy`；About `AboutCopy`；WinUI 视频错误 `VideoPlaybackCopy`。
+3. **展示格式**：`MediaDisplay`（大小/时长/像素/InfoLine）。
+4. **图库 pipeline 语义**两壳一致（边扫边灌 200）；`DiscoveredCount` 扫描期单写源。
 
 ### 收手判据
 
-- `src/` 无上表「禁止」旧名（CHANGELOG / AGENTS 禁词列表除外）。
+- `src/` 无下方「禁止」旧名（CHANGELOG / AGENTS 禁词列表除外）。
 - Avalonia `dotnet build` 0/0；`dotnet test` Core 测试绿。
-- 新功能：产品语义与术语表对齐；平台差异只进「永久分叉」表。
+- 新功能：产品语义与术语表对齐；平台差异只进「仅平台差异」表。
 
-### 键盘导航（WinUI：`WH_KEYBOARD` thread-scope hook）
-
-> **仅 WinUI。** Avalonia 用窗口 `KeyDown` / 命令绑定，不适用本节。
-
-最终方案在 `src/IcedPicViewer.WinUI/MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallKeyboardHook` / `KeyboardHookProc` / `UnhookWindowsHookEx`）。
-
-**为什么继续用 WH_KEYBOARD（不要换）**：
-- `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId` 在 WASDK 文档里仍是 **Experimental**（仅 experimental moniker），**不能**当作生产键盘方案替换 WH_KEYBOARD。
-- XAML `KeyDown` / `AddHandler(KeyDownEvent)` / `KeyboardAccelerator` 在 MSIX 下对**不依赖焦点**的查看器快捷键不可靠（焦点在 `Frame.Navigate` 后不稳定；Accelerator 文档写 global 仍常依赖焦点启动路由）。
-- `SetWindowSubclass` 拿到的 HWND 往往是 XAML island 子窗，不是真正收键盘的顶层 window——注册成功但 `WM_KEYDOWN` 不来。
-- 因此生产路径固定为 thread-scope `WH_KEYBOARD`；窗口关闭时在 `AppWindow_Closing` 里 `UnhookWindowsHookEx` 清理（`_hookHandle != IntPtr.Zero` 才卸，失败 `Trace.TraceError`，禁止空 catch）。
-
-**机制**：`SetWindowsHookEx(WH_KEYBOARD, ..., dwThreadId=GetCurrentThreadId())` 装到 UI thread message queue → 收到所有键盘事件（不依赖焦点/HWND/XAML 路由）→ 回调 `TryEnqueue` 投递 `HandleViewerKey`。
-
-**3 个关键实现细节**：
-1. hook callback 同步 return（`TryEnqueue` 投递，await 链从 work item 开始跑）
-2. try-catch 双层防护，不允许异常 reach OS
-3. `wParam`/`lParam` 用 `unchecked((int)IntPtr)` cast（不用 `IntPtr.ToInt32()`，Win11 25H2 下 64-bit 高 32 位有 garbage 会抛 `OverflowException`）
-
-**易错点**：`HandleViewerKey` 从 `viewer.ViewModel` 拿 VM，不是 `viewer.DataContext`（`ViewerView` 用 `x:Bind`，DataContext 始终是 null）。
-
-**调试**：键盘 hook 问题可通过 crash.log（未处理异常）和 Trace 输出诊断。
+**禁止**：`Images` / `AutoCap` / `_remainingFilePaths` / `CurrentFolderPath` / `IsBusy`（作加载态）/ `LoadMoreImages*` / `CurrentImage` / Gallery 级 `TotalCount` / 领域模型 `ImageSource` / `ImageViewerView` / `ImageViewModel` / `GalleryItemViewModel` / `IImageLoader` 等旧名重现。
 
 ## 已知坑
 
@@ -241,7 +232,7 @@ public MainWindow() {
 }
 ```
 
-#### 2. `XamlControlsResources` 不能删
+#### 2. `<controls:XamlControlsResources />` 不能删
 
 `App.xaml` 必须显式 merge `<controls:XamlControlsResources />`。删了会导致 `TitleBar` 等控件 default style 找不到 `TabViewButtonBackground` 等 theme resource，启动时 `XamlParseException`。
 

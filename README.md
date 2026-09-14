@@ -5,7 +5,7 @@
 | 路径 | 说明 |
 |------|------|
 | `src/IcedPicViewer.Core` | 平台无关库：扫描、归档、设置、FFmpeg 抽帧等（两壳共用，同等维护） |
-| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.3，MSIX，x64） |
+| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.4，MSIX，x64） |
 | `src/IcedPicViewer.Avalonia` | 跨平台 UI（Win / macOS / Linux，.NET 10 + Avalonia 12） |
 | `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit；已进 solution） |
 
@@ -92,7 +92,7 @@ dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Pl
 dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=x64
 ```
 
-前置：.NET 10 + **Windows App Runtime 2.3**。  
+前置：.NET 10 + **Windows App Runtime 2.4**。  
 **不要**直接双击 MSIX 产物里的 `.exe`（需 package identity）。请用 `dotnet run`。
 
 ### 绿色版（未打包，双击即用）
