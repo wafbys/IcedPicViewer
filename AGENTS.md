@@ -11,7 +11,7 @@
 | 路径 | 角色 |
 |------|------|
 | `src/IcedPicViewer.Core` | 平台无关库：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI / Avalonia。被两壳共同引用，本身与两壳同级维护 |
-| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.3，MSIX，**x64 only**）：图库/查看器、`MediaPlayerElement` 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘、DI Hosting |
+| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.4，MSIX，**x64 only**）：图库/查看器、`MediaPlayerElement` 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘、DI Hosting |
 | `src/IcedPicViewer.Avalonia` | 跨平台 UI（Win / macOS / Linux）：Fluent 浅色、图库/查看器、LibVLC 软渲染（`VlcBitmapSurface`）、幻灯片、全屏热区 chrome |
 | `tests/IcedPicViewer.Core.Tests` | Core 的 xUnit 测试（只引 Core）。已进 `IcedPicViewer.slnx` |
 | FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 可镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`（Core 抽帧，两壳共用） |
@@ -51,7 +51,7 @@ dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Pl
 dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=$Platform
 ```
 
-- WASDK **2.3.x** ↔ 目标机 Windows App Runtime **2.3**（MSIX 拉 framework；跨主版本会启动失败）。
+- WASDK **2.4.x** ↔ 目标机 Windows App Runtime **2.4**（MSIX 拉 framework；跨主版本会启动失败）。
 - WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
 - ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。想要双击即用走下面的绿色版。
 - 平台固定 **x64**（`Platform=x64`）；solution 里 WinUI 仅映射 x64。
