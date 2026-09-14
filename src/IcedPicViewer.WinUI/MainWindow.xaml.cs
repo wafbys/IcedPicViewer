@@ -158,7 +158,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         // and HWND. WH_KEYBOARD_LL would need an injected DLL that the
         // MSIX sandbox generally blocks, so this is the right tool.
         //
-        // See AGENTS.md "键盘导航实现" for the full failed-attempts
+        // See AGENTS.md "键盘导航" sub-section for the full failed-attempts
         // chronology. The DispatcherQueue.TryEnqueue is a belt-and-
         // suspenders: the ctor IS on the UI thread in practice, but
         // the dispatcher round-trip removes a class of "ctor ran on

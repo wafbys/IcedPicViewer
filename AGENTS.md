@@ -200,7 +200,7 @@ RunScanAndBatchAsync ── ScanBatchSize/ScanBatchMs ── FlushScanBatch
 
 ### 已定稿（必须保持）
 
-领域命名 / 项契约 / 加载器 / UI marshal 等见上方"统一术语表"（line 124-）和"仅平台差异"表（line 149-）。补充：
+领域命名 / 项契约 / 加载器 / UI marshal 等见上方"统一术语表"（line 147-）和"仅平台差异"表（line 170-）。补充：
 
 1. **三工程平等**：Core / WinUI / Avalonia。
 2. **中文 UI 文案**：状态栏 `GalleryStatusFormatter`；对话框/按钮 `UiCopy`；About `AboutCopy`；WinUI 视频错误 `VideoPlaybackCopy`。
