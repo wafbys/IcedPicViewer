@@ -50,7 +50,7 @@
 - Core / WinUI / Tests 全部 `dotnet build` 0 warnings / 0 errors（清理后全新构建复验）；`dotnet test` 116 passed。
 - 共享框架生效实测：`Microsoft.Extensions.Hosting.Abstractions` / `DependencyInjection.Abstractions` / `Options` / `Primitives` / `Logging.Abstractions` 不再拷贝到输出目录。
 - 输出根复验：`IcedPicViewer.exe` / `AppxManifest.xml` / `resources.pri` / 7 个 FFmpeg DLL / `License\ffmpeg-LGPL.txt` 齐备，无 `AppX` / `runtimes` 残留子目录。
-- 未验证：应用实际启动（本机未开启开发者模式，MSIX 调试包身份注册失败）。
+- 应用实际启动：**已手工验证通过**（开发者模式下 `dotnet run`，MSIX 调试包身份注册成功）。覆盖 WASDK 2.5.1 的 framework 包解析、.NET 11 运行期（含 Hosting RC1 的 DI 装配）与 XAML 资源加载。
 
 ## v0.15.0 (2026-07-21)
 
