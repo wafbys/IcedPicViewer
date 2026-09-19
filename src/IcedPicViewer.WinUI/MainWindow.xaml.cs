@@ -127,10 +127,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         // launches under a debug package identity — the bin path alone does not
         // tell you which configuration or commit is on screen, and Debug vs
         // Release behaves very differently for performance work.
-        // The native title lives just under the control buttons and is what
-        // Windows shows next to the taskbar icon, so it carries the short form;
-        // the full label (with commit) is on the About page.
-        var title = $"IcedPicViewer {BuildInfo.DisplayVersion}";
+        var title = $"IcedPicViewer {BuildInfo.FullLabel}";
         AppTitleBar.Title = title;
         AppWindow.Title = title;
 

@@ -7,7 +7,7 @@
 - 标题由 `IcedPicViewer (commit)` 改为 **`IcedPicViewer 0.16.0 (Release)`**——Debug / Release 与版本号一眼可辨（评估性能必须用 Release，此前从标题看不出跑的是哪个配置）。实测活动窗口标题确认。
 - 版本号此前**根本没显式声明**：csproj 无 `<Version>`，所以程序集实际是默认的 `1.0.0.0`，只有 `Package.appxmanifest` 写着 `0.15.0.0`，且运行时拿不到。现于 csproj 声明 `<Version>0.16.0</Version>` 作为单一来源，同步到程序集（`FileVersion` 实测 `1.0.0.0` → `0.16.0.0`，`ProductVersion` 带 commit）与清单（`0.16.0.0`）。
 - `BuildInfo` 新增 `Configuration` / `Version` / `DisplayVersion` / `FullLabel`，均由构建生成，**不依赖 `#if DEBUG`**，因此不可能与实际二进制不符。配置取自 `$(Configuration)`。
-- 标题用短式 `DisplayVersion`（Windows 11 会在任务栏图标旁显示 `AppWindow.Title`，过长会截断）；About 页用 `FullLabel`＝`0.16.0 (Debug, c1965fc)`，需要精确识别二进制时看那里。
+- 标题与 About 页都用 `FullLabel`＝`0.16.0 (Release, aab86e3)`，**保留原有 commit 短哈希**——它是判断「屏幕上跑的是哪个提交」的唯一依据（`dotnet run` 挂调试包身份启动，bin 路径区分不出来）。实测标题为 `IcedPicViewer 0.16.0 (Release, aab86e3)`。`DisplayVersion`（无哈希）保留备用。
 
 ### 修复：视频缩略图一直崩溃（进程级访问违例）
 
