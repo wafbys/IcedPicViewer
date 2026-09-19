@@ -10,7 +10,15 @@
 - 版本号此前**根本没显式声明**：csproj 无 `<Version>`，所以程序集实际是默认的 `1.0.0.0`，只有 `Package.appxmanifest` 写着 `0.15.0.0`，且运行时拿不到。现于 csproj 声明 `<Version>` 作为单一来源，同步到程序集（`FileVersion` 实测已由 `1.0.0.0` 变为所声明版本，`ProductVersion` 带 commit）与清单。
 - `BuildInfo` 新增 `Configuration` / `Version` / `DisplayVersion` / `FullLabel`，均由构建生成，**不依赖 `#if DEBUG`**，因此不可能与实际二进制不符。配置取自 `$(Configuration)`。
 - 标题与 About 页都用 `FullLabel`（形如 `版本 (配置, 短哈希)`），**保留原有 commit 短哈希**——它是判断「屏幕上跑的是哪个提交」的唯一依据（`dotnet run` 挂调试包身份启动，bin 路径区分不出来）。`DisplayVersion`（无哈希）保留备用。
-- **升版本时需同步两处**：csproj 的 `<Version>` 与 `Package.appxmanifest` 的 `Identity/@Version`（后者必须是四段式）。
+- **版本一致性由构建期守卫保证**：`GuardPackageManifestVersion` target（`BeforeTargets="BeforeBuild"`）读取清单的 `Identity/@Version` 与此处 `<Version>` 比对，不一致就**构建失败**并给出确切改法（MSIX 要求四段式，`<Version>` 三段的会自动补齐 `.0` 再比）。实测三种情形：一致→通过；不一致→报 `Version mismatch` 并指明改成什么；清单不可解析→报「could not read」而非崩溃。
+  - 之所以**是守卫而不是自动写回**：先试过用内联 PowerShell 改写清单，MSBuild 的属性转义把脚本弄坏，导致每次构建都把 `Package.appxmanifest` 截断成 0 字节，进而以 SDK 清单校验任务里的 `MSB4018 / FileNotFoundException` 形式暴露出来，极具误导性。改为只读守卫后不再有写坏文件的风险。
+
+#### 升版本流程（两处，且有守卫兜底）
+
+1. `src/IcedPicViewer.WinUI/IcedPicViewer.csproj` 的 `<Version>`
+2. `src/IcedPicViewer.WinUI/Package.appxmanifest` 的 `Identity/@Version`（四段式）
+
+漏改第 2 处会在下次 `dotnet build` / `dotnet run` 时立即失败并告诉你该填什么。
 
 ### 修复：视频缩略图一直崩溃（进程级访问违例）
 

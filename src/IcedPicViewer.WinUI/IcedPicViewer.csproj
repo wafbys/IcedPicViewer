@@ -242,6 +242,46 @@
   </Target>
 
   <!--
+    GuardPackageManifestVersion: fail the build when Package.appxmanifest's
+    Identity/@Version disagrees with this project's <Version> (the single source
+    of truth). Bumping the version is then a two-line change and the two can no
+    longer drift silently — which they did before <Version> existed at all (the
+    manifest said 0.15.0.0 while the assembly was still 1.0.0.0).
+
+    Deliberately a read-only guard rather than an auto-rewrite. An earlier
+    attempt rewrote the tracked file from an inline PowerShell Exec; MSBuild's
+    attribute escaping mangled the script and it truncated Package.appxmanifest
+    to zero bytes on every build, which then surfaced as a confusing
+    MSB4018/FileNotFoundException inside the SDK's manifest validation task.
+    Never again: this target only reads.
+
+    MSIX requires exactly four version parts; <Version> is normally three, so
+    the expected value is normalised before comparing. Read only the attribute
+    text via a regex — an XPath query would have to deal with the manifest's
+    default XML namespace.
+  -->
+  <Target Name="GuardPackageManifestVersion" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <_ManifestPath>$(MSBuildProjectDirectory)\Package.appxmanifest</_ManifestPath>
+      <_ExpectedManifestVersion>$(Version)</_ExpectedManifestVersion>
+      <_ManifestPartCount>$([System.String]::Copy('$(_ExpectedManifestVersion)').Split('.').Length)</_ManifestPartCount>
+      <_ExpectedManifestVersion Condition="'$(_ManifestPartCount)' == '1'">$(_ExpectedManifestVersion).0.0.0</_ExpectedManifestVersion>
+      <_ExpectedManifestVersion Condition="'$(_ManifestPartCount)' == '2'">$(_ExpectedManifestVersion).0.0</_ExpectedManifestVersion>
+      <_ExpectedManifestVersion Condition="'$(_ManifestPartCount)' == '3'">$(_ExpectedManifestVersion).0</_ExpectedManifestVersion>
+      <_ActualManifestVersion Condition="Exists('$(_ManifestPath)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(_ManifestPath)')), '&lt;Identity\b[^&gt;]*?\bVersion="([^"]+)"').Groups[1].Value)</_ActualManifestVersion>
+    </PropertyGroup>
+
+    <Error Condition="'$(_ManifestPartCount)' &gt; '4'"
+           Text="&lt;Version&gt; '$(_ExpectedManifestVersion)' has more than four parts, which Package.appxmanifest Identity/@Version cannot express (MSIX allows at most four)." />
+    <Error Condition="!Exists('$(_ManifestPath)')"
+           Text="Package.appxmanifest not found at $(_ManifestPath)." />
+    <Error Condition="'$(_ActualManifestVersion)' == ''"
+           Text="Could not read Identity/@Version from $(_ManifestPath)." />
+    <Error Condition="'$(_ActualManifestVersion)' != '' and '$(_ActualManifestVersion)' != '$(_ExpectedManifestVersion)'"
+           Text="Version mismatch: &lt;Version&gt; is '$(_ExpectedManifestVersion)' but Package.appxmanifest Identity/@Version is '$(_ActualManifestVersion)'. Set Identity/@Version to '$(_ExpectedManifestVersion)' so the MSIX package version matches the assembly, or change &lt;Version&gt;." />
+  </Target>
+
+  <!--
     Embed the current git short commit hash into the assembly so the window
     title can display it at runtime. The hash is captured at build time (not
     at run time) so the displayed version always matches the running binary,
