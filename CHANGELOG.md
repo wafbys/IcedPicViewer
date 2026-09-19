@@ -4,10 +4,13 @@
 
 ### 窗口标题显示版本号与构建配置
 
-- 标题由 `IcedPicViewer (commit)` 改为 **`IcedPicViewer 0.16.0 (Release)`**——Debug / Release 与版本号一眼可辨（评估性能必须用 Release，此前从标题看不出跑的是哪个配置）。实测活动窗口标题确认。
-- 版本号此前**根本没显式声明**：csproj 无 `<Version>`，所以程序集实际是默认的 `1.0.0.0`，只有 `Package.appxmanifest` 写着 `0.15.0.0`，且运行时拿不到。现于 csproj 声明 `<Version>0.16.0</Version>` 作为单一来源，同步到程序集（`FileVersion` 实测 `1.0.0.0` → `0.16.0.0`，`ProductVersion` 带 commit）与清单（`0.16.0.0`）。
+> 版本号**只在 `src/IcedPicViewer.WinUI/IcedPicViewer.csproj` 的 `<Version>` 声明一次**（本文件不再抄写具体数字，避免两处各写一遍而漂移）。
+
+- 标题由 `IcedPicViewer (commit)` 改为带版本与配置的形式（实测活动窗口标题确认）——Debug / Release 一眼可辨（评估性能必须用 Release，此前从标题看不出跑的是哪个配置）。
+- 版本号此前**根本没显式声明**：csproj 无 `<Version>`，所以程序集实际是默认的 `1.0.0.0`，只有 `Package.appxmanifest` 写着 `0.15.0.0`，且运行时拿不到。现于 csproj 声明 `<Version>` 作为单一来源，同步到程序集（`FileVersion` 实测已由 `1.0.0.0` 变为所声明版本，`ProductVersion` 带 commit）与清单。
 - `BuildInfo` 新增 `Configuration` / `Version` / `DisplayVersion` / `FullLabel`，均由构建生成，**不依赖 `#if DEBUG`**，因此不可能与实际二进制不符。配置取自 `$(Configuration)`。
-- 标题与 About 页都用 `FullLabel`＝`0.16.0 (Release, aab86e3)`，**保留原有 commit 短哈希**——它是判断「屏幕上跑的是哪个提交」的唯一依据（`dotnet run` 挂调试包身份启动，bin 路径区分不出来）。实测标题为 `IcedPicViewer 0.16.0 (Release, aab86e3)`。`DisplayVersion`（无哈希）保留备用。
+- 标题与 About 页都用 `FullLabel`（形如 `版本 (配置, 短哈希)`），**保留原有 commit 短哈希**——它是判断「屏幕上跑的是哪个提交」的唯一依据（`dotnet run` 挂调试包身份启动，bin 路径区分不出来）。`DisplayVersion`（无哈希）保留备用。
+- **升版本时需同步两处**：csproj 的 `<Version>` 与 `Package.appxmanifest` 的 `Identity/@Version`（后者必须是四段式）。
 
 ### 修复：视频缩略图一直崩溃（进程级访问违例）
 
