@@ -88,7 +88,8 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64   # 首次 / 清仓后
 dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=x64
 dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=x64
-dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=x64
+# 打包 .msix（注意：裸 dotnet publish 不产出 MSIX，必须带下面这个属性）
+dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=x64 -p:GenerateAppxPackageOnBuild=true
 ```
 
 前置：.NET 11 runtime + **Windows App Runtime 2.5**。  

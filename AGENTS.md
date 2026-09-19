@@ -44,7 +44,8 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 $Platform = 'x64'
 dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$Platform
 dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$Platform
-dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=$Platform
+# 打包 .msix：裸 dotnet publish 不产出 MSIX（只有 layout + .build.appxrecipe）
+dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=$Platform -p:GenerateAppxPackageOnBuild=true
 ```
 
 - WASDK **2.5.x** ↔ 目标机 Windows App Runtime **2.5**（MSIX 拉 framework；跨主版本会启动失败）。
@@ -228,6 +229,10 @@ worker 解码后 `DispatcherQueue.TryEnqueue` 再写绑定属性。
 #### 6. 删 culture 补丁已移除
 
 不要再往 csproj 加自定义 target 去删输出目录的 satellite culture 文件夹。官方机制是 `<SatelliteResourceLanguages>`（空值 = 不保留任何语言的 satellite 程序集），已在工程里配置。
+
+#### 7. 打包 .msix 必须带 `GenerateAppxPackageOnBuild=true`
+
+裸 `dotnet publish -c Release -p:Platform=x64` **不产出 MSIX**——只生成 layout 和 `IcedPicViewer.build.appxrecipe`。必须加 `-p:GenerateAppxPackageOnBuild=true`，产物落在 `<project>\AppPackages\`（含 `Microsoft.WindowsAppRuntime.<major>.msix` 依赖包）。另：缺 `mspdbcmf.exe`（未装 Windows SDK / 调试工具）时会出一条 symbol 包警告，对旁加载无影响。
 
 ## 常见 AI 易犯错误
 

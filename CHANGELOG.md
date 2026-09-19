@@ -38,6 +38,12 @@
 - **部署前置变更**：目标机需 **Windows App Runtime 2.5**（原 2.4）；跨主版本会启动失败。
 - 复核 `InputKeyboardSource.GetForWindowId`：在 2.5.1 下**仍是 `[Experimental]`**，`WH_KEYBOARD` 方案继续成立（AGENTS.md 已记录复核日期与依据）。
 
+### 打包命令修正（实测发现）
+
+- 文档原先声称 `dotnet publish -c Release -p:Platform=x64` 会产出可旁加载的 `.msix`——**实测不成立**：裸 publish 只生成 layout 与 `IcedPicViewer.build.appxrecipe`，无 `.msix`、无 `AppPackages\`。必须加 `-p:GenerateAppxPackageOnBuild=true`，产物落在 `src/IcedPicViewer.WinUI/AppPackages/`（本次实测 `IcedPicViewer_0.15.0.0_x64.msix` 76 MB，含 `Microsoft.WindowsAppRuntime.2.msix` 依赖包与 `Add-AppDevPackage.ps1`）。
+- 修正 `AGENTS.md` 构建段、`README.md` 构建段与 csproj 的 Build/Run/Publish 注释；AGENTS.md「已知坑」新增第 7 条。
+- 备注：本机缺 `mspdbcmf.exe`（未装 Windows SDK / 调试工具），打包会出一条 symbol 包警告，不影响旁加载。
+
 ### 清理无用文件
 
 - 删除 `src/IcedPicViewer.WinUI/runtimes/`（175 MB）：它是 `src/native/ffmpeg/win-x64/` 的逐字节相同副本，只作为「共享目录缺失时的回落」存在，而该回落分支从未被真正触发。

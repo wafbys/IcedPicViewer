@@ -196,8 +196,13 @@
         bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\
       - `dotnet run` (via Microsoft.Windows.SDK.BuildTools.WinApp, added above)
         registers a debug package identity (AUMID) and launches the app.
-      - `dotnet publish -c Release -p:Platform=x64` produces a sideloadable
-        .msix under bin\...\AppPackages\ (and dependency .msix files).
+      - `dotnet publish -c Release -p:Platform=x64 -p:GenerateAppxPackageOnBuild=true`
+        produces a sideloadable .msix (plus the WindowsAppRuntime dependency
+        .msix files) under <project>\AppPackages\. The property is REQUIRED:
+        a bare `dotnet publish` only emits the layout + IcedPicViewer.build.appxrecipe
+        and no .msix at all (verified 2026-09).
+      - Symbol packages are skipped with a build warning when mspdbcmf.exe is
+        absent (missing Windows SDK / Debugging Tools). Harmless for sideloading.
   -->
   <PropertyGroup>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
