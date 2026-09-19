@@ -136,7 +136,7 @@ FFmpeg 拉取产物在 `src/native/ffmpeg/{rid}/`（**不进 git**）。
 
 ## 版本
 
-当前版本以 `src/IcedPicViewer.WinUI/IcedPicViewer.csproj` 的 `<Version>` 为准（单一来源）；完整历史见 `CHANGELOG.md`。
+当前版本以仓库根 `Directory.Build.props` 的 `<Version>` 为准（解决方案级单一来源，全工程继承）；完整历史见 `CHANGELOG.md`。
 
 - **未发布** - 升级 .NET 11 / WASDK 2.5.1；移除 Avalonia 与绿色版；修视频缩略图崩溃
 - **v0.15.0** - Core 抽离；tag `winui-baseline`

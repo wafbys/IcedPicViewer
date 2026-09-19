@@ -4,12 +4,7 @@
     <TargetFramework>net11.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.26100.0</TargetPlatformMinVersion>
     <RootNamespace>IcedPicViewer</RootNamespace>
-    <!--
-      Single source of truth for the app version. Flows into the assembly
-      version, the MSIX package version (see Package.appxmanifest, which must
-      stay in sync) and the window title (via Generated/BuildInfo.g.cs).
-    -->
-    <Version>0.16.0</Version>
+    <!-- <Version> is solution-wide: see the repository-root Directory.Build.props. -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>

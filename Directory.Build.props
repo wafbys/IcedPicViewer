@@ -1,0 +1,24 @@
+<Project>
+
+  <!--
+    Solution-wide defaults. Applies to every project under the repository root
+    (Core, WinUI, Core.Tests) because MSBuild walks up from each project to find
+    the nearest Directory.Build.props.
+
+    Version lives here and ONLY here — it is the solution's version, so it should
+    not be owned by whichever project happens to render it. Consumers:
+      - assemblies: Version/FileVersion/AssemblyVersion are derived from it
+      - the WinUI window title and About page, via Generated/BuildInfo.g.cs
+      - the MSIX package identity, kept honest by the GuardPackageManifestVersion
+        target in src/IcedPicViewer.WinUI/IcedPicViewer.csproj, which fails the
+        build when Package.appxmanifest disagrees with this value.
+
+    Note for the guard: <Version> is conventionally three parts while MSIX wants
+    four, so the guard pads both sides before comparing. "0.16.0" and "0.16.0.0"
+    are the same version and neither form is wrong.
+  -->
+  <PropertyGroup>
+    <Version>0.16.0</Version>
+  </PropertyGroup>
+
+</Project>

@@ -4,7 +4,7 @@
 
 ### 窗口标题显示版本号与构建配置
 
-> 版本号**只在 `src/IcedPicViewer.WinUI/IcedPicViewer.csproj` 的 `<Version>` 声明一次**（本文件不再抄写具体数字，避免两处各写一遍而漂移）。
+> 版本号**只在仓库根的 `Directory.Build.props` 声明一次**（解决方案级，位于 `src/` 与 `tests/` 之上，因此 Core / WinUI / Core.Tests 共同继承；本文件不再抄写具体数字，避免两处各写一遍而漂移）。
 
 - 标题由 `IcedPicViewer (commit)` 改为带版本与配置的形式（实测活动窗口标题确认）——Debug / Release 一眼可辨（评估性能必须用 Release，此前从标题看不出跑的是哪个配置）。
 - 版本号此前**根本没显式声明**：csproj 无 `<Version>`，所以程序集实际是默认的 `1.0.0.0`，只有 `Package.appxmanifest` 写着 `0.15.0.0`，且运行时拿不到。现于 csproj 声明 `<Version>` 作为单一来源，同步到程序集（`FileVersion` 实测已由 `1.0.0.0` 变为所声明版本，`ProductVersion` 带 commit）与清单。
@@ -15,10 +15,10 @@
 
 #### 升版本流程（两处，且有守卫兜底）
 
-1. `src/IcedPicViewer.WinUI/IcedPicViewer.csproj` 的 `<Version>`
-2. `src/IcedPicViewer.WinUI/Package.appxmanifest` 的 `Identity/@Version`（四段式）
+1. 仓库根 `Directory.Build.props` 的 `<Version>`
+2. `src/IcedPicViewer.WinUI/Package.appxmanifest` 的 `Identity/@Version`
 
-漏改第 2 处会在下次 `dotnet build` / `dotnet run` 时立即失败并告诉你该填什么。
+漏改第 2 处会在下次 `dotnet build` / `dotnet run` 时立即失败并告诉你该填什么。两处写法可三段可四段（`0.16.0` 与 `0.16.0.0` 等价，守卫会补齐后比较）。
 
 ### 修复：视频缩略图一直崩溃（进程级访问违例）
 
