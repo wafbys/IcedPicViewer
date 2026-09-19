@@ -43,9 +43,12 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 
 $Platform = 'x64'
 dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$Platform
-dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$Platform
+dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug   -p:Platform=$Platform
+# 评估性能 / 真实吞吐时必须用 Release：Runtime Async 等优化依赖 JIT fast path，Debug 不做优化
+dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=$Platform
 ```
 
+- 前置：**Windows 开发者模式**（`dotnet run` 要注册调试包身份，未开启会报 `Developer Mode is not enabled`）+ .NET 11 runtime + Windows App Runtime 2.5。`-p:Platform=x64` 不可省。
 - WASDK **2.5.x** ↔ 目标机 Windows App Runtime **2.5**（MSIX 拉 framework；跨主版本会启动失败）。
 - 目标框架 **`net11.0-windows10.0.26100.0`**（SDK 版本由仓库根 `global.json` 固定）。**不要**给 `Microsoft.Extensions.Caching.Abstractions` / `Configuration.Abstractions` / `DependencyInjection.Abstractions` / `Diagnostics.Abstractions` / `FileProviders.Abstractions` / `Hosting.Abstractions` / `Logging.Abstractions` / `Options` / `Primitives` 加 `PackageReference`——.NET 11 起这 9 个已在共享框架内，显式引用会 `NU1510`，且版本错配会在运行期抛 `MissingMethodException`。`Microsoft.Extensions.Hosting` 仍需显式引用，版本必须与共享框架同号（当前 `11.0.0-rc.1.*`；GA 后换 `11.0.0`）。
 - WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。

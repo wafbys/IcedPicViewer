@@ -85,15 +85,39 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 ### WinUI（Windows x64）
 
 ```powershell
-./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64   # 首次 / 清仓后
-dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=x64
-dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=x64
+# 视频/图片原生库，不进 git；缺失时 build 仅警告 IPV001，运行期会静默失去视频缩略图
+./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64
+
+# 启动（Debug / Release 二选一）
+dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug   -p:Platform=x64
+dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=x64
 ```
 
-前置：.NET 11 runtime + **Windows App Runtime 2.5**。
+前置：**已开启 Windows 开发者模式** + .NET 11 runtime + **Windows App Runtime 2.5**。
 
-**本项目不做发布打包**——只用 `dotnet run` 启动（它负责注册调试包身份）。
-⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`：MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。
+- `-p:Platform=x64` **不可省略**：该工程只支持 x64，默认 `AnyCPU` 会失败。
+- **本项目不做发布打包**——`dotnet run` 会注册调试包身份并启动，不需要安装 MSIX。
+- ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`：缺 package identity 会 `REGDB_E_CLASSNOTREG`。
+
+#### Debug vs Release
+
+| | Debug | Release |
+|---|---|---|
+| 用途 | 日常开发、调试 | **评估性能 / 看真实吞吐** |
+| 输出目录 | `src/IcedPicViewer.WinUI/bin/x64/Debug/net11.0-windows10.0.26100.0/win-x64/` | `src/IcedPicViewer.WinUI/bin/x64/Release/net11.0-windows10.0.26100.0/win-x64/` |
+
+两种配置输出目录互相独立，不会污染彼此。评估 .NET 11 的性能收益**必须用 Release**：Runtime Async 等优化依赖 JIT 的 fast path，Debug 下不做这些优化，差异基本看不到。
+
+#### 排查用环境变量
+
+```powershell
+# FFmpeg 解码诊断 → <app data>\ffmpeg-probe.log
+$env:IPV_FFMPEG_PROBE='1'
+# 首异常日志（XAML 初始化崩溃排查）→ <app data>\firstchance.log
+$env:IPV_FIRSTCHANCE_LOG='1'
+```
+
+数据固定在 `%LOCALAPPDATA%\IcedPicViewer\`；原生库查找顺序 `IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。
 
 ### 验证约定
 
