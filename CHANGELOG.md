@@ -38,11 +38,12 @@
 - **部署前置变更**：目标机需 **Windows App Runtime 2.5**（原 2.4）；跨主版本会启动失败。
 - 复核 `InputKeyboardSource.GetForWindowId`：在 2.5.1 下**仍是 `[Experimental]`**，`WH_KEYBOARD` 方案继续成立（AGENTS.md 已记录复核日期与依据）。
 
-### 打包命令修正（实测发现）
+### 打包：明确本项目不做，并修正文档里的错误命令
 
-- 文档原先声称 `dotnet publish -c Release -p:Platform=x64` 会产出可旁加载的 `.msix`——**实测不成立**：裸 publish 只生成 layout 与 `IcedPicViewer.build.appxrecipe`，无 `.msix`、无 `AppPackages\`。必须加 `-p:GenerateAppxPackageOnBuild=true`，产物落在 `src/IcedPicViewer.WinUI/AppPackages/`（本次实测 `IcedPicViewer_0.15.0.0_x64.msix` 76 MB，含 `Microsoft.WindowsAppRuntime.2.msix` 依赖包与 `Add-AppDevPackage.ps1`）。
-- 修正 `AGENTS.md` 构建段、`README.md` 构建段与 csproj 的 Build/Run/Publish 注释；AGENTS.md「已知坑」新增第 7 条。
-- 备注：本机缺 `mspdbcmf.exe`（未装 Windows SDK / 调试工具），打包会出一条 symbol 包警告，不影响旁加载。
+- **本项目不做发布打包**，只用 `dotnet run` 启动（它注册调试包身份）。README / AGENTS 构建段均去掉 publish 步骤，不把打包写进流程。
+- 修正一处文档错误：此前写着 `dotnet publish -c Release -p:Platform=x64` 会产出可旁加载的 `.msix`——**实测不成立**，裸 publish 只生成 layout 与 `IcedPicViewer.build.appxrecipe`，无 `.msix`、无 `AppPackages\`。将来若真需要打包，必须加 `-p:GenerateAppxPackageOnBuild=true`（实测产出 `IcedPicViewer_0.15.0.0_x64.msix` 76 MB，含 `Microsoft.WindowsAppRuntime.2.msix` 依赖包与 `Add-AppDevPackage.ps1`；`AppPackages/` 已被 `.gitignore` 覆盖）。
+- 该结论记录在 AGENTS.md「已知坑」第 7 条与 csproj 注释中，作为事实备查，不作为流程。
+- 备注：本机缺 `mspdbcmf.exe`（未装 Windows SDK / 调试工具）时打包会出一条 symbol 包警告，退出码仍为 0。
 
 ### 清理无用文件
 

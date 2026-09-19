@@ -88,14 +88,12 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64   # 首次 / 清仓后
 dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=x64
 dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=x64
-# 打包 .msix（注意：裸 dotnet publish 不产出 MSIX，必须带下面这个属性）
-dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=x64 -p:GenerateAppxPackageOnBuild=true
 ```
 
-前置：.NET 11 runtime + **Windows App Runtime 2.5**。  
-**不要**直接双击 MSIX 产物里的 `.exe`（需 package identity）。请用 `dotnet run`。
+前置：.NET 11 runtime + **Windows App Runtime 2.5**。
 
-只有 MSIX 打包这一种部署形态，不做未打包 / 绿色版。
+**本项目不做发布打包**——只用 `dotnet run` 启动（它负责注册调试包身份）。
+⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`：MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。
 
 ### 验证约定
 
