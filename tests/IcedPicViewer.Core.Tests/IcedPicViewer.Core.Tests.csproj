@@ -31,4 +31,22 @@
     <ProjectReference Include="..\..\src\IcedPicViewer.Core\IcedPicViewer.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    FFmpeg natives for VideoFrameExtractorTests. They are not in git (see
+    tools/Fetch-FFmpegNatives.ps1), so this group is simply inactive on a clean
+    checkout and the affected tests return early. FFmpegBootstrap probes
+    AppContext.BaseDirectory, so flattening them into the output root is enough.
+    ffmpeg.exe is needed too: the tests synthesise their own H.264 clip with it.
+  -->
+  <ItemGroup Condition="Exists('..\..\src\native\ffmpeg\win-x64\avutil-60.dll')">
+    <None Include="..\..\src\native\ffmpeg\win-x64\*.dll"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+    <None Include="..\..\src\native\ffmpeg\win-x64\ffmpeg.exe"
+          Link="ffmpeg.exe"
+          CopyToOutputDirectory="PreserveNewest"
+          Visible="false" />
+  </ItemGroup>
+
 </Project>

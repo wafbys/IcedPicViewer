@@ -362,16 +362,20 @@ public class MediaLoader : IMediaLoader
                 ScaledHeight = scaledHeight
             };
 
-            var pixelData = await decoder.GetPixelDataAsync(
+            // GetSoftwareBitmapAsync takes the same transform / EXIF / color arguments
+            // as GetPixelDataAsync but hands back a SoftwareBitmap directly. The old
+            // GetPixelDataAsync + DetachPixelData() path allocated a managed byte[]
+            // (≈1.5 MB for a 768-edge thumb, far more for a large source that had to
+            // be scaled) and then CreateCopyFromBuffer copied it a second time. WIC
+            // decodes, scales and applies EXIF straight into the SoftwareBitmap's
+            // buffer instead, so the intermediate array is gone entirely.
+            var sb = await decoder.GetSoftwareBitmapAsync(
                 BitmapPixelFormat.Bgra8,
                 BitmapAlphaMode.Premultiplied,
                 transform,
                 ExifOrientationMode.RespectExifOrientation,
                 ColorManagementMode.DoNotColorManage);
             ct.ThrowIfCancellationRequested();
-            var bytes = pixelData.DetachPixelData();
-
-            var sb = CreateSoftwareBitmap(bytes, (int)scaledWidth, (int)scaledHeight);
             if (sb is null) return null;
             return new CachedThumb(sb, originalWidth, originalHeight);
         }

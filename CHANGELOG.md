@@ -2,6 +2,37 @@
 
 ## 未发布
 
+### 修复：视频缩略图一直崩溃（进程级访问违例）
+
+- **根因**：FFmpeg 8.0 重排了 `SwsContext` 内部结构，而 FFmpeg.AutoGen 8.1.0 的旧式指针绑定 `sws_scale(SwsContext*, byte**, int*, …)` 与之 ABI 不兼容。每次调用都以访问违例（`0xC0000005`）**终止进程**——不是托管异常，`catch` 永远看不到，所以视频缩略图从来没成功过。
+- **修复**：`VideoFrameExtractor` 改用帧式 `sws_scale_frame`（接口稳定），目标缓冲由 `av_frame_get_buffer` 分配并对齐。顺带去掉原来的 `av_malloc` + 整帧 `MemoryCopy` 双拷贝。
+- **A/B 实测**（FFmpeg n8.1.2 / swscale 9.5.102，各自独立进程）：旧 `sws_scale` 在 `SWS_BILINEAR` 与 `SWS_LANCZOS` 下**均崩溃**；`sws_scale_frame` 两者**均成功**（返回写入行数 = 输出高度）。注意它成功时返回 **>0**、失败返回负数——与「≤0 即失败」的直觉相反。
+- **像素级验证**：与 ffmpeg 渲染的同参数参考帧比对，逐通道均值 B/G/R 差 ≤0.3、通道相关性 0.988–0.995（排除 BGR/RGB 互换）、平均像素差 1.5–2.5/255。
+- **回归测试**：新增 `VideoFrameExtractorTests`（4 个用例，用捆绑的 `ffmpeg.exe` 合成 H.264 片段）。「连续多个视频」用例专门覆盖原 bug 只在第二次调用才暴露的特征；测试断言**存活 + 输出形状**，回退到旧 API 会让整个测试宿主崩溃而非单条失败。原生库缺失时优雅跳过（它们不在 git 里）。
+
+### 性能：图像缩略图解码去掉 byte[] 中转
+
+- `MediaLoader.DecodeToSoftwareBitmapAsync` 原走 `GetPixelDataAsync` → `DetachPixelData()` → `byte[]` → `CreateCopyFromBuffer`，每张缩略图先分配一个托管数组（768 边约 1.5 MB，大图更多）再整块拷贝一次。改用 `BitmapDecoder.GetSoftwareBitmapAsync(...)`：WIC 一次完成解码 + 缩放 + EXIF 旋转，直接写入 SoftwareBitmap 缓冲，中间数组彻底消失。
+- 参数与旧路径逐项对应（`Bgra8` / `Premultiplied` / `Fant` + `ScaledWidth/Height` / `RespectExifOrientation` / `DoNotColorManage`），`OriginalWidth/Height` 语义不变。
+- 注：`SoftwareBitmap.CreateFromBuffer` **并不存在**（已验证 SDK ref 10.0.26100.87 只有 `CreateCopyFromBuffer` / `CreateCopyFromSurfaceAsync`），所以不能靠换 API 省掉那次拷贝——必须从解码器侧直接产出 SoftwareBitmap。
+
+### 探索结论：shell 缩略图方案不可行
+
+`StorageFile.GetThumbnailAsync`（复用 Windows 缩略图缓存）潜在收益是数量级，但与瀑布流清晰度要求冲突：`CachedThumb.OriginalWidth/Height` 是解码时顺便取得的原图尺寸，而 `ViewerViewModel` 用它做三个判断——当前图是否够清晰（`PixelWidth >= OriginalWidth * tolerance`）、是否复用已加载位图、`ActualWidth/Height`（Fit / 1:1 基准）。改用 shell 缩略图后这些判断全部失去依据，补回来需要额外一次尺寸探测，吃掉省下的开销。**故不采用。**
+
+### 未采用：.NET 11 库新特性
+
+逐条查证后确认用不上：`ZipArchiveEntry` 新方法（归档走 SharpCompress 而非 `System.IO.Compression`）、Zstd（同上）、`BitArray` span 构造（全仓无 `BitArray`）。实际受益的是 Runtime Async 与 JIT 改进，且零代码改动已获得。
+
+### 性能验证数据（视频抽帧，512 长边）
+
+改用 `sws_scale_frame` 后实测（`warmup=5 / iterations=30`，中位数）：1080p **13.4 ms**、4K **43.4 ms**，每次分配 576 KB（即一张 512×288 BGRA 缓冲）。此前该路径为崩溃，无基线可比。
+
+### 验证
+
+- `dotnet build IcedPicViewer.slnx` 0 warning / 0 error；`dotnet test` **120 passed**（116 + 4 个新回归用例）。
+- 未验证：WinUI 侧图像解码改动需人工看一次图库缩略图与 EXIF 旋转照片；视频缩略图需在应用内确认（此前该路径一直崩溃，属首次可用）。
+
 **主题：升级到 .NET 11 + 移除 Avalonia 工程，收敛为 Core + WinUI 双工程**
 
 ### .NET 11

@@ -1,6 +1,7 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using FFmpeg.AutoGen;
 using IcedPicViewer.Core.Settings;
 using IcedPicViewer.Models;
@@ -77,9 +78,9 @@ public static class VideoFrameExtractor
         AVFormatContext* fmtCtx = null;
         AVCodecContext* codecCtx = null;
         AVFrame* frame = null;
+        AVFrame* scaledFrame = null;
         AVPacket* packet = null;
         SwsContext* swsCtx = null;
-        byte* bgraBuffer = null;
 
         try
         {
@@ -164,26 +165,38 @@ public static class VideoFrameExtractor
             }
             if (!gotFrame) return null;
 
+            // Scale through the frame-based API (sws_scale_frame), NOT the legacy
+            // pointer-based sws_scale. FFmpeg 8.0 reworked SwsContext's internals,
+            // and FFmpeg.AutoGen 8.1.0's `sws_scale(SwsContext*, byte**, int*, ...)`
+            // binding is ABI-incompatible with it: every call died with an access
+            // violation (0xC0000005) — a process-level crash, not a managed
+            // exception, so nothing upstream could catch it and video thumbnails
+            // never worked. Verified 2026-09 against FFmpeg n8.1.2 / swscale 9.5.102
+            // with both SWS_BILINEAR and SWS_LANCZOS: legacy crashes on both,
+            // sws_scale_frame succeeds on both. sws_scale_frame takes AVFrames, so
+            // the destination buffer is allocated and aligned by av_frame_get_buffer,
+            // which also removes the old av_malloc + MemoryCopy double copy.
             swsCtx = ffmpeg.sws_getContext(
                 srcW, srcH, codecCtx->pix_fmt,
                 outW, outH, AVPixelFormat.AV_PIX_FMT_BGRA,
                 (int)SwsFlags.SWS_LANCZOS, null, null, null);
             if (swsCtx == null) return null;
 
+            scaledFrame = ffmpeg.av_frame_alloc();
+            if (scaledFrame == null) return null;
+            scaledFrame->format = (int)AVPixelFormat.AV_PIX_FMT_BGRA;
+            scaledFrame->width = outW;
+            scaledFrame->height = outH;
+            if (ffmpeg.av_frame_get_buffer(scaledFrame, 32) < 0) return null;
+
+            // Returns the number of rows written (== outH) on success, negative on error.
+            if (ffmpeg.sws_scale_frame(swsCtx, scaledFrame, frame) < 0) return null;
+
             var bgraLineSize = outW * 4;
             var bgraStride = bgraLineSize * outH;
             var bgraManaged = new byte[bgraStride];
-            bgraBuffer = (byte*)ffmpeg.av_malloc((ulong)bgraStride);
-            var dataPtr = new byte_ptrArray4 { [0] = bgraBuffer };
-            var lineSizes = new int_array4 { [0] = bgraLineSize };
-            ffmpeg.sws_scale(swsCtx, frame->data, frame->linesize, 0, srcH, dataPtr, lineSizes);
-
-            fixed (byte* bgraPtr = bgraManaged)
-            {
-                Buffer.MemoryCopy(bgraBuffer, bgraPtr, bgraManaged.Length, bgraManaged.Length);
-            }
-            ffmpeg.av_free(bgraBuffer);
-            bgraBuffer = null;
+            Buffer.MemoryCopy(scaledFrame->data[0], Unsafe.AsPointer(ref bgraManaged[0]),
+                bgraStride, bgraStride);
 
             return new VideoFrameExtract(bgraManaged, outW, outH, srcW, srcH, duration);
         }
@@ -195,7 +208,7 @@ public static class VideoFrameExtractor
         finally
         {
             if (swsCtx != null) ffmpeg.sws_freeContext(swsCtx);
-            if (bgraBuffer != null) ffmpeg.av_free(bgraBuffer);
+            if (scaledFrame != null) ffmpeg.av_frame_free(&scaledFrame);
             if (packet != null) ffmpeg.av_packet_free(&packet);
             if (frame != null) ffmpeg.av_frame_free(&frame);
             if (codecCtx != null) ffmpeg.avcodec_free_context(&codecCtx);
