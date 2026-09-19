@@ -186,24 +186,17 @@
   </PropertyGroup>
 
   <!--
-    IcedPicViewer is a MSIX-packaged WinUI 3 app (WindowsPackageType is unset
-    → defaults to MSIX). Package.appxmanifest + WASDK 2.5.x declare the
-    framework dependency on Microsoft.WindowsAppRuntime 2.5, which Windows
-    resolves from the framework package — no standalone installer needed.
+    WinUI 3 app, MSIX-packaged (WindowsPackageType is unset → defaults to MSIX).
+    Package.appxmanifest + WASDK 2.5.x declare the framework dependency on
+    Microsoft.WindowsAppRuntime 2.5, which Windows resolves from the framework
+    package.
 
-    Build / Run flow (this project is NOT packaged for distribution):
-      - `dotnet build -c Debug -p:Platform=x64` produces the packaged layout at
+    Build / Run flow (this project is never packaged for distribution):
+      - `dotnet build -c Debug -p:Platform=x64` produces the layout at
         bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\
       - `dotnet run` (via Microsoft.Windows.SDK.BuildTools.WinApp, added above)
         registers a debug package identity (AUMID) and launches the app.
         This is the only supported way to start it — see the .exe caveat below.
-
-    If a sideloadable .msix is ever needed, note that a bare
-    `dotnet publish -c Release -p:Platform=x64` does NOT produce one (it only
-    emits the layout + IcedPicViewer.build.appxrecipe, verified 2026-09).
-    It requires -p:GenerateAppxPackageOnBuild=true; output lands in
-    <project>\AppPackages\ together with Microsoft.WindowsAppRuntime.<major>.msix.
-    Missing mspdbcmf.exe then adds a harmless "symbols package" warning.
   -->
   <PropertyGroup>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>

@@ -51,7 +51,7 @@ dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Pl
 - WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
 - ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。
 - 平台固定 **x64**（`Platform=x64`）；solution 里 WinUI 仅映射 x64。
-- **本项目不做发布打包**，只用 `dotnet run` 启动（它注册调试包身份）。不要引入 `.msix` 打包流程，也不要引入未打包 / 绿色版的 `WindowsPackageType=None` 或 `SelfContained` 发布路径。
+- **本项目不做发布打包**：`dotnet run` 是唯一受支持的启动方式（它注册调试包身份）。不要为分发引入打包或自包含发布路径。
 
 #### 数据与持久化
 
@@ -227,10 +227,6 @@ worker 解码后 `DispatcherQueue.TryEnqueue` 再写绑定属性。
 #### 6. 删 culture 补丁已移除
 
 不要再往 csproj 加自定义 target 去删输出目录的 satellite culture 文件夹。官方机制是 `<SatelliteResourceLanguages>`（空值 = 不保留任何语言的 satellite 程序集），已在工程里配置。
-
-#### 7. 本项目不打包；若将来要 .msix 必须带 `GenerateAppxPackageOnBuild=true`
-
-只用 `dotnet run` 启动，不做发布打包。若将来确有需要：裸 `dotnet publish -c Release -p:Platform=x64` **不产出 MSIX**——只生成 layout 和 `IcedPicViewer.build.appxrecipe`。必须加 `-p:GenerateAppxPackageOnBuild=true`，产物落在 `<project>\AppPackages\`（含 `Microsoft.WindowsAppRuntime.<major>.msix` 依赖包）。另：缺 `mspdbcmf.exe`（未装 Windows SDK / 调试工具）时会出一条 symbol 包警告，对旁加载无影响。
 
 ## 常见 AI 易犯错误
 
