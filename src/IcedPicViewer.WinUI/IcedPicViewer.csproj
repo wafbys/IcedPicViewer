@@ -114,6 +114,33 @@
   </ItemGroup>
 
   <!--
+    FFmpeg natives must be declared as <Content>, not just copied by the
+    CopyFFmpegDllsToOutDir target. `dotnet run` for a packaged WinUI app goes
+    through WinApp CLI, whose _WinAppCopyContentToLooseLayout target stages
+    <Content> items into the loose layout at $(OutputPath)AppX\ — and THAT is
+    the directory the app actually executes from (the registered package's
+    InstallLocation). Files that only reach the output root never appear there,
+    FFmpegBootstrap finds no avutil, IsReady stays false and every video
+    thumbnail silently returns null. Verified 2026-09: probing the AppX loose
+    layout found no avutil; the output root did.
+
+    Link is explicit so the destination is the same flat layout the MSIX package
+    and the build output use. Relying on the default runtimes\{rid}\native\
+    convention would also work (FFmpegBootstrap probes it) but would make the
+    loose layout differ from the packaged one for no gain. MSIX requires
+    LoadLibrary to find these in the package root anyway.
+
+    Note: this is NOT redundant with the Copy target. The Copy target is what
+    puts the DLLs in the output root for the MSIX path; this Content item is what
+    puts them in the loose layout for `dotnet run`. Both are needed.
+  -->
+  <ItemGroup Condition="Exists('..\native\ffmpeg\win-x64\avutil-60.dll')">
+    <Content Include="..\native\ffmpeg\win-x64\*.dll"
+             Link="%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
     FFmpeg LGPL 2.1 license text. The default .NET SDK content globs
     do not pick up the License/ folder under this project (WinUI 3
     projects opt out of the full default glob in some configurations
