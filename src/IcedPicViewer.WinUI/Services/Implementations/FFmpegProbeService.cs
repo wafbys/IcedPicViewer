@@ -44,7 +44,7 @@ public sealed class FFmpegProbeService
 
     public FFmpegProbeService()
     {
-        // %LOCALAPPDATA%\IcedPicViewer, or <exe>\data for portable builds.
+        // %LOCALAPPDATA%\IcedPicViewer.
         _logDir = AppDataPaths.EnsureRoot();
         _logPath = Path.Combine(_logDir, LogFileName);
     }
@@ -58,7 +58,7 @@ public sealed class FFmpegProbeService
     ///   1. Set the env var inside App.OnLaunched before _window.Activate()
     ///      (compile-time override), or
     ///   2. Place a flag file at <app data>\ffmpeg-probe.flag
-    ///      (%LOCALAPPDATA%\IcedPicViewer, or <exe>\data when portable), or
+    ///      (%LOCALAPPDATA%\IcedPicViewer), or
     ///   3. Temporarily flip _forceRunForDiagnostic below.
     /// </summary>
     public static bool IsProbeRequested =>

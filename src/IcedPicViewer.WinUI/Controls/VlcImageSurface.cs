@@ -14,7 +14,7 @@ namespace IcedPicViewer.Controls;
 
 /// <summary>
 /// Software-rendered LibVLC video surface for WinUI (Image + WriteableBitmap).
-/// Same approach as Avalonia <c>VlcBitmapSurface</c> — no HWND VideoView.
+/// Deliberately no HWND VideoView — avoids airspace/child-window issues.
 /// </summary>
 public sealed class VlcImageSurface : UserControl, IDisposable
 {

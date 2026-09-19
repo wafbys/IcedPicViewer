@@ -743,8 +743,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
                     video.ApplyCodec(m.VideoCodec, m.HasAudio);
             }
 
-            // Prefer LibVLC for codecs MF cannot remux/decode (VP8/WebM, …)
-            // — same engine as Avalonia shell.
+            // Prefer LibVLC for codecs MF cannot remux/decode (VP8/WebM, …).
             if (PreferLibVlcPlayback(video))
             {
                 await PlayWithVlcAsync(video).ConfigureAwait(true);
@@ -820,7 +819,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Codecs / containers that Windows Media Foundation cannot remux into MP4
-    /// or decode natively — use LibVLC (same as Avalonia).
+    /// or decode natively — use LibVLC.
     /// </summary>
     internal static bool PreferLibVlcPlayback(VideoItem video)
     {

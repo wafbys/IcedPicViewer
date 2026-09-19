@@ -28,16 +28,14 @@ src/native/ffmpeg/
   osx-arm64/
 ```
 
-`IcedPicViewer.Avalonia.csproj` copies each existing RID folder to  
-`bin/.../runtimes/{rid}/native/`.
+Windows builds currently only need `win-x64`; `tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` fills it and
+mirrors the DLLs into `IcedPicViewer.WinUI/runtimes/win-x64/native/`.
 
 ## Fallback
 
 | Platform | Fallback if folder empty |
 |----------|---------------------------|
 | Windows x64 | 本地 `WinUI/runtimes/win-x64/native`（**不进 git**；Fetch 脚本会镜像 DLL 到该路径） |
-| Linux | Distro packages, e.g. `sudo apt install libavcodec-dev ...` |
-| macOS | `brew install ffmpeg` → `/opt/homebrew/lib` |
 | Any | Env `IPV_FFMPEG_ROOT` = directory containing avutil / libavutil |
 
 **DLL/so/dylib 均不提交到 Git。**

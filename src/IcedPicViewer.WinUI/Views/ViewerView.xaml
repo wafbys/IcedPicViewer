@@ -292,7 +292,7 @@
                    Stretch="Uniform"/>
             <!--
                 LibVLC soft-render surface for codecs MF cannot play
-                (VP8/WebM, ProRes, …). Same approach as Avalonia.
+                (VP8/WebM, ProRes, …).
             -->
             <controls:VlcImageSurface x:Name="VlcSurface"
                                       MediaPlayer="{x:Bind ViewModel.VlcPlayer, Mode=OneWay}"

@@ -79,7 +79,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     // for why both triggers are needed.
     private const int ScanBatchSize = 100;
 
-    /// <summary>Time-based batch flush (ms) from first media in the batch — same as Avalonia <c>ScanBatchMs</c>.</summary>
+    /// <summary>Time-based batch flush (ms) from first media in the batch.</summary>
     private const int ScanBatchMs = 50;
 
     // Page size used while the scan-time page fill is feeding the gallery.
@@ -125,8 +125,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     public Visibility IsScanningVisibility => IsScanning ? Visibility.Visible : Visibility.Collapsed;
 
     // Total media sources discovered for this folder session (absolute).
-    // Single writer during scan: IngestScanBatch sets DiscoveredCount = discovered
-    // (same as Avalonia). Watcher add/remove adjusts after scan. Do not also
+    // Single writer during scan: IngestScanBatch sets DiscoveredCount = discovered.
+    // Watcher add/remove adjusts after scan. Do not also
     // assign from scanner Progress — that double-counted with ingest.
     [ObservableProperty]
     public partial int DiscoveredCount { get; set; }
@@ -568,7 +568,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// UI thread: enqueue sources and set <see cref="DiscoveredCount"/> to the
-    /// absolute scan total (same contract as Avalonia). Starts
+    /// absolute scan total. Starts
     /// <see cref="DrainPageFillAsync"/> when under <see cref="PageSize"/>.
     /// </summary>
     private void IngestScanBatch(List<MediaRef> batch, int discovered, CancellationToken ct)
@@ -690,7 +690,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             CanLoadMore = _remainingSources.Count > 0;
         }
 
-        // Same as Avalonia: FileInfo (or archive entry size) then add
+        // FileInfo (or archive entry size) then add
         // placeholders immediately. Oriented W×H / duration arrive with
         // the thumbnail — no extra BitmapDecoder / FFmpeg open first.
         var created = new List<MediaItem>(batch.Count);
@@ -793,7 +793,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Status bar after settle / Load More / watcher mutations.
-    /// Wording from shared <see cref="GalleryStatusFormatter"/> (same as Avalonia).
+    /// Wording from shared <see cref="GalleryStatusFormatter"/>.
     /// </summary>
     private void UpdateStatus()
     {

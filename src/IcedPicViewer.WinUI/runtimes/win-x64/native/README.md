@@ -20,8 +20,8 @@ Copy-Item src/native/ffmpeg/win-x64/*.dll src/IcedPicViewer.WinUI/runtimes/win-x
 
 ## 用途
 
-- WinUI：`IcedPicViewer.csproj` 的 `Content` + `CopyFFmpegDllsToAppX` 会拷进 AppX 根目录供 `LoadLibrary` 使用。
-- Avalonia：优先 `src/native/ffmpeg/win-x64/`；若无则回落本目录（若本机已拷贝）。
+- WinUI：`IcedPicViewer.csproj` 的 `Content` + `CopyFFmpegDllsToOutDir` 会拷进打包输出根目录供 `LoadLibrary` 使用。
+- 本目录是 `src/native/ffmpeg/win-x64/` 的本地镜像；优先用统一目录，本目录留作回落。
 
 ## License
 

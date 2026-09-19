@@ -63,7 +63,7 @@ public partial class App : Application
         // (e.g. on Insider builds where the runtime's OS build check trips).
         UnhandledException += OnUnhandledException;
 
-        // Diagnostics for the unpackaged/green crashes seen 2026-09-13/14: the
+        // Diagnostics for the XAML-init crashes seen 2026-09-13/14: the
         // failure surfaces as XAML UnhandledException with an EMPTY StackTrace
         // (the WinRT call that fails is native), so the only way to attribute it
         // to a managed call site is to record the exception as it is first
@@ -121,7 +121,7 @@ public partial class App : Application
             // ToString() carries the full chain (type + message + stack + inner
             // exceptions, including the WinRT activation context); the fields
             // above lose it when StackTrace is empty, which is exactly what
-            // happens for the unpackaged COMExceptions.
+            // happens for these COMExceptions.
             fullError += $"\n完整异常:\n{ex}";
 
             // Attach current viewer state if possible (for easier diagnosis)
@@ -254,7 +254,7 @@ public partial class App : Application
 //   - IPV_FFMPEG_PROBE=1 env var (does NOT propagate through MSIX
 //     `winapp.exe launch` — see FFmpegProbeService doc comment), OR
 //   - an ffmpeg-probe.flag file exists in the app data folder
-//     (%LOCALAPPDATA%\IcedPicViewer, or <exe>\data when portable), OR
+//     (%LOCALAPPDATA%\IcedPicViewer), OR
 //   - FFmpegProbeService.ForceRunForDiagnostic is flipped at compile time.
 // By default the app boots without touching FFmpeg, so users who don't
 // enable the probe see no behavior change. Results go to

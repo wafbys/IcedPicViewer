@@ -3,7 +3,7 @@
 namespace IcedPicViewer.Models;
 
 /// <summary>
-/// Shared gallery load phase for WinUI and Avalonia. Shells use the same names;
+/// Shared gallery load phase. The shell uses the same names;
 /// not every value is used on every path (e.g. drain may stay under Scanning).
 /// </summary>
 public enum LoadingState

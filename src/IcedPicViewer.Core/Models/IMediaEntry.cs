@@ -3,8 +3,8 @@
 namespace IcedPicViewer.Models;
 
 /// <summary>
-/// Shared identity surface for a gallery row on any shell.
-/// WinUI <c>MediaItem</c> and Avalonia <c>MediaItemViewModel</c> both implement this.
+/// Shared identity surface for a gallery row.
+/// WinUI <c>MediaItem</c> implements this.
 /// UI bitmaps stay shell-specific (not on this interface).
 /// </summary>
 public interface IMediaEntry

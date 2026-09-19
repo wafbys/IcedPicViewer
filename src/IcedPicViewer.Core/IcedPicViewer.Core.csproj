@@ -1,14 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>IcedPicViewer.Core</RootNamespace>
     <AssemblyName>IcedPicViewer.Core</AssemblyName>
     <!--
-      Core is platform-agnostic: no WinUI / Avalonia UI package references.
-      FFmpeg.AutoGen is allowed (native interop); UI shells copy platform natives.
+      Core is platform-agnostic: no WinUI UI package references.
+      FFmpeg.AutoGen is allowed (native interop); the shell copies platform natives.
     -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>

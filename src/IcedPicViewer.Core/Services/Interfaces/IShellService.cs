@@ -4,7 +4,7 @@ namespace IcedPicViewer.Services.Interfaces;
 
 /// <summary>
 /// OS shell integration: reveal in file manager, move to trash.
-/// Platform shells (Avalonia / WinUI) provide concrete implementations.
+/// Platform shells provide concrete implementations.
 /// </summary>
 public interface IShellService
 {

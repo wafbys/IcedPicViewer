@@ -3,8 +3,8 @@
 namespace IcedPicViewer.Core.Text;
 
 /// <summary>
-/// Shared Chinese status-bar copy for WinUI and Avalonia galleries.
-/// Shells only supply counts / paths / names.
+/// Shared Chinese status-bar copy for the gallery.
+/// The shell only supplies counts / paths / names.
 /// </summary>
 public static class GalleryStatusFormatter
 {

@@ -8,7 +8,7 @@ namespace IcedPicViewer.Services;
 /// <summary>
 /// Process-wide LibVLC + one <see cref="MediaPlayer"/> for WinUI fallback when
 /// Windows Media Foundation cannot decode the codec (VP8/WebM, ProRes, …).
-/// Mirrors Avalonia <c>VlcPlaybackService</c> (Windows natives via NuGet).
+/// Windows natives come from the LibVLC NuGet packages.
 /// </summary>
 public sealed class VlcPlaybackService : IDisposable
 {

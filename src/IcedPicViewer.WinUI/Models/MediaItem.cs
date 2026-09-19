@@ -40,8 +40,8 @@ public abstract partial class MediaItem : ObservableObject, IMediaEntry
     public long FileSize { get; }
     public DateTime ModifiedTime { get; }
 
-    // Oriented original pixel size. Filled when the thumbnail decodes
-    // (same pass as Avalonia). 0 / 0 until then / if unknown.
+    // Oriented original pixel size. Filled when the thumbnail decodes.
+    // 0 / 0 until then / if unknown.
     public int OriginalWidth { get; private set; }
     public int OriginalHeight { get; private set; }
 

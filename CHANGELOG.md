@@ -1,5 +1,41 @@
 # 更新日志
 
+## 未发布
+
+**主题：升级到 .NET 11 + 移除 Avalonia 工程，收敛为 Core + WinUI 双工程**
+
+### .NET 11
+
+- TFM：`IcedPicViewer.Core` / `IcedPicViewer.Core.Tests` → `net11.0`；`IcedPicViewer.WinUI` → `net11.0-windows10.0.26100.0`。全工程统一 `net11.0`。
+- 仓库根新增 `global.json`（`11.0.100-rc.1` + `rollForward: latestFeature` + `allowPrerelease`）。此前无 SDK 固定，net10 目标实际由机器上更新的 SDK 编译。注意 release 版本号（`11.0.100`）低于已装的 rc 版本号，`allowPrerelease` 也无法匹配，必须写 `-rc.1` 前缀；GA 后改成 `11.0.100` 并去掉 `allowPrerelease`。
+- `Microsoft.Extensions.Hosting` `10.0.10` → `11.0.0-rc.1.26425.128`：.NET 11 把 9 个 `Microsoft.Extensions.*` 程序集并入共享框架，旧版 Hosting 引用的 10.0.0.0 契约与框架内 11.0.0.0 错配会在运行期抛 `MissingMethodException`；同号引用同时消除 `NU1510`。
+- 移除 WinUI 自定义 target `RemoveUnwantedCultures`（含 `IcedPicViewerKeepCultures` 开关）：它手工删除输出目录里的 satellite culture 文件夹，属非官方补丁。satellite 资源改由官方 `<SatelliteResourceLanguages>` 承担（空值 = 不保留任何语言的 satellite 程序集）。
+
+### 移除 Avalonia 工程
+
+- 删除 `src/IcedPicViewer.Avalonia`（24 个 git 跟踪文件）并从 `IcedPicViewer.slnx` 移除；`IcedPicViewer.Core` 随之从多目标 `net10.0;net11.0` 回归单目标 `net11.0`。
+- 删除 Core 中仅服务该壳的 `AboutCopy.AvaloniaBody`（WinUI About 页不受影响）。
+- 文档重写：`README.md` / `AGENTS.md` 去掉「三工程平等」，改为「Core + WinUI 双工程」；`AGENTS.md` 的「仅平台差异」表改为单一 WinUI 实现表，「统一术语」表保留为 Core↔WinUI 共用契约。
+
+### 移除绿色版（未打包 / portable）
+
+- 删除 `tools/Build-Portable.ps1`；WinUI 只剩 **MSIX 打包**这一种部署形态。
+- Core `AppDataPaths` 简化：去掉 `portable.marker` 探测、`IPV_DATA_ROOT` 环境变量覆盖与 `IsPortable` / `Resolve(...)` 公开 API；所有可变状态固定为 `%LOCALAPPDATA%\IcedPicViewer`。`AppDataPathsTests` 随契约重写（测试隔离仍走 `JsonSettingsService(string settingsPath)` 的 temp 路径，不依赖被删的环境变量）。
+- `IcedPicViewer.csproj`：删除为未打包发布准备的死 target `SyncWinUIBuildOutputToPublish`；`CopyFFmpegDllsToAppX` / `CopyLicenseToAppX` 更名为 `CopyFFmpegDllsToOutDir` / `CopyLicenseToOutDir` 并直接落到 `$(OutDir)`（原 `$(OutDir)AppX\` 子目录是为未打包布局留的），`WindowsPackageType` 条件一并移除。
+- 清理 `App.xaml.cs` / `MainWindow.xaml.cs` / `AboutPage.xaml.cs` / `FFmpegProbeService` / `VideoMetadataService` / `JsonSettingsService` 中指向未打包形态的注释。
+- 修正文档中并不存在的 `IPV_FORCE_MICA` 与 `ApplySystemBackdrop` 描述（Mica 实际是 `MainWindow.xaml` 里直接声明的 `<MicaBackdrop />`）；同时删除已随 Avalonia 一起失效的 `IPV_LIBVLC_ROOT`。
+- 删除过期产物 `artifacts/portable*`（基于 net10.0-windows 构建）。
+
+### 其他
+
+- WinUI `csproj` 文档化目标框架与 SDK 固定方式；`Package.appxmanifest` 注释同步 `net11.0-windows10.0.26100.0`。
+
+### 验证
+
+- Core / WinUI / Tests 全部 `dotnet build` 0 warnings / 0 errors；`dotnet test` 121 passed。
+- 共享框架生效实测：`Microsoft.Extensions.Hosting.Abstractions` / `DependencyInjection.Abstractions` / `Options` / `Primitives` / `Logging.Abstractions` 不再拷贝到输出目录。
+- 未验证：应用实际启动（本机未开启开发者模式，MSIX 调试包身份注册失败）。
+
 ## v0.15.0 (2026-07-21)
 
 **主题：Avalonia 跨平台主线落地**

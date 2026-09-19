@@ -5,7 +5,7 @@ namespace IcedPicViewer.Core;
 /// <summary>
 /// Marker for the platform-agnostic core assembly.
 /// Domain models, application services, and (later) ViewModels live here.
-/// Must not reference WinUI, Avalonia, or other UI frameworks.
+/// Must not reference WinUI or other UI frameworks.
 /// </summary>
 public static class CoreInfo
 {

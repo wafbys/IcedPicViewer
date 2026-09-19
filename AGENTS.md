@@ -6,27 +6,23 @@
 
 本地媒体浏览器（图片 + 视频 + 压缩包展平）。
 
-**Core、WinUI、Avalonia 三者平等**：没有「主交付 / 次要壳」之分。共享逻辑在 Core；每个 UI 工程都是完整产品入口，改行为要对齐语义，不能只维护其中一个。
+**Core（平台无关库）+ WinUI（Windows 原生壳）双工程**：Core 承载全部共享逻辑，WinUI 是唯一产品入口。Core 与 WinUI 同级维护——不存在「谁只是附属」的说法。
 
 | 路径 | 角色 |
 |------|------|
-| `src/IcedPicViewer.Core` | 平台无关库：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI / Avalonia。被两壳共同引用，本身与两壳同级维护 |
-| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.4，MSIX，**x64 only**）：图库/查看器、`MediaPlayerElement` 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘、DI Hosting |
-| `src/IcedPicViewer.Avalonia` | 跨平台 UI（Win / macOS / Linux）：Fluent 浅色、图库/查看器、LibVLC 软渲染（`VlcBitmapSurface`）、幻灯片、全屏热区 chrome |
+| `src/IcedPicViewer.Core` | 平台无关库（`net11.0`）：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI。被 WinUI 引用 |
+| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.4，.NET 11，MSIX，**x64 only**）：图库/查看器、`MediaPlayerElement` 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘、DI Hosting |
 | `tests/IcedPicViewer.Core.Tests` | Core 的 xUnit 测试（只引 Core）。已进 `IcedPicViewer.slnx` |
-| FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 可镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`（Core 抽帧，两壳共用） |
-| 视频播放 | **WinUI**：`MediaPlayerElement` + 系统编解码；部分容器 FFmpeg remux（`VideoMetadataService`）。**Avalonia**：LibVLC（Win/Mac NuGet；Linux 系统 libvlc 或 `IPV_LIBVLC_ROOT`）。**禁止** `LibVLCSharp.Avalonia.VideoView` |
+| FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.*` → `src/native/ffmpeg/{rid}/`；Win 可镜像到 WinUI `runtimes/win-x64/native`。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)` |
+| 视频播放 | `MediaPlayerElement` + 系统编解码；部分容器 FFmpeg remux（`VideoMetadataService`）；LibVLC 软渲染回退（`VlcImageSurface`，无 HWND VideoView） |
 
-- tag `winui-baseline`：迁移前纯 WinUI 快照，仅供历史 diff，**不是**「WinUI 已冻结」。
-- **MasonryPanel**（WinUI / Avalonia 各有实现）：默认 **3 列铺满**，非虚拟化，勿擅自改成虚拟化列表。
-- **混合加载**（产品语义两壳一致）：边扫边灌到 200 停 → Load More / 滚底再灌。
-- **不**自动恢复上次打开的文件夹（两壳）。
-- **VM 布局**：
-  - 共享项契约：Core `IMediaEntry` + `MediaDisplay` 格式化。
-  - WinUI：`GalleryViewModel` + `ViewerViewModel` + 页 `ViewerView`；项 `MediaItem`:`IMediaEntry`（`ImageItem`/`VideoItem`）；加载 `IMediaLoader`/`MediaLoader`。
-  - Avalonia：`MainViewModel` partial；项 `MediaItemViewModel`:`IMediaEntry`；加载 `AvaloniaMediaLoader`；小地图 `ViewerMinimap`。
-- CommunityToolkit.Mvvm（两壳）。
-- 改共享行为动 **Core**，并确认 **WinUI 与 Avalonia** 仍符合约定；改壳特有交互只动对应工程。反对过度设计。
+- tag `winui-baseline`：历史快照，仅供 diff，**不是**「WinUI 已冻结」。
+- **MasonryPanel**：默认 **3 列铺满**，非虚拟化，勿擅自改成虚拟化列表。
+- **混合加载**：边扫边灌到 200 停 → Load More / 滚底再灌。
+- **不**自动恢复上次打开的文件夹。
+- **VM 布局**：`GalleryViewModel` + `ViewerViewModel` + 页 `ViewerView`；项 `MediaItem`:`IMediaEntry`（`ImageItem`/`VideoItem`）；加载 `IMediaLoader`/`MediaLoader`。
+- CommunityToolkit.Mvvm。
+- 改共享行为动 **Core**，并确认 **WinUI** 仍符合下方契约；改壳特有交互只动 WinUI。反对过度设计。
 
 ## 构建与运行
 
@@ -52,35 +48,18 @@ dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platfo
 ```
 
 - WASDK **2.4.x** ↔ 目标机 Windows App Runtime **2.4**（MSIX 拉 framework；跨主版本会启动失败）。
+- 目标框架 **`net11.0-windows10.0.26100.0`**（SDK 版本由仓库根 `global.json` 固定）。**不要**给 `Microsoft.Extensions.Caching.Abstractions` / `Configuration.Abstractions` / `DependencyInjection.Abstractions` / `Diagnostics.Abstractions` / `FileProviders.Abstractions` / `Hosting.Abstractions` / `Logging.Abstractions` / `Options` / `Primitives` 加 `PackageReference`——.NET 11 起这 9 个已在共享框架内，显式引用会 `NU1510`，且版本错配会在运行期抛 `MissingMethodException`。`Microsoft.Extensions.Hosting` 仍需显式引用，版本必须与共享框架同号（当前 `11.0.0-rc.1.*`；GA 后换 `11.0.0`）。
 - WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
-- ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。想要双击即用走下面的绿色版。
+- ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。
 - 平台固定 **x64**（`Platform=x64`）；solution 里 WinUI 仅映射 x64。
+- **只有 MSIX 打包这一种部署形态**，不做未打包 / 绿色版；不要引入 `WindowsPackageType=None` 或 `SelfContained` 发布路径。
 
-#### 绿色版（未打包 / 双击即用）
+#### 数据与持久化
 
-```powershell
-./tools/Build-Portable.ps1                     # selfcontained（默认）：自带 .NET + WASDK 运行时，~482 MB
-./tools/Build-Portable.ps1 -Flavor framework   # 需目标机装 .NET 10 + Windows App Runtime，~342 MB
-./tools/Build-Portable.ps1 -Zip                # 追加 zip
-```
-
-- 产物默认 `artifacts/portable/`（git-ignored），**双击 `IcedPicViewer.exe` 即用**：`-p:WindowsPackageType=None` 去掉 MSIX identity 依赖；`WindowsAppSDKSelfContained` + `SelfContained` 决定是否自带运行时。
-- **数据不落用户目录**：脚本在产物根写 `portable.marker`，Core `AppDataPaths` 据此把 `settings.json` / `window_settings.txt` / `crash.log` / `TempVideo` 全部放到 **`<exe>\data\`**，整目录可随意改名搬移；打包版与 dev 版没有 marker，行为不变（仍 `%LOCALAPPDATA%\IcedPicViewer`）。
-- **新增任何持久化路径必须走 `AppDataPaths`**（`Root` / `SettingsFile` / `TempVideoDir` / `CrashLogFile`，或在其上 `Path.Combine`），不要再手写 `LocalApplicationData`，否则绿色版会漏写到用户 profile。`IPV_DATA_ROOT` 可强制覆盖（测试 / CI）。
-- **别把打包发布和绿色版发布混在同一个 `bin`/`obj` 里**：两种 Flavor 的 MRT 资源索引不同（打包版把 WASDK 框架资源合并进 `IcedPicViewer.pri`，非打包版留在 `Microsoft.UI.*.pri`），MSBuild 增量会复用另一 Flavor 的索引，产出的应用会在启动后几秒～几十秒抛未处理 `COMException`（`resource loader cache doesn't have loaded MUI entry` / `cannot locate resource from ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml`）。脚本每次都会清掉 packaged 遗留（`IcedPicViewer.pri` / `resources.pri` / `AppX`）；**不要绕过脚本直接 `dotnet publish -p:WindowsPackageType=None`**。
-- **Mica 只在有 package identity 时启用**（`MainWindow.ApplySystemBackdrop`，非打包进程跳过）。非打包下 WASDK 的 backdrop 路径会触到需要 identity 的 `Windows.ApplicationModel.LimitedAccessFeatures`，激活失败抛 `COMException: ClassFactory cannot supply requested class`。要复现"非打包 + Mica"这一配置，跑 `IPV_FORCE_MICA=1`。
-- About 页 LGPL 链接在非打包下 `ms-appx:///` 可能解析不到，已回退到 `<exe>\License\ffmpeg-LGPL.txt`；改该页时别把 fallback 删了。
-
-### Avalonia（Win / macOS / Linux）
-
-```powershell
-dotnet build src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
-dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c Debug
-```
-
-全屏 chrome：仅顶/底热区显示工具栏；**翻图不得 PeekChrome**；Opacity 淡入淡出。
-
-视频：Linux 需本机 VLC/libvlc；macOS 用 NuGet Mac 包；FFmpeg 见 `src/native/ffmpeg/README.md`。
+- 全部可变状态（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\`）都在 **`%LOCALAPPDATA%\IcedPicViewer`**。
+- **新增任何持久化路径必须走 Core `AppDataPaths`**（`Root` / `SettingsFile` / `TempVideoDir` / `CrashLogFile`，或在其上 `Path.Combine`），不要再手写 `LocalApplicationData`。它没有环境变量或 marker 覆盖机制，就是唯一来源。
+- Mica 在 `MainWindow.xaml` 里以 `<MicaBackdrop />` 直接声明（有 package identity，正常生效）。
+- About 页 LGPL 链接走 `ms-appx:///License/ffmpeg-LGPL.txt`，并有 `<exe>\License\ffmpeg-LGPL.txt` 的 loose-file 回退；改该页时别把 fallback 删了。
 
 ### 整 solution
 
@@ -88,16 +67,16 @@ dotnet run --project src/IcedPicViewer.Avalonia/IcedPicViewer.Avalonia.csproj -c
 dotnet test IcedPicViewer.slnx -c Debug
 ```
 
-含 Core 测试；WinUI / Avalonia UI 仍以手动验关键路径为主。
+含 Core 测试；WinUI UI 仍以手动验关键路径为主。
 
 ## 核心原则
 
 1. **用户意图优先**——规则和体验冲突时说出来讨论。
 2. **先查现有代码再动手**——能复用就复用，能小改就不大改。
-3. **三工程平等**——Core / WinUI / Avalonia 无主次。任务落在哪就改哪；触及共享语义时两边 UI 都要核对。
+3. **Core 与 WinUI 同级**——共享逻辑在 Core，壳特有交互在 WinUI。任务落在哪就改哪；触及共享语义时两边都要核对。
 4. **验证分层**——
    - **Core**：有真实痛点就写测；`tests/IcedPicViewer.Core.Tests`；`dotnet test` 绿。
-   - **WinUI / Avalonia**（含图库 pipeline、播放）：不堆 ViewModel 单测；`dotnet build` 0 warnings + **手动验关键路径**（改了哪边验哪边；共享语义两边都验）。
+   - **WinUI**（含图库 pipeline、播放）：不堆 ViewModel 单测；`dotnet build` 0 warnings + **手动验关键路径**。
    - 禁止为覆盖率写壳测试（如只测 `Math.Clamp`）；禁止测试写真实 `%LocalAppData%` 配置——用 temp 路径（见 `JsonSettingsService(string settingsPath)`）。
 5. **主动暴露权衡**——需求模糊或有风险直接说，不要硬做。
 6. **Commit 用中文**。
@@ -117,9 +96,7 @@ dotnet test IcedPicViewer.slnx -c Debug
 - **ThemeResource brush 名只认 Fluent 2 命名**。`SubtleFillColorSecondaryBrush` / `SolidBackgroundFillColorBaseBrush` / `ControlStrokeColorDefaultBrush` / `CardStrokeColorDefaultBrush` / `LayerFillColorDefaultBrush` 等真实存在；Fluent 1 旧名（`SystemControlBackgroundChromeMediumLowBrush` 等）在 WinAppSDK 2.2+（本项目 2.4）全不存在，build 不报但运行时 `XamlParseException`。
 - **键盘事件只用 WH_KEYBOARD hook**（详见下方"键盘导航"子章节）。不用 `AddHandler(KeyDownEvent)` / `KeyboardAccelerator` / `SetWindowSubclass`。
 
-#### 键盘导航（WinUI：`WH_KEYBOARD` thread-scope hook）
-
-> **仅 WinUI。** Avalonia 用窗口 `KeyDown` / 命令绑定，不适用本节。
+#### 键盘导航（`WH_KEYBOARD` thread-scope hook）
 
 最终方案在 `src/IcedPicViewer.WinUI/MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallKeyboardHook` / `KeyboardHookProc` / `UnhookWindowsHookEx`）。
 
@@ -142,17 +119,17 @@ dotnet test IcedPicViewer.slnx -c Debug
 
 ### Gallery 扫描/加载 pipeline 不变量
 
-**产品语义（WinUI 与 Avalonia 必须一致）**：**边扫边灌到 200 张停**。
+**产品语义**：**边扫边灌到 200 张停**。
 
-#### 统一术语（两壳相同代码名，禁止另起一套）
+#### 统一术语（Core 与 WinUI 共用同一套代码名，禁止另起一套）
 
 | 术语 | 代码名 | 含义 |
 |------|--------|------|
 | 媒体定位 | `MediaRef` | 文件或压缩包条目（**不是**平台图形 `ImageSource`） |
 | 媒体种类 | `MediaKind` | `Image` / `Video` |
-| 项契约 | `IMediaEntry` | `Id`/`Media`/`Name`/`IsVideo`/`FileSize`；WinUI=`MediaItem`，Avalonia=`MediaItemViewModel` |
+| 项契约 | `IMediaEntry` | `Id`/`Media`/`Name`/`IsVideo`/`FileSize`；WinUI 实现 = `MediaItem` |
 | 图库集合 | `Items` | 已灌入瀑布流的媒体项 |
-| 当前项 | `SelectedItem` | 查看器/选中项（两壳同名） |
+| 当前项 | `SelectedItem` | 查看器/选中项 |
 | 当前文件夹 | `FolderPath` | 正在浏览的目录 |
 | 剩余队列 | `_remainingSources` + `_remainingLock` | 已发现未入 `Items` 的 `MediaRef` |
 | 发现数 | `DiscoveredCount` | **扫描期唯一写源**：`IngestScanBatch` 绝对赋值 `DiscoveredCount = discovered`（禁止再叠加 Progress 计数）。监视器增删可 `++`/`--` |
@@ -163,25 +140,25 @@ dotnet test IcedPicViewer.slnx -c Debug
 | flush 链 | `FlushScanBatch` → `IngestScanBatch` → `DrainPageFillAsync` | |
 | Load More | `LoadMoreAsync` / `LoadMoreCommand` + `CanLoadMore` / `IsLoadingMore` | |
 | 缩略图 | `LoadThumbnailAsync` + `_thumbnailLoadSemaphore`（`ThumbConcurrency = 6`） | |
-| 状态文案 | `StatusText` + `UpdateStatus` | **一律**经 Core `GalleryStatusFormatter`（**中文**）；禁止两壳各写一套字符串 |
-| 对话框 / 工具栏 | `UiCopy` | **中文**公共文案（删除确认、打开文件夹、加载更多…）；壳 XAML 与 VM 标签对齐 |
-| 查看器已加载数 | WinUI：`ItemCount`（`x:Bind` 不能绑 `Items.Count`，故镜像一个 `int` 属性）；Avalonia：直接绑 `Items.Count` | 勿与 `DiscoveredCount` 混淆 |
+| 状态文案 | `StatusText` + `UpdateStatus` | **一律**经 Core `GalleryStatusFormatter`（**中文**）；禁止另写一套字符串 |
+| 对话框 / 工具栏 | `UiCopy` | **中文**公共文案（删除确认、打开文件夹、加载更多…）；XAML 与 VM 标签对齐 |
+| 查看器已加载数 | `ItemCount`（`x:Bind` 不能绑 `Items.Count`，故镜像一个 `int` 属性） | 勿与 `DiscoveredCount` 混淆 |
 
-#### 仅平台差异（永久分叉 — 禁止再「统一」）
+#### 仅平台实现细节
 
-| 点 | WinUI | Avalonia | 分叉原因 |
-|----|-------|----------|---------|
-| VM 拆分 | `GalleryViewModel` + `ViewerViewModel` + `ViewerView` | `MainViewModel` partials（单 Window） | 技术栈 |
-| 项实现 | `MediaItem` + `ImageItem`/`VideoItem` | `MediaItemViewModel`（单类） | 契约 `IMediaEntry` 已统一；实现可不同 |
-| 缩略图/全图像素类型 | `BitmapImage` / `WinImageSource` | Avalonia `Bitmap` | 平台 API |
-| 加载器 | `IMediaLoader` / `MediaLoader` | `AvaloniaMediaLoader` | 技术栈 |
-| drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` | 随缩略图/解码 | 技术栈 |
-| UI marshal | `DispatcherQueue.TryEnqueue` | `Dispatcher.UIThread` | 平台 API |
-| 解码 / 播放 | WIC / `MediaPlayerElement` | ImageSharp / LibVLC + `VlcBitmapSurface` | 平台能力 |
-| 键盘 | `WH_KEYBOARD` | 窗口 `KeyDown` | WinUI 生产约束（详见 WinUI 禁忌 → 键盘导航） |
-| 扫描路径提示 | `CurrentScanningPath` | 无 | 仅 WinUI 提供 |
-| `ImageItem` 类名 | `ImageItem` | (无对应) | 表示 `MediaKind.Image` 子类，不是历史误名 |
-| 历史旧名 | — | — | CHANGELOG / AGENTS 禁词列表保留作为历史记录 |
+以下为平台 API 造成的实现选择，**不是**契约差异；改 Core 契约时不必同步这些。
+
+| 点 | WinUI 实现 |
+|----|-----------|
+| 项实现 | `MediaItem` + `ImageItem`/`VideoItem`（实现 Core `IMediaEntry`） |
+| 缩略图像素类型 | `BitmapImage` / `WinImageSource` |
+| 加载器 | `IMediaLoader` / `MediaLoader` |
+| drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` |
+| UI marshal | `DispatcherQueue.TryEnqueue` |
+| 解码 / 播放 | WIC / `MediaPlayerElement`（LibVLC 软渲染回退） |
+| 键盘 | `WH_KEYBOARD` thread-scope hook |
+| 扫描路径提示 | `CurrentScanningPath` |
+| `ImageItem` 类名 | 表示 `MediaKind.Image` 的子类，不是历史误名 |
 
 **共用流程**：
 
@@ -200,18 +177,18 @@ RunScanAndBatchAsync ── ScanBatchSize/ScanBatchMs ── FlushScanBatch
 
 ### 已定稿（必须保持）
 
-领域命名 / 项契约 / 加载器 / UI marshal 等见上方"统一术语表"（line 147-）和"仅平台差异"表（line 170-）。补充：
+领域命名 / 项契约 / 加载器 / UI marshal 等见上方"统一术语表"。补充：
 
-1. **三工程平等**：Core / WinUI / Avalonia。
-2. **中文 UI 文案**：状态栏 `GalleryStatusFormatter`；对话框/按钮 `UiCopy`；About `AboutCopy`；WinUI 视频错误 `VideoPlaybackCopy`。
+1. **Core 与 WinUI 同级**：共享逻辑在 Core，壳特有能力在 WinUI。
+2. **中文 UI 文案**：状态栏 `GalleryStatusFormatter`；对话框/按钮 `UiCopy`；About `AboutCopy`；视频错误 `VideoPlaybackCopy`。
 3. **展示格式**：`MediaDisplay`（大小/时长/像素/InfoLine）。
-4. **图库 pipeline 语义**两壳一致（边扫边灌 200）；`DiscoveredCount` 扫描期单写源。
+4. **图库 pipeline 语义**（边扫边灌 200）；`DiscoveredCount` 扫描期单写源。
 
 ### 收手判据
 
 - `src/` 无下方「禁止」旧名（CHANGELOG / AGENTS 禁词列表除外）。
-- Avalonia `dotnet build` 0/0；`dotnet test` Core 测试绿。
-- 新功能：产品语义与术语表对齐；平台差异只进「仅平台差异」表。
+- Core `dotnet test` 绿；WinUI `dotnet build` 0/0。
+- 新功能：产品语义与术语表对齐。
 
 **禁止**：`Images` / `AutoCap` / `_remainingFilePaths` / `CurrentFolderPath` / `IsBusy`（作加载态）/ `LoadMoreImages*` / `CurrentImage` / Gallery 级 `TotalCount` / 领域模型 `ImageSource` / `ImageViewerView` / `ImageViewModel` / `GalleryItemViewModel` / `IImageLoader` 等旧名重现。
 
@@ -244,26 +221,19 @@ public MainWindow() {
 
 MSIX package identity 缺失 → `REGDB_E_CLASSNOTREG`。只用 `dotnet run` / 正确部署路径。
 
-### Avalonia
+#### 5. 缩略图 / FullImage 必须 UI 线程赋值
 
-#### 1. 禁止 `LibVLCSharp.Avalonia.VideoView`
+worker 解码后 `DispatcherQueue.TryEnqueue` 再写绑定属性。
 
-Avalonia 12 会 `MissingMethodException`。视频表面用 `VlcBitmapSurface`（软渲染回调）。
+#### 6. 删 culture 补丁已移除
 
-#### 2. 缩略图 / FullImage 必须 UI 线程赋值
-
-worker 解码后 `Dispatcher.UIThread.InvokeAsync` 再写 `MediaItemViewModel` 绑定属性。
-
-#### 3. Linux 视频依赖系统 libvlc
-
-无 NuGet 自带 Linux LibVLC；缺库时播放失败，缩略图仍可走 FFmpeg。
+不要再往 csproj 加自定义 target 去删输出目录的 satellite culture 文件夹。官方机制是 `<SatelliteResourceLanguages>`（空值 = 不保留任何语言的 satellite 程序集），已在工程里配置。
 
 ## 常见 AI 易犯错误
 
-- 把 Core / WinUI / Avalonia 分主次（「主交付」「对照壳」）——三者平等。
-- 只改一边 UI 却假设另一边自动对齐（共享语义两边都看）。
+- 把 Core 当"壳的附属"而忽略其契约（Core 与 WinUI 同级）。
+- 只改 WinUI 却把共享语义写死在壳里（该进 Core 的进 Core）。
 - **非平台概念起两套名**（如 `Images`/`Items`、`AutoCap`/`PageSize`）——应用「统一术语」表。
-- 把 WinUI 当只读历史而不修 bug / 不同步 pipeline。
 - 看到问题就自己发明新抽象或新服务。
 - 为了"最佳实践"大幅改动用户明确不想改的地方（如 MasonryPanel）。
 - 写了一堆代码才发现项目里早有类似实现。
@@ -272,4 +242,4 @@ worker 解码后 `Dispatcher.UIThread.InvokeAsync` 再写 `MediaItemViewModel` �
 
 ---
 
-**最后**：**Core = WinUI = Avalonia**；WinUI/Avalonia **除平台差异外术语一致**。规则服务**高效 + 靠谱 + 尊重真实需求**。觉得某条在当前任务中不合适，随时说出来一起调整。
+**最后**：**Core 与 WinUI 同级，共用同一套术语**。规则服务**高效 + 靠谱 + 尊重真实需求**。觉得某条在当前任务中不合适，随时说出来一起调整。

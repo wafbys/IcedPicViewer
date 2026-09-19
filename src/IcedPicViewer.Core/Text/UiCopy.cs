@@ -3,7 +3,7 @@
 namespace IcedPicViewer.Core.Text;
 
 /// <summary>
-/// Shared user-visible Chinese copy for WinUI and Avalonia (dialogs + chrome).
+/// Shared user-visible Chinese copy for the WinUI shell (dialogs + chrome).
 /// Status bar uses <see cref="GalleryStatusFormatter"/> (also Chinese).
 /// </summary>
 public static class UiCopy

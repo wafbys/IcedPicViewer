@@ -3,9 +3,8 @@
 namespace IcedPicViewer.Core.Layout;
 
 /// <summary>
-/// Platform-agnostic masonry (waterfall) helpers. UI panels on WinUI /
-/// Avalonia call into this for shortest-column selection so layout math
-/// stays identical across shells.
+/// Platform-agnostic masonry (waterfall) helpers. The UI panel calls into
+/// this for shortest-column selection so layout math stays in Core.
 /// </summary>
 public static class MasonryLayoutEngine
 {

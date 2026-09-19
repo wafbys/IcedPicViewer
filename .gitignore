@@ -55,7 +55,6 @@ _ReSharper*/
 Generated\ Files/
 IcedPicViewer/Generated/
 src/IcedPicViewer.WinUI/Generated/
-src/IcedPicViewer.Avalonia/Generated/
 *_wpftmp.csproj
 
 # Single executable deliverable folder (regenerated on publish)

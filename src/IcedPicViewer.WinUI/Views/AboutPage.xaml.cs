@@ -44,9 +44,9 @@ public sealed partial class AboutPage : Page
     /// installed (Program Files\WindowsApps\<hash>\ on most machines,
     /// but MSIX can install to other locations per machine policy).
     ///
-    /// Portable (unpackaged) builds have no package identity, so ms-appx
-    /// may not resolve; License\ ships next to the exe in that layout, so
-    /// fall back to the loose file path.
+    /// The LGPL text ships in the package under License\, so it resolves via
+    /// <c>ms-appx:///</c>. If that lookup fails, fall back to the loose file
+    /// next to the exe rather than leaving the link dead.
     /// </summary>
     private async void LicenseLink_Click(object sender, RoutedEventArgs e)
     {

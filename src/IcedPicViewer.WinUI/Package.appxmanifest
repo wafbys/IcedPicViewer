@@ -22,7 +22,7 @@
 
   <!--
     MinVersion 与 csproj TargetPlatformMinVersion 对齐为 10.0.26100.0（Win11 24H2）。
-    工程 TFM 是 net10.0-windows10.0.26100.0，低于此 OS 无法保证 WinRT 合约可用。
+    工程 TFM 是 net11.0-windows10.0.26100.0，低于此 OS 无法保证 WinRT 合约可用。
   -->
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.26100.0" MaxVersionTested="10.0.26226.0" />

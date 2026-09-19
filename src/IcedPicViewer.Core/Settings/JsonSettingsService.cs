@@ -76,8 +76,7 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
 
     private static string GetDefaultSettingsPath()
     {
-        // %LOCALAPPDATA%\IcedPicViewer by default; next to the exe when the
-        // build is portable (see AppDataPaths).
+        // %LOCALAPPDATA%\IcedPicViewer\settings.json (see AppDataPaths).
         AppDataPaths.EnsureRoot();
         return AppDataPaths.SettingsFile;
     }

@@ -93,8 +93,8 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
     private readonly object _tempLock = new();
 
     // <app data>\TempVideo\ — created on first use, cleaned (files deleted)
-    // at construction + Dispose. <app data> is %LOCALAPPDATA%\IcedPicViewer,
-    // or <exe>\data for portable builds (AppDataPaths).
+    // at construction + Dispose. <app data> is %LOCALAPPDATA%\IcedPicViewer
+    // (AppDataPaths).
     private readonly string _tempDir;
 
     public VideoMetadataService(IThumbnailCache thumbnailCache)

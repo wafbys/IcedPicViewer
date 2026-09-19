@@ -2,7 +2,7 @@
 
 namespace IcedPicViewer.Core.Text;
 
-/// <summary>Shared display formatting for media metadata (both shells).</summary>
+/// <summary>Shared display formatting for media metadata.</summary>
 public static class MediaDisplay
 {
     public static string FormatFileSize(long fileSize)

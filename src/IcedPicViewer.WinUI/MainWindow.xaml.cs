@@ -23,8 +23,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
     private static string GetSettingsPath()
     {
-        // Packaged / dev builds keep window geometry in %LOCALAPPDATA%\IcedPicViewer.
-        // Portable builds redirect it next to the exe (AppDataPaths).
+        // Window geometry lives in %LOCALAPPDATA%\IcedPicViewer (AppDataPaths).
         var dir = AppDataPaths.EnsureRoot();
         return Path.Combine(dir, SettingsFile);
     }
