@@ -1,4 +1,4 @@
-# FFmpeg shared natives (per RID)
+# FFmpeg shared natives
 
 Used by `IcedPicViewer.Core` / FFmpeg.AutoGen for **video thumbnails**.
 
@@ -7,13 +7,6 @@ Binaries are **not** committed (large LGPL shared builds). Fetch them with:
 ```powershell
 # From repo root (Windows PowerShell)
 ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64
-./tools/Fetch-FFmpegNatives.ps1 -Rid linux-x64
-```
-
-```bash
-# From repo root (Linux / macOS)
-./tools/Fetch-FFmpegNatives.sh linux-x64
-./tools/Fetch-FFmpegNatives.sh osx-arm64   # uses Homebrew layout hint if no archive
 ```
 
 ## Layout
@@ -21,24 +14,29 @@ Binaries are **not** committed (large LGPL shared builds). Fetch them with:
 ```
 src/native/ffmpeg/
   win-x64/       avutil-*.dll, avcodec-*.dll, ...
-  win-arm64/
-  linux-x64/     libavutil.so*, libavcodec.so*, ...
-  linux-arm64/
-  osx-x64/       libavutil*.dylib, ...
-  osx-arm64/
 ```
 
-Windows builds currently only need `win-x64`; `tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` fills it and
-mirrors the DLLs into `IcedPicViewer.WinUI/runtimes/win-x64/native/`.
+`win-x64` is the only RID this repo builds for. The script still accepts
+`win-arm64` / `linux-x64` / `linux-arm64` for anyone cross-fetching, but nothing
+in the tree consumes them.
+
+## How the DLLs reach the app
+
+`IcedPicViewer.csproj`'s `CopyFFmpegDllsToOutDir` target copies
+`src/native/ffmpeg/win-x64/*.dll` flat into `$(OutDir)` — which is also the MSIX
+install root — because FFmpeg's `LoadLibrary("avcodec-62")` does not search
+subdirectories. Missing natives produce build warning `IPV001` at build time and
+silently disable video thumbs/probe at runtime.
 
 ## Fallback
 
-| Platform | Fallback if folder empty |
-|----------|---------------------------|
-| Windows x64 | 本地 `WinUI/runtimes/win-x64/native`（**不进 git**；Fetch 脚本会镜像 DLL 到该路径） |
-| Any | Env `IPV_FFMPEG_ROOT` = directory containing avutil / libavutil |
+| Order | Location |
+|-------|----------|
+| 1 | Env `IPV_FFMPEG_ROOT` = directory containing avutil |
+| 2 | App output directory (populated by the build target above) |
+| 3 | System PATH |
 
-**DLL/so/dylib 均不提交到 Git。**
+**DLL 不提交到 Git。**
 
 ## License
 

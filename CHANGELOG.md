@@ -30,10 +30,18 @@
 
 - WinUI `csproj` 文档化目标框架与 SDK 固定方式；`Package.appxmanifest` 注释同步 `net11.0-windows10.0.26100.0`。
 
+### 清理无用文件
+
+- 删除 `src/IcedPicViewer.WinUI/runtimes/`（175 MB）：它是 `src/native/ffmpeg/win-x64/` 的逐字节相同副本，只作为「共享目录缺失时的回落」存在，而该回落分支从未被真正触发。
+- 相应简化：`IcedPicViewer.csproj` 删掉与 `CopyFFmpegDllsToOutDir` 重复的 FFmpeg `<Content>` 项（两条分支都经同一个 target 落到输出根），`CopyFFmpegDllsToOutDir` 只读 `src/native/ffmpeg/win-x64/`，`IPV001` 文案同步；`tools/Fetch-FFmpegNatives.ps1` 去掉镜像步骤。
+- 删除 `tools/Fetch-FFmpegNatives.sh`：Linux/macOS 抓取路径随 Avalonia 一起失效，全仓无调用方。
+- 删除空的 `artifacts/`；`.gitignore` 去掉已不存在的 `src/IcedPicViewer.WinUI/runtimes/**` 规则；`.vscode/settings.json` 去掉「Dual Windows + Fedora」过期注释（保留其 LF/换行设置）。
+
 ### 验证
 
-- Core / WinUI / Tests 全部 `dotnet build` 0 warnings / 0 errors；`dotnet test` 121 passed。
+- Core / WinUI / Tests 全部 `dotnet build` 0 warnings / 0 errors（清理后全新构建复验）；`dotnet test` 116 passed。
 - 共享框架生效实测：`Microsoft.Extensions.Hosting.Abstractions` / `DependencyInjection.Abstractions` / `Options` / `Primitives` / `Logging.Abstractions` 不再拷贝到输出目录。
+- 输出根复验：`IcedPicViewer.exe` / `AppxManifest.xml` / `resources.pri` / 7 个 FFmpeg DLL / `License\ffmpeg-LGPL.txt` 齐备，无 `AppX` / `runtimes` 残留子目录。
 - 未验证：应用实际启动（本机未开启开发者模式，MSIX 调试包身份注册失败）。
 
 ## v0.15.0 (2026-07-21)

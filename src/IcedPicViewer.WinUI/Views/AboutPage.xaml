@@ -94,8 +94,8 @@
                                          Padding="0,4,0,4"/>
 
                         <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.7" Margin="0,8,0,0">
-                            <Run Text="LGPL 合规: 7 个 FFmpeg DLL 位于 AppX 包的固定路径下,用户可以在原地替换以满足 LGPL 的可重新链接要求。详细构建信息见"/>
-                            <Run Text="runtimes\win-x64\native\README.md"/>
+                            <Run Text="LGPL 合规: 7 个 FFmpeg DLL 位于 MSIX 包安装根的固定路径下,用户可以在原地替换以满足 LGPL 的可重新链接要求。获取方式见"/>
+                            <Run Text="src\native\ffmpeg\README.md"/>
                             <Run Text="。"/>
                         </TextBlock>
                     </StackPanel>

@@ -89,8 +89,9 @@
 
     <!--
       FFmpeg.AutoGen: managed bindings only. Native DLLs are NOT in git —
-      run tools/Fetch-FFmpegNatives.ps1 -Rid win-x64 (fills src/native/ffmpeg/win-x64
-      and mirrors into runtimes/win-x64/native).
+      run tools/Fetch-FFmpegNatives.ps1 -Rid win-x64, which fills
+      src/native/ffmpeg/win-x64. The CopyFFmpegDllsToOutDir target below is
+      what places them in the output root.
     -->
     <PackageReference Include="FFmpeg.AutoGen" Version="8.1.0" />
 
@@ -109,17 +110,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\IcedPicViewer.Core\IcedPicViewer.Core.csproj" />
-  </ItemGroup>
-
-  <!-- Prefer shared fetch output; also accept local mirror under runtimes/. -->
-  <ItemGroup>
-    <Content Include="..\native\ffmpeg\win-x64\*.dll"
-             Condition="Exists('..\native\ffmpeg\win-x64\avutil-60.dll')"
-             Link="runtimes\win-x64\native\%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="runtimes\win-x64\native\*.dll"
-             Condition="!Exists('..\native\ffmpeg\win-x64\avutil-60.dll')"
-             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!--
@@ -148,21 +138,16 @@
     This target copies the FFmpeg DLLs flat into the output root ($(OutDir)),
     which is also the MSIX install root, so the app's process can
     LoadLibrary them at startup. Runs AfterBuild (debug + release).
-
-    Prefer shared natives, then project-local mirror.
   -->
   <Target Name="CopyFFmpegDllsToOutDir" AfterTargets="Build" Condition="'$(_DesignTimeBuild)' != 'true'">
     <PropertyGroup>
-      <_FFmpegSharedDir>$(MSBuildProjectDirectory)\..\native\ffmpeg\win-x64\</_FFmpegSharedDir>
-      <_FFmpegLocalDir>$(MSBuildProjectDirectory)\runtimes\win-x64\native\</_FFmpegLocalDir>
-      <_FFmpegSourceDir Condition="Exists('$(_FFmpegSharedDir)avutil-60.dll')">$(_FFmpegSharedDir)</_FFmpegSourceDir>
-      <_FFmpegSourceDir Condition="'$(_FFmpegSourceDir)' == ''">$(_FFmpegLocalDir)</_FFmpegSourceDir>
+      <_FFmpegSourceDir>$(MSBuildProjectDirectory)\..\native\ffmpeg\win-x64\</_FFmpegSourceDir>
     </PropertyGroup>
     <ItemGroup>
       <_FFmpegDlls Include="$(_FFmpegSourceDir)*.dll" />
     </ItemGroup>
     <Warning Code="IPV001"
-             Text="FFmpeg native DLLs not found under src/native/ffmpeg/win-x64 or runtimes/win-x64/native. Video thumbs/probe will fail. Run: ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64"
+             Text="FFmpeg native DLLs not found under src/native/ffmpeg/win-x64. Video thumbs/probe will fail. Run: ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64"
              Condition="@(_FFmpegDlls) == ''" />
     <Copy SourceFiles="@(_FFmpegDlls)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="@(_FFmpegDlls) != ''" />
     <Message Text="CopyFFmpegDllsToOutDir: copied @(_FFmpegDlls) -&gt; $(OutDir)" Importance="high" Condition="@(_FFmpegDlls) != ''" />
