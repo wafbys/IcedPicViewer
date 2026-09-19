@@ -4,6 +4,12 @@
     <TargetFramework>net11.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.26100.0</TargetPlatformMinVersion>
     <RootNamespace>IcedPicViewer</RootNamespace>
+    <!--
+      Single source of truth for the app version. Flows into the assembly
+      version, the MSIX package version (see Package.appxmanifest, which must
+      stay in sync) and the window title (via Generated/BuildInfo.g.cs).
+    -->
+    <Version>0.16.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>
@@ -278,6 +284,19 @@
         dropped and the file would be syntactically broken.
       -->
       <_BuildInfoLines Include="        public const string CommitShort = &quot;$(_GitShortHash)&quot;%3B" />
+      <!--
+        Configuration is emitted from the actual build configuration rather than
+        read from #if DEBUG, so the string can never disagree with the binary.
+      -->
+      <_BuildInfoLines Include="        public const string Configuration = &quot;$(Configuration)&quot;%3B" />
+      <_BuildInfoLines Include="        public const string Version = &quot;$(Version)&quot;%3B" />
+      <!--
+        Pre-composed for the window title / About page so the two never drift.
+        Kept short on purpose: Windows 11 shows AppWindow.Title next to the
+        taskbar icon, so this should stay short enough not to truncate.
+      -->
+      <_BuildInfoLines Include="        public const string DisplayVersion = &quot;$(Version) ($(Configuration))&quot;%3B" />
+      <_BuildInfoLines Include="        public const string FullLabel = &quot;$(Version) ($(Configuration), $(_GitShortHash))&quot;%3B" />
       <_BuildInfoLines Include="    }" />
       <_BuildInfoLines Include="}" />
     </ItemGroup>

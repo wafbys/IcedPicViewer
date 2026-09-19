@@ -122,16 +122,17 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
-        // Show the build's commit hash in the title so the running version is
-        // unambiguous (matters because dotnet run launches under a debug
-        // package identity, so the bin path alone doesn't tell you which
-        // commit you have on screen). Both AppTitleBar (visual custom title
-        // bar) and AppWindow.Title (native window title — used by taskbar
-        // hover, Alt+Tab, screen reader) are updated so a11y and OS shells
-        // see the version too.
-        var titleWithHash = $"IcedPicViewer ({BuildInfo.CommitShort})";
-        AppTitleBar.Title = titleWithHash;
-        AppWindow.Title = titleWithHash;
+        // Put version, build configuration and commit hash in the title so the
+        // running binary is unambiguous. This matters because `dotnet run`
+        // launches under a debug package identity — the bin path alone does not
+        // tell you which configuration or commit is on screen, and Debug vs
+        // Release behaves very differently for performance work.
+        // The native title lives just under the control buttons and is what
+        // Windows shows next to the taskbar icon, so it carries the short form;
+        // the full label (with commit) is on the About page.
+        var title = $"IcedPicViewer {BuildInfo.DisplayVersion}";
+        AppTitleBar.Title = title;
+        AppWindow.Title = title;
 
         AppWindow.SetIcon("Assets/AppIcon.ico");
 

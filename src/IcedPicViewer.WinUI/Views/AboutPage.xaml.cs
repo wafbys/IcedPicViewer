@@ -17,10 +17,10 @@ public sealed partial class AboutPage : Page
     {
         this.InitializeComponent();
 
-        // Surface the build's commit hash as the version string. Same
-        // string MainWindow puts in its title bar, so the user can
-        // confirm the binary they're looking at is the one they expect.
-        VersionTextBlock.Text = $"版本：{BuildInfo.CommitShort}";
+        // Full build label: version, configuration and commit. The window title
+        // carries the shorter `DisplayVersion` form; this page is where you go
+        // to identify an exact binary, so it includes the commit.
+        VersionTextBlock.Text = $"版本：{BuildInfo.FullLabel}";
         IntroTextBlock.Text = AboutCopy.WinUiIntro();
         FfmpegDescTextBlock.Text = AboutCopy.FfmpegDescriptionZh();
     }
