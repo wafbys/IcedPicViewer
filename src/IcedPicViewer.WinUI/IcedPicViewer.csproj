@@ -269,6 +269,16 @@
       <_ExpectedManifestVersion Condition="'$(_ManifestPartCount)' == '2'">$(_ExpectedManifestVersion).0.0</_ExpectedManifestVersion>
       <_ExpectedManifestVersion Condition="'$(_ManifestPartCount)' == '3'">$(_ExpectedManifestVersion).0</_ExpectedManifestVersion>
       <_ActualManifestVersion Condition="Exists('$(_ManifestPath)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(_ManifestPath)')), '&lt;Identity\b[^&gt;]*?\bVersion="([^"]+)"').Groups[1].Value)</_ActualManifestVersion>
+      <!--
+        Pad the manifest value too, so "0.16.0" and "0.16.0.0" compare equal.
+        Otherwise a three-part manifest entry would be reported as a mismatch
+        even though MSIX and the assembly both read it as the same version —
+        an easy trap for whoever edits the manifest next.
+      -->
+      <_ActualPartCount>$([System.String]::Copy('$(_ActualManifestVersion)').Split('.').Length)</_ActualPartCount>
+      <_ActualManifestVersion Condition="'$(_ActualPartCount)' == '1'">$(_ActualManifestVersion).0.0.0</_ActualManifestVersion>
+      <_ActualManifestVersion Condition="'$(_ActualPartCount)' == '2'">$(_ActualManifestVersion).0.0</_ActualManifestVersion>
+      <_ActualManifestVersion Condition="'$(_ActualPartCount)' == '3'">$(_ActualManifestVersion).0</_ActualManifestVersion>
     </PropertyGroup>
 
     <Error Condition="'$(_ManifestPartCount)' &gt; '4'"
