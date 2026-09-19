@@ -5,7 +5,7 @@
 | 路径 | 说明 |
 |------|------|
 | `src/IcedPicViewer.Core` | 平台无关库：扫描、归档、设置、FFmpeg 抽帧等（`net11.0`） |
-| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.4，.NET 11，MSIX，**x64 only**） |
+| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.5，.NET 11，MSIX，**x64 only**） |
 | `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit；已进 solution） |
 
 tag `winui-baseline`：历史快照，仅供 diff。协作约定与**定稿架构**见 `AGENTS.md`。
@@ -91,7 +91,7 @@ dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Pl
 dotnet publish src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=x64
 ```
 
-前置：.NET 11 runtime + **Windows App Runtime 2.4**。  
+前置：.NET 11 runtime + **Windows App Runtime 2.5**。  
 **不要**直接双击 MSIX 产物里的 `.exe`（需 package identity）。请用 `dotnet run`。
 
 只有 MSIX 打包这一种部署形态，不做未打包 / 绿色版。

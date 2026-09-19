@@ -30,6 +30,14 @@
 
 - WinUI `csproj` 文档化目标框架与 SDK 固定方式；`Package.appxmanifest` 注释同步 `net11.0-windows10.0.26100.0`。
 
+### Windows App SDK 2.4.0 → 2.5.1
+
+- 同一 SemVer 主版本内的次版本升级（2.x），无破坏性变更；NuGet 包族名按主版本对齐，`Package.appxmanifest` 无需改动。
+- 传递依赖同步上浮：`WindowsAppSDK.Runtime` 2.5.1、`WinUI` 2.3.9、`Foundation` 2.3.12、`InteractiveExperiences` 2.1.9、`AI`/`Search` 2.5.5、`ML` 2.1.94。
+- 对本品相关度最高的两条修复：`MediaPlayerPresenter` 在 GPU 设备丢失时的崩溃；`KeyboardAccelerator` 使用 OEM/标点键（逗号、分号、括号）时的 fail-fast。
+- **部署前置变更**：目标机需 **Windows App Runtime 2.5**（原 2.4）；跨主版本会启动失败。
+- 复核 `InputKeyboardSource.GetForWindowId`：在 2.5.1 下**仍是 `[Experimental]`**，`WH_KEYBOARD` 方案继续成立（AGENTS.md 已记录复核日期与依据）。
+
 ### 清理无用文件
 
 - 删除 `src/IcedPicViewer.WinUI/runtimes/`（175 MB）：它是 `src/native/ffmpeg/win-x64/` 的逐字节相同副本，只作为「共享目录缺失时的回落」存在，而该回落分支从未被真正触发。

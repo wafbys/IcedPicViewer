@@ -717,7 +717,7 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        // 键盘快捷键统一在 MainWindow 的 KeyboardAccelerators 处理,window-scope,
+        // 键盘快捷键统一由 MainWindow 的 WH_KEYBOARD thread-scope hook 处理,
         // 不依赖焦点,无需在 Page 进入时手动 Focus。
     }
 
