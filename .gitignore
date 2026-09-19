@@ -64,3 +64,7 @@ IcedPicViewer-x64/
 # Fetch: tools/Fetch-FFmpegNatives.ps1 -Rid win-x64  →  src/native/ffmpeg/win-x64/
 src/native/ffmpeg/**
 !src/native/ffmpeg/README.md
+
+# Ad-hoc logs written by local run/verification scripts
+/.rl.*
+
