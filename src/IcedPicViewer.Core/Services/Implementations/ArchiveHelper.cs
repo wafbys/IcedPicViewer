@@ -56,27 +56,66 @@ public static class ArchiveHelper
     /// </summary>
     public static bool IsArchive(string path)
     {
+        // Probe result cache, validated by (size, mtime). Re-reading the same
+        // archive candidate's magic bytes is pure waste on a refresh or a
+        // second scan of the same folder; the probe is cheap per file, but
+        // the scanner hits it once per archive-extension candidate.
+        long size = -1;
+        long ticks = 0;
         try
         {
-            return ArchiveFactory.IsArchive(path, out _);
+            var fi = new FileInfo(path);
+            if (fi.Exists)
+            {
+                size = fi.Length;
+                ticks = fi.LastWriteTimeUtc.Ticks;
+            }
+            if (ArchiveProbeCache.TryGetValue(path, out var cached) &&
+                cached.Size == size && cached.Ticks == ticks)
+            {
+                return cached.IsArchive;
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Fall through to a cold probe on any stat failure.
+            Trace.TraceError($"ArchiveHelper.IsArchive stat failed for {path}: {ex.Message}");
+        }
+
+        bool result;
+        try
+        {
+            result = ArchiveFactory.IsArchive(path, out _);
         }
         catch (IOException ex)
         {
             Trace.TraceError($"ArchiveHelper.IsArchive probe failed for {path}: {ex.Message}");
-            return false;
+            result = false;
         }
         catch (UnauthorizedAccessException ex)
         {
             Trace.TraceError($"ArchiveHelper.IsArchive probe failed for {path}: {ex.Message}");
-            return false;
+            result = false;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // SharpCompress may throw NotSupportedException, InvalidDataException, etc.
             Trace.TraceError($"ArchiveHelper.IsArchive probe failed for {path}: {ex.Message}");
-            return false;
+            result = false;
         }
+
+        // Only cache when a stat validator was available (file exists). A
+        // missing/unstattable path (size=-1, ticks=0) is not cached, so a file
+        // that appears later is probed fresh instead of hitting a stale miss.
+        if (size >= 0 || ticks != 0)
+        {
+            ArchiveProbeCache[path] = (size, ticks, result);
+        }
+        return result;
     }
+
+    private static readonly ConcurrentDictionary<string, (long Size, long Ticks, bool IsArchive)> ArchiveProbeCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Enumerates non-directory image entries in <paramref name="archivePath"/>.

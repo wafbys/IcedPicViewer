@@ -2,6 +2,14 @@
 
 ## 未发布
 
+### 性能：扫描器快路径（P0）+ 扫描度量（P1）
+
+- **P0 去掉条目级冗余系统调用**：`DirectoryScanner` 原来先 `Directory.GetFileSystemEntries`，再对每个条目 `Directory.Exists` + `File.Exists`（每条目 2 次额外 stat）。改用 `DirectoryInfo.EnumerateFileSystemInfos()`，目录/文件判定直接读枚举已带出的属性，**零额外 stat**；同时移除每个目录一次的 `Task.Run` 跳转（扫描本就在 worker 上跑）。
+- **压缩包探测缓存**：`ArchiveHelper.IsArchive` 按 (size, mtime) 缓存探测结果，刷新 / 重扫同一文件夹不再重复读 magic bytes（失败/不存在的路径不缓存，避免陈旧 miss）。
+- **P1 度量**：新增 Core `ScanStats`（目录 / 文件 / 压缩包 / 媒体计数 + 总耗时 / 枚举耗时 / 归档耗时）；`ScanAsync` 新增可选 `statsReporter`，扫描**跑完**时上报一次（提前取消不上报）。WinUI 每次扫描写一行 `TraceInformation`。
+- **合成基准**（15,000 文件 / 100 目录，warm cache，best-of-3）：旧 `GetFileSystemEntries + Exists×2` ≈ **1074 ms**，新枚举 ≈ **18 ms**（≈60×）。注：这是 warm-cache 合成场景；真实冷盘受 IO 支配，绝对收益会小，但「每条目 2 次多余 stat」的消除是确定性的。旧路径「每目录一次 Task.Run」的开销未计入该基准。
+- 验证：Core 测试 **123 passed**（新增递归下降、ScanStats、压缩包探测缓存失效 3 例）；WinUI x64 `dotnet build` 0 warning / 0 error。
+
 ### 修复：瀑布流比例错误 + 打开全图画面错乱（EXIF 旋转照片）
 
 - **根因**：`BitmapTransform.ScaledWidth/ScaledHeight` 在“缩放先于旋转/翻转”的语义下属于**源图（未旋转）坐标系**，而 `MediaLoader.ComputeScaledDimensions` 一直用 `OrientedPixelWidth/Height` 计算。手机竖拍照片（EXIF orientation 5–8，宽高互换）因此把转置后的尺寸当作源图缩放尺寸传给 WIC：源图被拉成错误比例，旋转后缩略图比例失真；全图路径更严重——`GetPixelDataAsync` 返回的缓冲是旋转后的（行宽 = 旋转后宽度），而 `SetPixelData` 用的仍是转置尺寸，导致行错位，PNG 出来斜切/错乱（“花”）。

@@ -28,6 +28,15 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private readonly ISettingsService _settingsService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
+    // P1: one Trace line per completed scan so scan cost can be attributed
+    // without a profiler (see ScanStats). Progress<T> marshals back to the
+    // captured (UI) context; the report fires once at scan end.
+    private static readonly IProgress<ScanStats> ScanStatsReporter = new Progress<ScanStats>(stats =>
+        Trace.TraceInformation(
+            $"scan stats: dirs={stats.DirectoryCount} files={stats.FileCount} " +
+            $"archives={stats.ArchiveCount} media={stats.MediaCount} " +
+            $"total={stats.ElapsedMs}ms enum={stats.EnumerateMs}ms archive={stats.ArchiveMs}ms"));
+
     private CancellationTokenSource? _loadCts;
     private IDisposable? _fileWatcher;
     private bool _disposed;
@@ -531,7 +540,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             errorReporter: errorReporter,
             discoveredReporter: null,
             currentPathReporter: currentPathReporter,
-            ct: token))
+            ct: token,
+            statsReporter: ScanStatsReporter))
         {
             if (token.IsCancellationRequested) break;
             if (batch.Count == 0) batchStartTick = Environment.TickCount64;

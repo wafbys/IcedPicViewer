@@ -84,6 +84,28 @@ public sealed class ArchiveHelperTests : IDisposable
     }
 
     [Fact]
+    public void IsArchive_ProbeCache_ShouldInvalidateWhenFileChanges()
+    {
+        // Start with a text file wearing a .zip extension; the (size, mtime)
+        // probe cache records the miss.
+        var path = Path.Combine(_tempDir, "probe.zip");
+        File.WriteAllText(path, "definitely not a zip file, just plain text with a .zip extension");
+        Assert.False(ArchiveHelper.IsArchive(path));
+
+        // Replace it with a real zip at the same path. Size changes, so the
+        // cache must re-probe instead of serving the stale negative.
+        File.Delete(path);
+        using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+        {
+            var entry = archive.CreateEntry("a.jpg");
+            using var writer = new StreamWriter(entry.Open());
+            writer.Write("jpeg");
+        }
+
+        Assert.True(ArchiveHelper.IsArchive(path));
+    }
+
+    [Fact]
     public void ListEntries_WithImageExtensionFilter_ShouldReturnOnlyImageEntries()
     {
         var filter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".jpg", ".png" };

@@ -56,6 +56,12 @@ public interface IDirectoryScanner
     /// expected to throttle; without throttling a whole-drive scan would
     /// produce thousands of path reports per second.
     /// </param>
+    /// <param name="statsReporter">
+    /// Optional sink for a single <see cref="ScanStats"/> emitted when the
+    /// scan runs to completion (not on early cancellation). P1
+    /// instrumentation — used to attribute scan time to enumeration vs
+    /// archive listing.
+    /// </param>
     IAsyncEnumerable<MediaRef> ScanAsync(
         string rootPath,
         bool recursive,
@@ -63,6 +69,7 @@ public interface IDirectoryScanner
         IProgress<ScanError>? errorReporter = null,
         IProgress<int>? discoveredReporter = null,
         IProgress<string>? currentPathReporter = null,
+        IProgress<ScanStats>? statsReporter = null,
         CancellationToken ct = default);
 
     IDisposable Watch(string rootPath, bool recursive, Action<FileChangeInfo> onChanged);

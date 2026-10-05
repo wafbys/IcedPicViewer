@@ -30,6 +30,7 @@ public class DirectoryScanner : IDirectoryScanner
         IProgress<ScanError>? errorReporter = null,
         IProgress<int>? discoveredReporter = null,
         IProgress<string>? currentPathReporter = null,
+        IProgress<ScanStats>? statsReporter = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         // Build a (lowercase extension → kind) lookup once, outside the
@@ -50,12 +51,15 @@ public class DirectoryScanner : IDirectoryScanner
         var directories = new Queue<string>();
         directories.Enqueue(rootPath);
 
-        // Running count of media sources yielded so far. Reported through
-        // discoveredReporter (when supplied) so callers can show a live scan
-        // progress, e.g. when opening a whole drive where the scan can run
-        // for tens of seconds. IProgress<T>.Report is fire-and-forget on the
-        // captured sync context, so it does not stall the scan loop.
+        // P1 instrumentation counters. ElapsedMs fields are wall-clock and
+        // only for relative comparison; see ScanStats.
         var discovered = 0;
+        var directoryCount = 0;
+        var fileCount = 0;
+        var archiveCount = 0;
+        long sumDirectoryMs = 0;
+        long archiveMs = 0;
+        var totalSw = Stopwatch.StartNew();
 
         while (directories.Count > 0)
         {
@@ -65,39 +69,60 @@ public class DirectoryScanner : IDirectoryScanner
 
             if (IsRecycleBin(currentDir)) continue;
 
-            // Announce the directory *before* the blocking GetFileSystemEntries
-            // call. On a slow NTFS folder that call can take several seconds,
-            // and reporting after it would leave the status bar stuck on the
+            directoryCount++;
+
+            // Announce the directory *before* the blocking enumeration call.
+            // On a slow NTFS folder that call can take several seconds, and
+            // reporting after it would leave the status bar stuck on the
             // previous folder during that window.
             if (currentPathReporter is not null) currentPathReporter.Report(currentDir);
 
-            string[] entries;
+            var dirSw = Stopwatch.StartNew();
+            IEnumerator<FileSystemInfo>? enumerator = null;
             try
             {
-                entries = await Task.Run(() => Directory.GetFileSystemEntries(currentDir), ct);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                continue;
-            }
-            catch (DirectoryNotFoundException)
-            {
-                continue;
-            }
-
-            foreach (var entry in entries)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                if (Directory.Exists(entry))
+                // P0: enumerate FileSystemInfo, not path strings. The old
+                // Directory.GetFileSystemEntries + Directory.Exists +
+                // File.Exists sequence cost two extra metadata syscalls per
+                // entry; the FileSystemInfo returned here already carries the
+                // attributes from the single FindNextFile pass, so the
+                // directory/file decision is free.
+                enumerator = new DirectoryInfo(currentDir).EnumerateFileSystemInfos().GetEnumerator();
+                while (true)
                 {
-                    if (recursive && !IsRecycleBin(entry))
+                    ct.ThrowIfCancellationRequested();
+
+                    FileSystemInfo info;
+                    try
                     {
-                        directories.Enqueue(entry);
+                        if (!enumerator.MoveNext()) break;
+                        info = enumerator.Current;
                     }
-                }
-                else if (File.Exists(entry))
-                {
+                    catch (UnauthorizedAccessException) { break; }
+                    catch (DirectoryNotFoundException) { break; }
+                    catch (IOException) { break; }
+
+                    bool isDirectory;
+                    try
+                    {
+                        isDirectory = (info.Attributes & FileAttributes.Directory) != 0;
+                    }
+                    catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or IOException)
+                    {
+                        // The entry vanished between enumeration and attribute
+                        // read — same outcome as the old Exists() returning false.
+                        continue;
+                    }
+
+                    if (isDirectory)
+                    {
+                        if (recursive && !IsRecycleBin(info.FullName)) directories.Enqueue(info.FullName);
+                        continue;
+                    }
+
+                    fileCount++;
+                    var entry = info.FullName;
+
                     if (ArchiveHelper.IsArchiveFileName(entry) && ArchiveHelper.IsArchive(entry))
                     {
                         // For archive enumeration we report the archive's own
@@ -111,13 +136,16 @@ public class DirectoryScanner : IDirectoryScanner
                         // services dispatch on Kind for metadata + thumbnail
                         // extraction; VideoMetadataService handles the
                         // archive case by extracting to a temp file.
+                        archiveCount++;
                         if (currentPathReporter is not null) currentPathReporter.Report(entry);
-                        await foreach (var imageSource in EnumerateArchiveAsync(entry, extensionMap, errorReporter, ct))
+                        var archiveSw = Stopwatch.StartNew();
+                        await foreach (var media in EnumerateArchiveAsync(entry, extensionMap, errorReporter, ct))
                         {
                             discovered++;
                             if (discoveredReporter is not null) discoveredReporter.Report(discovered);
-                            yield return imageSource;
+                            yield return media;
                         }
+                        archiveMs += archiveSw.ElapsedMilliseconds;
                     }
                     else
                     {
@@ -144,7 +172,32 @@ public class DirectoryScanner : IDirectoryScanner
                     }
                 }
             }
+            finally
+            {
+                try
+                {
+                    enumerator?.Dispose();
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    Trace.TraceError($"DirectoryScanner: enumerator dispose failed for {currentDir}: {ex.Message}");
+                }
+                sumDirectoryMs += dirSw.ElapsedMilliseconds;
+            }
         }
+
+        // Emitted only when the scan runs to completion (early cancellation
+        // disposes the generator before this point). Archive listing happens
+        // inside the per-directory try, so subtract it out to keep
+        // EnumerateMs about pure filesystem enumeration.
+        statsReporter?.Report(new ScanStats(
+            DirectoryCount: directoryCount,
+            FileCount: fileCount,
+            ArchiveCount: archiveCount,
+            MediaCount: discovered,
+            ElapsedMs: totalSw.ElapsedMilliseconds,
+            EnumerateMs: Math.Max(0, sumDirectoryMs - archiveMs),
+            ArchiveMs: archiveMs));
     }
 
     private static async IAsyncEnumerable<MediaRef> EnumerateArchiveAsync(
