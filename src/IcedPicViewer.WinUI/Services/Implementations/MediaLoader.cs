@@ -199,25 +199,26 @@ public class MediaLoader : IMediaLoader
                 ScaledHeight = scaledHeight
             };
 
-            var pixelData = await decoder.GetPixelDataAsync(
+            // GetSoftwareBitmapAsync applies scaling and EXIF orientation in a
+            // single WIC pass and hands back a bitmap whose PixelWidth/Height
+            // already reflect the final (oriented) size. Encoding that bitmap
+            // directly keeps the encoder's declared size in lockstep with the
+            // pixel buffer. The previous GetPixelDataAsync + DetachPixelData
+            // path could not expose the post-rotation size (PixelDataProvider
+            // has no Width/Height), so a 90°-rotated photo was encoded with
+            // swapped width/height and came out sheared / garbled.
+            var sb = await decoder.GetSoftwareBitmapAsync(
                 BitmapPixelFormat.Bgra8,
                 BitmapAlphaMode.Premultiplied,
                 transform,
                 ExifOrientationMode.RespectExifOrientation,
                 ColorManagementMode.DoNotColorManage);
             ct.ThrowIfCancellationRequested();
-            var bytes = pixelData.DetachPixelData();
+            if (sb is null) return null;
 
             using var pngStream = new InMemoryRandomAccessStream();
             var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, pngStream);
-            encoder.SetPixelData(
-                BitmapPixelFormat.Bgra8,
-                BitmapAlphaMode.Premultiplied,
-                scaledWidth,
-                scaledHeight,
-                96.0,
-                96.0,
-                bytes);
+            encoder.SetSoftwareBitmap(sb);
             await encoder.FlushAsync();
 
             using var reader = new DataReader(pngStream.GetInputStreamAt(0));
@@ -312,29 +313,44 @@ public class MediaLoader : IMediaLoader
         }
     }
 
+    /// <summary>
+    /// Dimensions to hand to <see cref="BitmapTransform.ScaledWidth"/>/<c>ScaledHeight</c>
+    /// for the requested longest edge.
+    ///
+    /// <para>
+    /// MUST be computed from the <b>source</b> pixel size (<see cref="BitmapFrame.PixelWidth"/>/
+    /// <c>PixelHeight</c>), never the EXIF-oriented size: <see cref="BitmapTransform"/> applies
+    /// scale <i>before</i> flip/rotate, so ScaledWidth/ScaledHeight live in the source image's
+    /// coordinate space (see the BitmapTransform docs). Using
+    /// <see cref="BitmapFrame.OrientedPixelWidth"/>/<c>OrientedPixelHeight</c> here swaps the
+    /// axes for EXIF-rotated (portrait phone) photos: the configured scale then squashes the
+    /// unrotated image and the post-rotation result has the wrong aspect ratio, and a full-size
+    /// encode gets its declared size out of sync with the pixel buffer.
+    /// </para>
+    /// </summary>
     private static (uint ScaledWidth, uint ScaledHeight) ComputeScaledDimensions(
         BitmapDecoder decoder, int? targetMaxSize)
     {
-        var orientedWidth = (int)decoder.OrientedPixelWidth;
-        var orientedHeight = (int)decoder.OrientedPixelHeight;
+        var sourceWidth = (int)decoder.PixelWidth;
+        var sourceHeight = (int)decoder.PixelHeight;
 
         if (!targetMaxSize.HasValue)
-            return ((uint)orientedWidth, (uint)orientedHeight);
+            return ((uint)sourceWidth, (uint)sourceHeight);
 
-        var longest = Math.Max(orientedWidth, orientedHeight);
+        var longest = Math.Max(sourceWidth, sourceHeight);
         if (longest <= targetMaxSize.Value)
-            return ((uint)orientedWidth, (uint)orientedHeight);
+            return ((uint)sourceWidth, (uint)sourceHeight);
 
-        if (orientedWidth >= orientedHeight)
+        if (sourceWidth >= sourceHeight)
         {
             var w = (uint)targetMaxSize.Value;
-            var h = (uint)Math.Max(1, (long)Math.Round((double)orientedHeight * targetMaxSize.Value / orientedWidth));
+            var h = (uint)Math.Max(1, (long)Math.Round((double)sourceHeight * targetMaxSize.Value / sourceWidth));
             return (w, h);
         }
         else
         {
             var h = (uint)targetMaxSize.Value;
-            var w = (uint)Math.Max(1, (long)Math.Round((double)orientedWidth * targetMaxSize.Value / orientedHeight));
+            var w = (uint)Math.Max(1, (long)Math.Round((double)sourceWidth * targetMaxSize.Value / sourceHeight));
             return (w, h);
         }
     }
@@ -369,6 +385,11 @@ public class MediaLoader : IMediaLoader
             // be scaled) and then CreateCopyFromBuffer copied it a second time. WIC
             // decodes, scales and applies EXIF straight into the SoftwareBitmap's
             // buffer instead, so the intermediate array is gone entirely.
+            //
+            // scaledWidth/Height are source-space (see ComputeScaledDimensions);
+            // the returned bitmap is already EXIF-oriented, so its PixelWidth/Height
+            // are the correct display dimensions. originalWidth/Height stay oriented
+            // as well and are only used for metadata / clarity decisions.
             var sb = await decoder.GetSoftwareBitmapAsync(
                 BitmapPixelFormat.Bgra8,
                 BitmapAlphaMode.Premultiplied,

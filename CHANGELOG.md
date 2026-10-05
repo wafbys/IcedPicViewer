@@ -2,6 +2,13 @@
 
 ## 未发布
 
+### 修复：瀑布流比例错误 + 打开全图画面错乱（EXIF 旋转照片）
+
+- **根因**：`BitmapTransform.ScaledWidth/ScaledHeight` 在“缩放先于旋转/翻转”的语义下属于**源图（未旋转）坐标系**，而 `MediaLoader.ComputeScaledDimensions` 一直用 `OrientedPixelWidth/Height` 计算。手机竖拍照片（EXIF orientation 5–8，宽高互换）因此把转置后的尺寸当作源图缩放尺寸传给 WIC：源图被拉成错误比例，旋转后缩略图比例失真；全图路径更严重——`GetPixelDataAsync` 返回的缓冲是旋转后的（行宽 = 旋转后宽度），而 `SetPixelData` 用的仍是转置尺寸，导致行错位，PNG 出来斜切/错乱（“花”）。
+- **修复**：`ComputeScaledDimensions` 改用源图 `PixelWidth/PixelHeight` 计算缩放尺寸，并加注释锁定该坐标空间约定。全图路径 `EncodeToPngBytesAsync` 改用 `GetSoftwareBitmapAsync`（其 `PixelWidth/PixelHeight` 已是旋转后的最终尺寸）再 `BitmapEncoder.SetSoftwareBitmap`，从构造上保证编码器声明的尺寸与像素缓冲一致。
+- **实测**（独立探针，合成 EXIF orientation=6 的 400×200 JPEG，应显示为 200×400 竖图）：修复前缩略图/全图均得到 **400×200**；修复后均为 **200×400**。全图 PNG 解码回来方向正确、无行错位。
+- WinUI x64 `dotnet build` 0 warning / 0 error。
+
 ### 窗口标题显示版本号与构建配置
 
 > 版本号**只在仓库根的 `Directory.Build.props` 声明一次**（解决方案级，位于 `src/` 与 `tests/` 之上，因此 Core / WinUI / Core.Tests 共同继承；本文件不再抄写具体数字，避免两处各写一遍而漂移）。
