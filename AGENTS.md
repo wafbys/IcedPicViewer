@@ -43,9 +43,11 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 
 $Platform = 'x64'
 dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$Platform
-dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug   -p:Platform=$Platform
+
+# 启动（Debug / Release 各一个脚本，等价于 dotnet run ... -p:Platform=$Platform）
+./tools/run-debug.ps1
 # 评估性能 / 真实吞吐时必须用 Release：Runtime Async 等优化依赖 JIT fast path，Debug 不做优化
-dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=$Platform
+./tools/run-release.ps1
 ```
 
 - 前置：**Windows 开发者模式**（`dotnet run` 要注册调试包身份，未开启会报 `Developer Mode is not enabled`）+ .NET 11 runtime + Windows App Runtime 2.5。`-p:Platform=x64` 不可省。

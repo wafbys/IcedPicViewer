@@ -88,9 +88,9 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 # 视频/图片原生库，不进 git；缺失时 build 仅警告 IPV001，运行期会静默失去视频缩略图
 ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64
 
-# 启动（Debug / Release 二选一）
-dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug   -p:Platform=x64
-dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Release -p:Platform=x64
+# 启动（Debug / Release 二选一；脚本等价于 dotnet run ... -c <配置> -p:Platform=x64）
+./tools/run-debug.ps1
+./tools/run-release.ps1
 ```
 
 前置：**已开启 Windows 开发者模式** + .NET 11 runtime + **Windows App Runtime 2.5**。
