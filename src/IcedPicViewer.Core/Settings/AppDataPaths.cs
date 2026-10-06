@@ -29,6 +29,19 @@ public static class AppDataPaths
     /// <summary><c>&lt;root&gt;\crash.log</c>.</summary>
     public static string CrashLogFile => Path.Combine(Root, "crash.log");
 
+    /// <summary>
+    /// <c>&lt;root&gt;\ScanCache</c>. Persisted per-directory scan indexes
+    /// (see <c>IScanCache</c> / <c>FileScanCache</c>) so re-opening a folder
+    /// reuses the previous walk instead of enumerating every directory.
+    /// </summary>
+    public static string ScanCacheDir => Path.Combine(Root, "ScanCache");
+
+    /// <summary>
+    /// <c>&lt;root&gt;\ThumbCache</c>. Persisted encoded gallery thumbnails so
+    /// re-opening a folder shows images without re-decoding the full source.
+    /// </summary>
+    public static string ThumbCacheDir => Path.Combine(Root, "ThumbCache");
+
     /// <summary>Creates <see cref="Root"/> if needed and returns it.</summary>
     public static string EnsureRoot()
     {

@@ -171,6 +171,13 @@ public partial class App : Application
     private static void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IDirectoryScanner, DirectoryScanner>();
+
+        // Persisted per-directory scan index (IScanCache / FileScanCache).
+        // DISABLED by default: it clearly helps archive-heavy / cold / network
+        // folders (~4-6x on archives), but on plain local photo folders the
+        // reuse is only ~1.3x while the first scan pays extra serialization.
+        // The implementation + tests are kept; uncomment to opt in.
+        // services.AddSingleton<IScanCache>(_ => new FileScanCache(AppDataPaths.ScanCacheDir));
         services.AddSingleton<IMediaLoader, MediaLoader>();
 
         // Shared thumbnail LRU. Consumed by both IMediaLoader (BitmapDecoder
@@ -179,6 +186,10 @@ public partial class App : Application
         // twice under different shapes. Capacity tuning lives in
         // ThumbnailCache.
         services.AddSingleton<IThumbnailCache, ThumbnailCache>();
+
+        // Persisted gallery thumbnails (AppDataPaths.ThumbCacheDir). Re-opening
+        // a folder loads encoded thumbs instead of re-decoding the full source.
+        services.AddSingleton<IThumbnailDiskCache>(_ => new ThumbnailDiskCache(AppDataPaths.ThumbCacheDir));
 
         // Video metadata + thumbnail extraction (FFmpeg-backed).
         // Singleton — service holds no per-request state, and the

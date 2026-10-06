@@ -83,6 +83,7 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
     // a 200-cap LRU doesn't get dominated by whichever kind the user
     // opens first.
     private readonly IThumbnailCache _thumbnailCache;
+    private readonly IThumbnailDiskCache _thumbnailDiskCache;
 
     // Temp files we've created for archive playback paths. The list is
     // mutated on the UI thread (PlayAsync / ReleasePlaybackFilePath) and
@@ -97,9 +98,10 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
     // (AppDataPaths).
     private readonly string _tempDir;
 
-    public VideoMetadataService(IThumbnailCache thumbnailCache)
+    public VideoMetadataService(IThumbnailCache thumbnailCache, IThumbnailDiskCache thumbnailDiskCache)
     {
         _thumbnailCache = thumbnailCache;
+        _thumbnailDiskCache = thumbnailDiskCache;
         _tempDir = AppDataPaths.TempVideoDir;
         Directory.CreateDirectory(_tempDir);
 
@@ -220,6 +222,15 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
         if (_thumbnailCache.TryGet(cacheKey, out var cached) && cached is not null)
             return cached;
 
+        // Persisted cache first: video thumbnails are the most expensive to
+        // regenerate (FFmpeg open + seek + decode), so this is the biggest win.
+        var fromDisk = await _thumbnailDiskCache.TryGetAsync(media, maxSize, ct);
+        if (fromDisk is { } disk)
+        {
+            _thumbnailCache.Store(cacheKey, disk);
+            return disk;
+        }
+
         try
         {
             var frame = await VideoFrameExtractor.ExtractAsync(media, maxSize, ct).ConfigureAwait(false);
@@ -232,6 +243,9 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             var oh = f.SourceHeight > 0 ? f.SourceHeight : 0;
             var thumb = new CachedThumb(sb, ow, oh, f.Duration);
             _thumbnailCache.Store(cacheKey, thumb);
+            // See MediaLoader: bounded (awaited) write so encode concurrency
+            // cannot pile up on the thread pool.
+            await _thumbnailDiskCache.StoreAsync(media, maxSize, thumb, ct);
             return thumb;
         }
         catch (OperationCanceledException)

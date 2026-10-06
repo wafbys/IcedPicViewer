@@ -19,10 +19,12 @@ namespace IcedPicViewer.Services.Implementations;
 public class MediaLoader : IMediaLoader
 {
     private readonly IThumbnailCache _thumbnailCache;
+    private readonly IThumbnailDiskCache _thumbnailDiskCache;
 
-    public MediaLoader(IThumbnailCache thumbnailCache)
+    public MediaLoader(IThumbnailCache thumbnailCache, IThumbnailDiskCache thumbnailDiskCache)
     {
         _thumbnailCache = thumbnailCache;
+        _thumbnailDiskCache = thumbnailDiskCache;
     }
 
     public IEnumerable<string> SupportedExtensions => MediaCatalog.ImageExtensions;
@@ -78,6 +80,17 @@ public class MediaLoader : IMediaLoader
             return cached;
 
         ct.ThrowIfCancellationRequested();
+
+        // Persisted cache first: on a re-open this decodes a small thumbnail
+        // instead of the full source, which is the difference between "cards
+        // fill in slowly" and "images are already there".
+        var fromDisk = await _thumbnailDiskCache.TryGetAsync(media, maxSize, ct);
+        if (fromDisk is { } disk)
+        {
+            _thumbnailCache.Store(cacheKey, disk);
+            return disk;
+        }
+
         CachedThumb? thumb;
         if (media.IsInArchive)
         {
@@ -89,7 +102,14 @@ public class MediaLoader : IMediaLoader
             thumb = await LoadThumbnailFromFileAsync(media.Path, maxSize, ct);
         }
         if (thumb is { } t)
+        {
             _thumbnailCache.Store(cacheKey, t);
+            // Persist under the caller's 6-way thumbnail semaphore instead of
+            // fire-and-forget: this bounds WIC encode concurrency, and the
+            // bitmap is not handed to the UI (SoftwareBitmapSource) until the
+            // write is done, so encoder and UI never touch it at once.
+            await _thumbnailDiskCache.StoreAsync(media, maxSize, t, ct);
+        }
         return thumb;
     }
 

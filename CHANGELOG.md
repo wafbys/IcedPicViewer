@@ -2,6 +2,25 @@
 
 ## 未发布
 
+### 磁盘缩略图缓存：重开目录不再重新解码整图
+
+- **根因**：`ThumbnailCache` 是纯内存 LRU，进程退出即失效 → 每次重开目录、每张图都要重新 WIC 解码整图。这与成熟看图软件（gThumb / qimgv / sxiv / ImageGlass 等）的行为相反：它们重开时读的是**磁盘上已生成的小缩略图**。
+- **新增** `IThumbnailDiskCache` / `ThumbnailDiskCache`（WinUI）：
+  - key = `media|边长|kind|源(size,mtime)` —— 源文件一变 key 就变，绝不会读到陈旧缩略图，旧条目交给容量淘汰回收。
+  - 存**编码后的小图**（`.jpg/.jpeg/.bmp` 源→JPEG 省空间提速；其余→PNG 保 alpha）+ **oriented 原图 W×H**（+视频时长），保证查看器的清晰度/复用判断与图库 InfoLine 不依赖再次打开原文件。
+  - 落 `AppDataPaths.ThumbCacheDir`；SHA-256 命名 + 首字节分片；临时文件 + `File.Move` 原子写；1 GB 上限 + 周期性 LRU 淘汰（每 256 次写入或启动时）。
+- **接入两条管线**：图片（`MediaLoader`）与视频（`VideoMetadataService`）都改为 内存 LRU → 磁盘 → 才解码整图；解码成功后**在 6 路缩略图信号量内 `await` 落盘**（有界并发；位图在写盘完成前不交给 UI，避免编码器与 `SoftwareBitmapSource` 抢同一个 `SoftwareBitmap`）。视频缩略图（FFmpeg 抽帧）收益最大。
+- 借鉴 freedesktop Thumbnail Managing Standard 的做法（用 mtime/size 判失效、缩略图附带原图尺寸与时长、临时文件 rename 原子写），但**不接入系统/Explorer 缩略图缓存**——那条路会丢 `OriginalWidth/Height`，与查看器清晰度判断冲突。
+- **验证**：探针无 GUI 验证 WIC `SoftwareBitmap` → PNG/JPEG 编码 → `ThumbnailCacheFile` 帧 → 读回 → 解码，尺寸/时长/像素均保持；Core 测试 **139 passed**；WinUI x64 `dotnet build` 0 warning / 0 error。
+
+### 扫描缓存（P2）：目录级持久化 + 增量校验
+
+- Core 新增 `IScanCache` / `FileScanCache`：每个扫描根一个二进制快照（`AppDataPaths.ScanCacheDir`），按目录存 mtime + 子目录名 + 松散媒体 `(name, kind)` + 压缩包 `(name, size, mtime, entries)`。原子写、版本/扩展名签名校验、损坏即回退全扫。
+- 校验：目录 mtime 判定目录/松散文件是否可复用（NTFS 在子项增删改名时更新）；压缩包按 `(size, mtime)` 单独校验（原地改压缩包不改目录 mtime）。
+- `DirectoryScanner` 构造函数新增可选 `IScanCache`；WinUI DI 注入 `FileScanCache(AppDataPaths.ScanCacheDir)`。
+- **实测（合成）**：普通 15k 文件/100 目录，复用 ~54 ms vs 无缓存 ~69 ms（≈1.3×）；压缩包 40×300 条目，复用 ~50 ms vs 无缓存 ~320–370 ms（≈4–6×）。首次填充有一次额外开销，收益主要在压缩包 / 冷盘 / 网络盘。
+- **默认关闭**：普通本地图片夹收益有限且首次扫描有填充开销；需要时取消 `App.xaml.cs` 中该行注释即可启用。
+
 ### 性能：扫描器快路径（P0）+ 扫描度量（P1）
 
 - **P0 去掉条目级冗余系统调用**：`DirectoryScanner` 原来先 `Directory.GetFileSystemEntries`，再对每个条目 `Directory.Exists` + `File.Exists`（每条目 2 次额外 stat）。改用 `DirectoryInfo.EnumerateFileSystemInfos()`，目录/文件判定直接读枚举已带出的属性，**零额外 stat**；同时移除每个目录一次的 `Task.Run` 跳转（扫描本就在 worker 上跑）。
