@@ -14,11 +14,11 @@
         build when Package.appxmanifest disagrees with this value.
 
     Note for the guard: <Version> is conventionally three parts while MSIX wants
-    four, so the guard pads both sides before comparing. "0.17.2" and "0.17.2.0"
+    four, so the guard pads both sides before comparing. "0.17.3" and "0.17.3.0"
     are the same version and neither form is wrong.
   -->
   <PropertyGroup>
-    <Version>0.17.2</Version>
+    <Version>0.17.3</Version>
   </PropertyGroup>
 
 </Project>
