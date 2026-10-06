@@ -1,6 +1,6 @@
 # 更新日志
 
-## v0.17.0 (2026-10-06)
+## v0.17.1 (2026-10-06)
 
 ### 修复：部分视频缩略图斜纹错乱（FFmpeg 行跨距未生效）
 
@@ -11,10 +11,12 @@
 - **同时**给磁盘缩略图缓存加了**生成代次**（`ThumbnailDiskCache.GenerationVersion`，并入缓存 key）。缓存 key 原本只含 `(源 size, mtime)`，改动不会变 key，因此**已经落盘的斜纹缩略图会被继续读取**、看不到修复。代次一升，旧条目不可命中，由容量上限回收（一次性代价：下次打开目录时缩略图全部重建）。
 - Core 测试 **166 passed**；WinUI x64 `dotnet build` 0 warning / 0 error。
 
-### 排查结论：图片缩略图未复现斜纹（同一现象下的另一半）
+### 排查结论：图片缩略图路径未复现斜纹（同一现象下的另一半）
 
-- 用户报告里还有「图片缩略图乱斜纹」。用探针调 `BitmapDecoder.GetSoftwareBitmapAsync`（与图库缩略图完全相同的参数：`Bgra8` / `Premultiplied` / `Fant` + `ScaledWidth/ScaledHeight` / `RespectExifOrientation` / `DoNotColorManage`）实测：返回的 `SoftwareBitmap` **始终紧密排列**（`BitmapBuffer` 平面 stride == 宽 × 4，含 EXIF orientation=6 的 400×200→200×400 与 4032×3024 场景），且 `png/jpg/bmp/gif/tif/webp` 各格式解码后行间差 ~0（无错行）。即图片缩略图路径里没有任何按固定间距拷贝像素的代码，结构上不可能产生斜纹（全图路径走 PNG 编码再解码，同样正确）。
+- 原报告里还有「图片缩略图乱斜纹」。用探针调 `BitmapDecoder.GetSoftwareBitmapAsync`（与图库缩略图完全相同的参数：`Bgra8` / `Premultiplied` / `Fant` + `ScaledWidth/ScaledHeight` / `RespectExifOrientation` / `DoNotColorManage`）实测：返回的 `SoftwareBitmap` **始终紧密排列**（`BitmapBuffer` 平面 stride == 宽 × 4，含 EXIF orientation=6 的 400×200→200×400 与 4032×3024 场景），且 `png/jpg/bmp/gif/tif/webp` 各格式解码后行间差 ~0（无错行）。即图片缩略图路径里没有任何按固定间距拷贝像素的代码，结构上不可能产生斜纹（全图路径走 PNG 编码再解码，同样正确）。
 - 因此：**视频缩略图斜纹已定位并修复**；图片若仍出现斜纹，需要一份具体样本文件（或截图 + 文件类型）才能继续定位——已排除当前图片解码路径，未实测（推断）的可能方向只剩：HEIC/AVIF/ICO 等 OS 解码器自身出错、或 GPU/驱动渲染异常。
+
+## v0.17.0 (2026-10-06)
 
 ### 清理：移除 settings.json 里的死字段
 
