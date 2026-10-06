@@ -21,6 +21,17 @@ public class MediaLoader : IMediaLoader
     private readonly IThumbnailCache _thumbnailCache;
     private readonly IThumbnailDiskCache _thumbnailDiskCache;
 
+    /// <summary>
+    /// Read buffer for source files. 4 KB was measurably expensive: WIC reads a
+    /// large JPEG through the WinRT stream shim in many small requests, and every
+    /// one of them went through FileStream's tiny buffer. Measured on a real
+    /// 5.7 MB / 4592x3448 photo (mobile HDD, 6 samples × 2 passes, production
+    /// decode path): 4 KB = 408/464 ms, 64 KB = 318/311 ms, 256 KB = 314/257 ms,
+    /// 1 MB = 351/338 ms. So ~25-35 % of the per-image cost was this buffer.
+    /// It does not change what is decoded — only how the bytes get read.
+    /// </summary>
+    private const int SourceReadBufferSize = 256 * 1024;
+
     public MediaLoader(IThumbnailCache thumbnailCache, IThumbnailDiskCache thumbnailDiskCache)
     {
         _thumbnailCache = thumbnailCache;
@@ -62,7 +73,7 @@ public class MediaLoader : IMediaLoader
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 4096,
+                bufferSize: SourceReadBufferSize,
                 useAsync: true);
             return await Task.FromResult(fileStream);
         }
@@ -166,7 +177,7 @@ public class MediaLoader : IMediaLoader
                             FileMode.Open,
                             FileAccess.Read,
                             FileShare.Read,
-                            bufferSize: 4096,
+                            bufferSize: SourceReadBufferSize,
                             FileOptions.Asynchronous);
                         return await EncodeToPngBytesAsync(fileStream.AsRandomAccessStream(), targetMaxSize, ct);
                     },
@@ -269,7 +280,7 @@ public class MediaLoader : IMediaLoader
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 4096,
+                bufferSize: SourceReadBufferSize,
                 FileOptions.Asynchronous);
             return await DecodeToSoftwareBitmapAsync(fileStream.AsRandomAccessStream(), maxSize, ct);
         }
@@ -305,7 +316,7 @@ public class MediaLoader : IMediaLoader
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 4096,
+                bufferSize: SourceReadBufferSize,
                 FileOptions.Asynchronous);
             var decoder = await BitmapDecoder.CreateAsync(fileStream.AsRandomAccessStream());
             return ((int)decoder.OrientedPixelWidth, (int)decoder.OrientedPixelHeight);
@@ -380,6 +391,7 @@ public class MediaLoader : IMediaLoader
         int? targetMaxSize,
         CancellationToken ct)
     {
+        var started = Stopwatch.GetTimestamp();
         ct.ThrowIfCancellationRequested();
         try
         {
@@ -424,6 +436,10 @@ public class MediaLoader : IMediaLoader
         {
             Trace.TraceError($"DecodeToSoftwareBitmapAsync error: {ex.GetType().Name}: {ex.Message}");
             return null;
+        }
+        finally
+        {
+            ThumbnailTimings.Add(ThumbnailPhase.ImageDecode, Stopwatch.GetTimestamp() - started);
         }
     }
 }

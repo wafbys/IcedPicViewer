@@ -169,6 +169,7 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
 
     public async Task<CachedThumb?> TryGetAsync(MediaRef media, int maxSize, CancellationToken ct = default)
     {
+        var started = Stopwatch.GetTimestamp();
         try
         {
             var token = SourceToken(media.Path);
@@ -203,6 +204,10 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
         {
             Trace.TraceError($"ThumbnailDiskCache.TryGetAsync failed for {media}: {ex.GetType().Name}: {ex.Message}");
             return null;
+        }
+        finally
+        {
+            ThumbnailTimings.Add(ThumbnailPhase.CacheProbe, Stopwatch.GetTimestamp() - started);
         }
     }
 
@@ -324,6 +329,13 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
 
             // Whatever survived a failed delete is re-measured by the next sweep.
             Interlocked.Exchange(ref _approxTotalBytes, 0);
+
+            // The diagnostics log describes this cache's traffic, so clearing the
+            // cache clears it too, and the counters restart so the next line is not
+            // a mix of before/after.
+            ThumbnailTimings.ClearLog();
+            ThumbnailTimings.Reset();
+
             Trace.TraceInformation(
                 $"ThumbnailDiskCache: cleared {freed / (1024.0 * 1024):F1} MB of thumbnails");
 
@@ -386,28 +398,36 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
         ThumbnailCacheHeader header,
         byte[] payload)
     {
-        var file = PathFor(media, maxSize, token);
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-
-        // Overwriting an existing entry replaces it; only the size delta may be
-        // added to the running total, or re-decoding an already-cached folder
-        // would inflate the estimate and trigger pointless sweeps.
-        var prior = new FileInfo(file);
-        var priorLength = prior.Exists ? prior.Length : 0L;
-
-        using var container = new MemoryStream();
-        ThumbnailCacheFile.Write(container, header, payload);
-        var data = container.ToArray();
-
-        var temp = file + TempSuffix;
-        await File.WriteAllBytesAsync(temp, data).ConfigureAwait(false);
-        File.Move(temp, file, overwrite: true);
-
-        var total = Interlocked.Add(ref _approxTotalBytes, data.Length - priorLength);
-        if (total > _budgetBytes || Interlocked.Increment(ref _storesSinceSweep) >= SafetySweepStores)
+        var started = Stopwatch.GetTimestamp();
+        try
         {
-            Interlocked.Exchange(ref _storesSinceSweep, 0);
-            ScheduleSweep();
+            var file = PathFor(media, maxSize, token);
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+
+            // Overwriting an existing entry replaces it; only the size delta may be
+            // added to the running total, or re-decoding an already-cached folder
+            // would inflate the estimate and trigger pointless sweeps.
+            var prior = new FileInfo(file);
+            var priorLength = prior.Exists ? prior.Length : 0L;
+
+            using var container = new MemoryStream();
+            ThumbnailCacheFile.Write(container, header, payload);
+            var data = container.ToArray();
+
+            var temp = file + TempSuffix;
+            await File.WriteAllBytesAsync(temp, data).ConfigureAwait(false);
+            File.Move(temp, file, overwrite: true);
+
+            var total = Interlocked.Add(ref _approxTotalBytes, data.Length - priorLength);
+            if (total > _budgetBytes || Interlocked.Increment(ref _storesSinceSweep) >= SafetySweepStores)
+            {
+                Interlocked.Exchange(ref _storesSinceSweep, 0);
+                ScheduleSweep();
+            }
+        }
+        finally
+        {
+            ThumbnailTimings.Add(ThumbnailPhase.Write, Stopwatch.GetTimestamp() - started);
         }
     }
 
@@ -424,6 +444,7 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
     /// </summary>
     private static SoftwareBitmap? Clone(SoftwareBitmap bitmap)
     {
+        var started = Stopwatch.GetTimestamp();
         try
         {
             BitmapPlaneDescription plane;
@@ -456,6 +477,10 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
         {
             Trace.TraceWarning($"ThumbnailDiskCache: clone failed, not persisting: {ex.GetType().Name}: {ex.Message}");
             return null;
+        }
+        finally
+        {
+            ThumbnailTimings.Add(ThumbnailPhase.Clone, Stopwatch.GetTimestamp() - started);
         }
     }
 
@@ -568,6 +593,7 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
     /// </summary>
     private static async Task<byte[]?> EncodePngAsync(SoftwareBitmap bitmap, CancellationToken ct)
     {
+        var started = Stopwatch.GetTimestamp();
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -591,6 +617,10 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
         {
             Trace.TraceError($"ThumbnailDiskCache PNG encode failed: {ex.GetType().Name}: {ex.Message}");
             return null;
+        }
+        finally
+        {
+            ThumbnailTimings.Add(ThumbnailPhase.Encode, Stopwatch.GetTimestamp() - started);
         }
     }
 

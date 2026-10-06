@@ -88,6 +88,11 @@ public static class VideoFrameExtractor
 
         try
         {
+            // "Open" = the part that reads before any frame is decoded (stream
+            // info probes the file, the seek reads the index). Measured apart from
+            // the decode because on a slow drive this is where the bytes go.
+            var openStarted = Stopwatch.GetTimestamp();
+
             if (ffmpeg.avformat_open_input(&fmtCtx, path, null, null) < 0) return null;
             if (ffmpeg.avformat_find_stream_info(fmtCtx, null) < 0) return null;
             if (ct.IsCancellationRequested) return null;
@@ -149,6 +154,9 @@ public static class VideoFrameExtractor
                     stream->time_base);
                 ffmpeg.av_seek_frame(fmtCtx, videoStreamIdx, seekTarget, ffmpeg.AVSEEK_FLAG_BACKWARD);
             }
+
+            ThumbnailTimings.Add(ThumbnailPhase.SourceOpen, Stopwatch.GetTimestamp() - openStarted);
+            var decodeStarted = Stopwatch.GetTimestamp();
 
             bool gotFrame = false;
             for (int i = 0; i < 32 && !gotFrame; i++)
@@ -221,6 +229,9 @@ public static class VideoFrameExtractor
                         bgraLineSize);
                 }
             }
+
+            // Decode + scale + copy: everything that produces the bitmap itself.
+            ThumbnailTimings.Add(ThumbnailPhase.VideoFrame, Stopwatch.GetTimestamp() - decodeStarted);
 
             return new VideoFrameExtract(bgraManaged, outW, outH, srcW, srcH, duration);
         }

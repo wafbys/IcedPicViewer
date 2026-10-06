@@ -1,5 +1,44 @@
 # 更新日志
 
+## v0.17.4 (2026-10-06)
+
+### 诊断：缩略图分段计时（先量再优化）
+
+- 新增 Core 纯逻辑 `ThumbnailTimings`，把每张缩略图的耗时拆成 8 段：`cache`（磁盘缓存查找 + 读 + 解码）、`open`（FFmpeg 打开 + `find_stream_info` + seek —— **"还没解码就先把文件读 MB 级"的那一段**）、`imgdecode`（WIC 解码图片）、`videoframe`（视频帧解码 + 缩放 + 拷贝）、`clone`、`encode`（无损 PNG，后台）、`write`（原子落盘，后台）、`ui`（`SoftwareBitmapSource` 上传 + 属性回写）；另给 `tries / gen / hit`（含**缓存命中率**）。
+- 采集点：`ThumbnailDiskCache`（cache/clone/encode/write）、`MediaLoader.DecodeToSoftwareBitmapAsync`、`VideoFrameExtractor`（open 与帧解码分开）、`GalleryViewModel`（ui）。
+- 输出：**每 1024 次请求**一行（故意取粗，避免日志过长），每次切换 / 关闭目录再补一行汇总，形如
+  `thumbnail stats: tries=1280 gen=1262 hit=18(1%) | cache 2.6/1978.6x1280 | open 55.2/802.7x140 | imgdecode 494.3/6109.5x1122 | videoframe 54.9/270.7x140 | clone 4.5/29.8x1262 | encode 85.2/183.1x1262 | write 1.3/9.0x1262 | ui 34.0/1353.0x413 | user-wait avg=645.5 ms (cache+open+decode+videoframe+clone+ui) [ms]`
+  其中 `user-wait` 只统计用户真正要等的那几段（`encode` / `write` 在后台队列，不计入）。
+- **本地、不联网**：写 `<app data>\thumbnail-stats.log`（每次进程启动清空、上限 512 KB，超出后停止追加），同时发 `Trace`（打包应用里没人监听，所以文件才是给人和我读的）。
+- **清理缓存时一并删掉该日志**（`ThumbnailTimings.ClearLog()` 由 `ThumbnailDiskCache.Clear()` 调用，并重置计数器，避免日志里混着清理前后的数据）。
+- 开销：每段一次 `Stopwatch.GetTimestamp()` + 几次 `Interlocked`，可忽略。它是**诊断**，不是功能——保留它是为了让"下次又慢了"能直接拿数据，而不是只能猜。
+- 已知限制：日志路径固定在真实 app data 下，因此没有单测（与既有 `AppendToLog` 的处理一致）；采集点由真机运行验证。
+- 验证：Core `dotnet test` **189 passed**（`ThumbnailTimingsTests` 6 例）；WinUI x64 Debug/Release `dotnet build` 0 warning / 0 error。
+
+### 结论：不做虚拟化（E）
+
+- 虚拟化**能**保住瀑布流外观（`ItemsRepeater` + 自定义 `VirtualizingLayout`），但那是一次重写：要逐像素复刻现有 `MasonryPanel` 的几何（列宽、间距、列高填充顺序），任何偏差都是**可见**的回退。用户的取舍很明确：**视觉效果优先**，且"不是实时系统，为效果多等一会儿没关系"。
+- 所以**保留现有非虚拟化 `MasonryPanel`**；"大目录不用等"用后台生成缩略图解决（本版已做），不用虚拟化解决。
+- 代价（未实测，只在连续点很多次「加载更多」时出现）：面板元素数随已加载数线性增长（仓库记录：200 项 ≈ 75 ms/次布局，2,258 项 ≈ 850 ms/次）。真要处理，优先考虑"限制单次加载总量"，而不是重写面板。
+
+### 修复：源文件读缓冲 4 KB → 256 KB（实测）
+
+- **根因**：`MediaLoader` 打开源文件用的是 `bufferSize: 4096`。WIC 通过 WinRT 流适配层读一张大 JPEG 会发出很多次读请求，每一次都走 FileStream 那个 4 KB 缓冲——不是"多几次系统调用"的问题，实测就是几百毫秒。
+- **实测**（真实照片 5.7 MB / 4592×3448，移动硬盘，6 张 × 2 轮；同一条生产解码路径，只改缓冲档位，单位 ms 为 pass1/pass2 平均）：4 KB **408/464**、64 KB 318/311、**256 KB 314/257**、1 MB 351/338、256 KB+SequentialScan 277/286 → 取 **256 KB**（代码注释里记了这张表）。
+- 影响范围：`MediaLoader` 四处源文件读取（原图流 / 全图 / 缩略图 / 尺寸探测）。
+- **没改** `ArchiveHelper.ExtractEntryToFile` 的 4 KB：那是**写**缓冲，而 `Stream.CopyTo` 自带 80 KB 缓冲、写入 ≥ bufferSize 时直接写 → 无害（"先量再改"顺手挡掉一次无效改动）。
+- 边界：只影响"读的姿势"，不改变解码结果与画质；隔离测量单张省 ~100–150 ms，应用满载并发时会被摊薄（真机日志对比见下）。
+- 验证：Core `dotnet test` **189 passed**；WinUI x64 Debug/Release `dotnet build` 0 warning / 0 error。
+- 真机实测（应用内日志，同一目录冷路径）：`imgdecode` 494 ms（4 KB）→ 518–592 ms（256 KB）——**没有可比改善**，因为那一轮并发压力更大（`encode` 85→130 ms、`ui` 25→44 ms 同步上涨）。所以这项**只按隔离数据保留**（它是所有档位里最好的），不作为"变快"的依据。
+
+### 后台生成：扫描一结束就开始，并去掉单次上限
+
+- **原来**要等"首页填充安定 → 视图重建 → 重建后的首页再安定"才启动；移动硬盘上这是白等 1–2 分钟，看起来像"必须翻到底才会开始"。
+- **现在**：扫描器一结束就启动（新增 `_scanFinished` 门闩，只拦"扫描进行中"那一段——扫描要独占硬盘），与首页填充**并行**，仍只占 6 路缩略图信号量里的 2 路；并去掉了一次"启动 → 被结尾重复调用打断重来"（进度不再归零重跑）。
+- **去掉单次上限 5000 条**：反正是后台低并发跑，让它一路跑完整个待生成集合，不再需要"点加载更多来续上"。代价（提前说明）：若目录远大于缓存容量（约 8k 条），被容量淘汰的那部分属于白做工——只浪费盘，不损功能。
+- 状态行：扫描阶段也带后台进度（新增 `RefreshStatus()`：扫描中更新扫描行、安定后更新图库行，两者都拼同一个进度段，互不覆盖）。
+- 验证：Core `dotnet test` **189 passed**；WinUI x64 Debug/Release `dotnet build` 0 warning / 0 error。行为待真机确认（打开目录后**几秒内**进度应自己出现，不需要任何操作）。
+
 ## v0.17.3 (2026-10-06)
 
 ### 后台生成缩略图：大目录不用再等「加载更多」
