@@ -2,6 +2,8 @@
 
 using System;
 using System.Diagnostics;
+using System.Threading.Tasks;
+using IcedPicViewer.Core.Media;
 using IcedPicViewer.Core.Text;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml;
@@ -23,6 +25,80 @@ public sealed partial class AboutPage : Page
         VersionTextBlock.Text = $"版本：{BuildInfo.FullLabel}";
         IntroTextBlock.Text = AboutCopy.WinUiIntro();
         FfmpegDescTextBlock.Text = AboutCopy.FfmpegDescriptionZh();
+
+        CacheDescTextBlock.Text = AboutCopy.CacheDescriptionZh();
+        ClearCacheButton.Content = UiCopy.ClearCache;
+
+        Loaded += OnLoaded;
+    }
+
+    private ThumbnailCacheStats _cacheStats;
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= OnLoaded;
+        await RefreshCacheStatsAsync();
+    }
+
+    /// <summary>
+    /// Reads the cache snapshot on a worker thread (GetStats walks the whole
+    /// shard tree) and renders it. Never throws: a failure shows the
+    /// "unavailable" text and leaves the clear button disabled.
+    /// </summary>
+    private async Task RefreshCacheStatsAsync()
+    {
+        CacheStatsRing.IsActive = true;
+        CacheStatsRing.Visibility = Visibility.Visible;
+        try
+        {
+            _cacheStats = await Task.Run(App.GetService<IThumbnailDiskCache>().GetStats);
+            CacheStatsTextBlock.Text = AboutCopy.CacheSummary(_cacheStats);
+            ClearCacheButton.IsEnabled = _cacheStats.EntryCount > 0;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"AboutPage.RefreshCacheStatsAsync: {ex.GetType().Name}: {ex.Message}");
+            CacheStatsTextBlock.Text = UiCopy.CacheStatsUnavailable;
+        }
+        finally
+        {
+            CacheStatsRing.IsActive = false;
+            CacheStatsRing.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>
+    /// Clears the persisted thumbnail cache after an explicit confirmation that
+    /// says how much is about to go. The gallery's own screen contents are
+    /// untouched (they live in the in-memory cache / the visible items); only
+    /// the on-disk copy goes, so the next open of a folder regenerates it.
+    /// </summary>
+    private async void ClearCacheButton_Click(object sender, RoutedEventArgs e)
+    {
+        ClearCacheButton.IsEnabled = false;
+        try
+        {
+            var confirmed = await App.GetService<IDialogService>().ShowConfirmAsync(
+                UiCopy.ClearCacheTitle,
+                UiCopy.ClearCacheConfirm(_cacheStats.EntryCount, _cacheStats.TotalBytes),
+                primaryButtonText: UiCopy.ClearCache,
+                closeButtonText: UiCopy.Cancel,
+                defaultIsPrimary: false);
+
+            if (confirmed)
+            {
+                var freed = await Task.Run(App.GetService<IThumbnailDiskCache>().Clear);
+                Trace.TraceInformation(
+                    $"AboutPage: cleared thumbnail cache, freed {freed / (1024.0 * 1024):F1} MB");
+            }
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"AboutPage.ClearCacheButton_Click: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        // Re-read the truth either way: it also restores the button's state.
+        await RefreshCacheStatsAsync();
     }
 
     /// <summary>

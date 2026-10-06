@@ -13,6 +13,15 @@ public sealed class MediaDisplayTests
     public void FormatFileSize(long bytes, string expected)
         => Assert.Equal(expected, MediaDisplay.FormatFileSize(bytes));
 
+    [Theory]
+    [InlineData(0, "0 B")]
+    [InlineData(2048, "2.0 KB")]
+    [InlineData(2 * 1024 * 1024, "2.0 MB")]
+    [InlineData(745L * 1024 * 1024, "745.0 MB")]
+    [InlineData(4L * 1024 * 1024 * 1024, "4.0 GB")]
+    public void FormatDataSize_AddsGbTier(long bytes, string expected)
+        => Assert.Equal(expected, MediaDisplay.FormatDataSize(bytes));
+
     [Fact]
     public void FormatDuration_Minutes()
         => Assert.Equal("1:05", MediaDisplay.FormatDuration(TimeSpan.FromSeconds(65)));

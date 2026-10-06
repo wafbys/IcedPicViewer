@@ -13,6 +13,9 @@ public static class UiCopy
     public const string Cancel = "取消";
     public const string GotIt = "知道了";
     public const string Delete = "删除";
+    public const string ClearCache = "清理缓存";
+    public const string ClearCacheTitle = "清理缩略图缓存";
+    public const string CacheStatsUnavailable = "（无法读取缓存统计）";
     public const string OpenFolder = "打开文件夹";
     public const string OpenFile = "打开文件";
     public const string CloseFolder = "关闭目录";
@@ -74,4 +77,13 @@ public static class UiCopy
 
     public static string NetworkPermanentDeleteConfirm(string path)
         => $"网络路径文件将永久删除，无法进回收站：\n{path}\n\n确定删除？";
+
+    /// <summary>
+    /// Confirmation for the About page's "clear cache" button. Spells out how
+    /// much is about to be deleted and that the originals are untouched — the
+    /// thumbnails are regenerated on the next open.
+    /// </summary>
+    public static string ClearCacheConfirm(int entryCount, long totalBytes)
+        => $"将删除已生成的 {entryCount} 个缩略图（{MediaDisplay.FormatDataSize(totalBytes)}）。\n\n" +
+           "原始文件不受影响；下次打开目录时会重新生成。";
 }

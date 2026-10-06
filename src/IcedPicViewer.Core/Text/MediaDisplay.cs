@@ -12,6 +12,17 @@ public static class MediaDisplay
         return $"{fileSize / (1024.0 * 1024.0):F1} MB";
     }
 
+    /// <summary>
+    /// Like <see cref="FormatFileSize"/> but with a GB tier, for quantities that
+    /// routinely exceed 1 GB (the thumbnail cache budget). Kept separate so the
+    /// gallery's per-file sizing stays in MB as it always has.
+    /// </summary>
+    public static string FormatDataSize(long bytes)
+    {
+        if (bytes < 1024L * 1024 * 1024) return FormatFileSize(bytes);
+        return $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
+    }
+
     /// <summary>VLC/mpv-style short duration (m:ss or h:mm:ss).</summary>
     public static string FormatDuration(TimeSpan? duration)
     {
