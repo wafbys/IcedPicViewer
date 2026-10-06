@@ -39,6 +39,13 @@
 - 状态行：扫描阶段也带后台进度（新增 `RefreshStatus()`：扫描中更新扫描行、安定后更新图库行，两者都拼同一个进度段，互不覆盖）。
 - 验证：Core `dotnet test` **189 passed**；WinUI x64 Debug/Release `dotnet build` 0 warning / 0 error。行为待真机确认（打开目录后**几秒内**进度应自己出现，不需要任何操作）。
 
+### 去掉图库状态栏的「加载更多」按钮
+
+- 它一直是**多余的入口**：图库早就有滚动自动加载（距底部 1000 px → 100 ms debounce → `LoadMoreAsync`），查看器翻过最后一张也会自动加载。这次改动让"点它"和"滚到底"变成同一件事（缩略图已被后台预生成，都是命中即出），按钮没有存在理由了，顺手给后台进度条腾出状态栏位置。
+- 一并清掉因此失去调用方的 `GalleryViewModel.LoadMoreCommand` / `LoadMoreVisibility` / `CanLoadMoreCommand`（`LoadMoreAsync` 仍是公开方法，滚动、查看器与后台续跑都在用）。
+- **查看器 chrome 里的「加载更多」保留**（全屏时 chrome 本就隐藏；要一起去掉可随时说）。
+- 验证：WinUI x64 Debug/Release `dotnet build` 0 warning / 0 error（x:Bind 编译期就把漏掉的绑定抓出来了）。
+
 ## v0.17.3 (2026-10-06)
 
 ### 后台生成缩略图：大目录不用再等「加载更多」

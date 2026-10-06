@@ -337,19 +337,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     public partial double LastViewedYOffset { get; set; } = 0;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(LoadMoreVisibility))]
-    [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
+    [NotifyPropertyChangedFor(nameof(IsBackfilling))]
     public partial bool CanLoadMore { get; set; }
-
-    public Visibility LoadMoreVisibility => CanLoadMore ? Visibility.Visible : Visibility.Collapsed;
 
     [ObservableProperty]
     public partial bool IsLoadingMore { get; set; }
-
-    partial void OnIsLoadingMoreChanged(bool value)
-    {
-        LoadMoreCommand.NotifyCanExecuteChanged();
-    }
 
     /// <summary>
     /// Interval the viewer's slideshow waits between auto-advances,
@@ -1136,8 +1128,13 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     /// Loads more items from <c>_remainingSources</c>, up to <see cref="PageSize"/>.
     /// Links the caller's token with the current scan's CTS so that switching
     /// folders cancels in-flight Load More.
+    ///
+    /// <para>
+    /// Called by scrolling near the bottom (GalleryView), by the viewer when it
+    /// runs past the last loaded item, and by the background pass re-arming.
+    /// There is no "Load More" button any more: scrolling covers it.
+    /// </para>
     /// </summary>
-    [RelayCommand(CanExecute = nameof(CanLoadMoreCommand))]
     public async Task LoadMoreAsync(CancellationToken ct = default)
     {
         if (!CanLoadMore || IsLoadingMore) return;
@@ -1165,8 +1162,6 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             IsLoadingMore = false;
         }
     }
-
-    private bool CanLoadMoreCommand() => CanLoadMore && !IsLoadingMore;
 
     [RelayCommand(CanExecute = nameof(CanRefreshCommand))]
     public async Task RefreshAsync()
