@@ -2,6 +2,20 @@
 
 ## v0.17.0 (2026-10-06)
 
+### 修复：部分视频缩略图斜纹错乱（FFmpeg 行跨距未生效）
+
+- **根因**：`VideoFrameExtractor` 用 `av_frame_get_buffer(scaledFrame, 32)` 分配缩放目标帧，FFmpeg 会把 `linesize[0]` 对齐到 32 字节（即 `FFALIGN(出图宽 × 4, 32)`）。原代码按 `出图宽 × 4 × 高` **整块** 从中拷贝，等于把每行末尾的对齐填充当成下一行的开头，逐行错位 → 斜纹（乱斜纹）。只有出图宽是 8 的倍数时才无填充、才正常，所以「有的视频」坏、有的好。
+- **修复**：按 `scaledFrame->linesize[0]` **逐行**拷贝，保证返回的仍是契约承诺的紧密排列 BGRA8（`宽 × 高 × 4`，无行填充）。
+- **实测**：1920×1080 源，出图宽 500（间距 2016 vs 紧密 2000，每行错位 4 px）→ 修复前各行 R 通道平均差 **67.45**（斜纹），修复后降到编解码噪声级；修复前 `出图宽 768/256/128` 等对齐宽度一直是好的，所以此前所有用例都没覆盖到。
+- **回归测试**：`ExtractAsync_NonAlignedOutputWidth_IsNotSheared`（用「每行相同」的横向渐变片段，断言行间差 < 6）。已在「把实现改回整块拷贝」的状态下确认它会失败（67.45），改回逐行拷贝后通过。
+- **同时**给磁盘缩略图缓存加了**生成代次**（`ThumbnailDiskCache.GenerationVersion`，并入缓存 key）。缓存 key 原本只含 `(源 size, mtime)`，改动不会变 key，因此**已经落盘的斜纹缩略图会被继续读取**、看不到修复。代次一升，旧条目不可命中，由容量上限回收（一次性代价：下次打开目录时缩略图全部重建）。
+- Core 测试 **166 passed**；WinUI x64 `dotnet build` 0 warning / 0 error。
+
+### 排查结论：图片缩略图未复现斜纹（同一现象下的另一半）
+
+- 用户报告里还有「图片缩略图乱斜纹」。用探针调 `BitmapDecoder.GetSoftwareBitmapAsync`（与图库缩略图完全相同的参数：`Bgra8` / `Premultiplied` / `Fant` + `ScaledWidth/ScaledHeight` / `RespectExifOrientation` / `DoNotColorManage`）实测：返回的 `SoftwareBitmap` **始终紧密排列**（`BitmapBuffer` 平面 stride == 宽 × 4，含 EXIF orientation=6 的 400×200→200×400 与 4032×3024 场景），且 `png/jpg/bmp/gif/tif/webp` 各格式解码后行间差 ~0（无错行）。即图片缩略图路径里没有任何按固定间距拷贝像素的代码，结构上不可能产生斜纹（全图路径走 PNG 编码再解码，同样正确）。
+- 因此：**视频缩略图斜纹已定位并修复**；图片若仍出现斜纹，需要一份具体样本文件（或截图 + 文件类型）才能继续定位——已排除当前图片解码路径，未实测（推断）的可能方向只剩：HEIC/AVIF/ICO 等 OS 解码器自身出错、或 GPU/驱动渲染异常。
+
 ### 清理：移除 settings.json 里的死字段
 
 - 删除 `AppSettings` 中无人使用的 `WindowX/Y/Width/Height/Maximized` 与 `LastFolderPath`——窗口状态实际由 `window_settings.txt` 管理，而 `LastFolderPath` 与「不自动恢复上次文件夹」相悖（早期迁移残留）。

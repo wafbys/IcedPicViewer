@@ -1,7 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using FFmpeg.AutoGen;
 using IcedPicViewer.Core.Settings;
 using IcedPicViewer.Models;
@@ -12,6 +11,11 @@ namespace IcedPicViewer.Core.Media;
 /// <summary>
 /// One scaled BGRA8 frame plus media metadata from a single FFmpeg open.
 /// </summary>
+/// <param name="Bgra">
+/// Tightly packed top-down BGRA8 pixels: exactly <c>FrameWidth * FrameHeight * 4</c>
+/// bytes, no row padding. Consumers may build a bitmap from it without knowing a
+/// stride (e.g. <c>SoftwareBitmap.CreateCopyFromBuffer</c>).
+/// </param>
 public readonly record struct VideoFrameExtract(
     byte[] Bgra,
     int FrameWidth,
@@ -192,11 +196,31 @@ public static class VideoFrameExtractor
             // Returns the number of rows written (== outH) on success, negative on error.
             if (ffmpeg.sws_scale_frame(swsCtx, scaledFrame, frame) < 0) return null;
 
+            // av_frame_get_buffer allocates the destination with the requested
+            // alignment (32 here), so scaledFrame->linesize[0] is
+            // FFALIGN(outW * 4, 32) — NOT necessarily outW * 4. Copying
+            // outW * 4 * outH bytes contiguously from data[0] therefore siphons
+            // the row padding into the next row: every row starts (linesize -
+            // outW*4) bytes early, which shears the image diagonally ("乱斜纹")
+            // for every output width that is not a multiple of 8.
+            //
+            // Copy row by row, honouring the real pitch, so the returned buffer
+            // is the tightly packed BGRA8 the contract promises.
             var bgraLineSize = outW * 4;
-            var bgraStride = bgraLineSize * outH;
-            var bgraManaged = new byte[bgraStride];
-            Buffer.MemoryCopy(scaledFrame->data[0], Unsafe.AsPointer(ref bgraManaged[0]),
-                bgraStride, bgraStride);
+            var sourceLineSize = scaledFrame->linesize[0];
+            var bgraManaged = new byte[bgraLineSize * outH];
+            fixed (byte* destination = bgraManaged)
+            {
+                var source = scaledFrame->data[0];
+                for (var y = 0; y < outH; y++)
+                {
+                    Buffer.MemoryCopy(
+                        source + (long)y * sourceLineSize,
+                        destination + (long)y * bgraLineSize,
+                        bgraLineSize,
+                        bgraLineSize);
+                }
+            }
 
             return new VideoFrameExtract(bgraManaged, outW, outH, srcW, srcH, duration);
         }

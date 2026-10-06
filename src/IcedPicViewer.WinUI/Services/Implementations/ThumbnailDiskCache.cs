@@ -18,8 +18,10 @@ namespace IcedPicViewer.Services.Implementations;
 /// On-disk <see cref="IThumbnailDiskCache"/>. One framed file per thumbnail
 /// (<see cref="ThumbnailCacheFile"/>), sharded by the first two hex chars of a
 /// SHA-256 of the identity+validity key. The key embeds the source's
-/// <c>(size, last-write)</c>, so an edited/replaced file yields a new key and
-/// the old entry is reclaimed by the size cap instead of being served.
+/// <c>(size, last-write)</c> and <see cref="GenerationVersion"/> (the
+/// thumbnail algorithm's generation), so an edited/replaced file — or a fixed
+/// decoder — yields a new key and the old entry is reclaimed by the size cap
+/// instead of being served.
 ///
 /// <para>
 /// Writes are atomic (temp file + <see cref="File.Move(string,string,bool)"/>).
@@ -35,6 +37,19 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
     private const long MaxTotalBytes = 1024L * 1024 * 1024;
     private const int StoresPerPrune = 256;
     private const string Extension = ".thumb";
+
+    /// <summary>
+    /// Generation tag of the thumbnail-producing code, part of the on-disk
+    /// identity. Bump it whenever a change makes previously persisted pixels
+    /// wrong: old entries then become unreachable (never served) and are
+    /// reclaimed by the size cap. Without this the user keeps seeing the bug
+    /// that was already fixed, because the bad pixels are on disk.
+    ///
+    /// <para>v2: <c>VideoFrameExtractor</c> now honours FFmpeg's row pitch.
+    /// v1 video thumbnails whose output width is not a multiple of 8 are
+    /// sheared ("乱斜纹") and must be regenerated.</para>
+    /// </summary>
+    private const int GenerationVersion = 2;
 
     private readonly string _root;
     private int _storesSincePrune;
@@ -134,7 +149,7 @@ public sealed class ThumbnailDiskCache : IThumbnailDiskCache
 
     private string PathFor(MediaRef media, int maxSize, (long Size, long Ticks) token)
     {
-        var identity = $"{media}|{maxSize}|{media.Kind}|{token.Size}|{token.Ticks}";
+        var identity = $"{media}|{maxSize}|{media.Kind}|{token.Size}|{token.Ticks}|gen{GenerationVersion}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
         var shard = hash[..2];
         return Path.Combine(_root, shard, hash + Extension);
