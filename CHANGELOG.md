@@ -2,6 +2,12 @@
 
 ## 未发布
 
+### 清理：移除 settings.json 里的死字段
+
+- 删除 `AppSettings` 中无人使用的 `WindowX/Y/Width/Height/Maximized` 与 `LastFolderPath`——窗口状态实际由 `window_settings.txt` 管理，而 `LastFolderPath` 与「不自动恢复上次文件夹」相悖（早期迁移残留）。
+- 一并移除因这些字段（默认 `NaN`）而存在的序列化特判 `AllowNamedFloatingPointLiterals`。
+- 旧的 `settings.json` 里残留的这些字段会被反序列化时忽略，不影响加载。
+
 ### 记住更多开关设定
 
 - 新增持久化到 `settings.json`：**图库** 筛选（全部/图片/视频）、排序键（名称/日期/大小/扩展名）、正倒序；**查看器** Fit / 1:1。

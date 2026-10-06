@@ -41,9 +41,6 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
         WriteIndented = true,
         PropertyNameCaseInsensitive = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        // AppSettings defaults WindowX/Y to NaN ("use platform default"); without this,
-        // SaveNow throws and the catch in WriteToDisk silently drops the entire save.
-        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 

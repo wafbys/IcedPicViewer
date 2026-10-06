@@ -48,24 +48,6 @@ public class AppSettings
     /// </summary>
     public double VideoVolume { get; set; } = 1.0;
 
-    /// <summary>Last window left (device-independent pixels). NaN = use default.</summary>
-    public double WindowX { get; set; } = double.NaN;
-
-    /// <summary>Last window top.</summary>
-    public double WindowY { get; set; } = double.NaN;
-
-    /// <summary>Last window width.</summary>
-    public double WindowWidth { get; set; } = 1100;
-
-    /// <summary>Last window height.</summary>
-    public double WindowHeight { get; set; } = 720;
-
-    /// <summary>True when the window was maximized (not fullscreen).</summary>
-    public bool WindowMaximized { get; set; }
-
-    /// <summary>Last folder successfully opened (empty = none).</summary>
-    public string LastFolderPath { get; set; } = "";
-
     /// <summary>
     /// Gallery media filter: 0=All, 1=Image, 2=Video. Stored as int so the
     /// JSON stays decoupled from the enum in Core.Media.

@@ -16,12 +16,6 @@ public sealed class AppSettingsTests
         Assert.False(defaults.SlideshowShuffle);
         Assert.Equal(5.0, defaults.SlideshowInterval);
         Assert.Equal(1.0, defaults.VideoVolume);
-        Assert.Equal(double.NaN, defaults.WindowX);
-        Assert.Equal(double.NaN, defaults.WindowY);
-        Assert.Equal(1100, defaults.WindowWidth);
-        Assert.Equal(720, defaults.WindowHeight);
-        Assert.False(defaults.WindowMaximized);
-        Assert.Equal("", defaults.LastFolderPath);
         Assert.Equal(0, defaults.GalleryFilter);
         Assert.Equal(0, defaults.GallerySortKey);
         Assert.False(defaults.GallerySortDescending);
@@ -36,10 +30,6 @@ public sealed class AppSettingsTests
             SlideshowLoop = true,
             SlideshowInterval = 10.0,
             VideoVolume = 0.75,
-            WindowWidth = 1280,
-            WindowHeight = 800,
-            WindowX = 100,
-            WindowY = 200,
             GalleryFilter = 2,
             GallerySortKey = 3,
             GallerySortDescending = true,
@@ -52,7 +42,6 @@ public sealed class AppSettingsTests
         Assert.True(deserialized.SlideshowLoop);
         Assert.Equal(10.0, deserialized.SlideshowInterval);
         Assert.Equal(0.75, deserialized.VideoVolume);
-        Assert.Equal(1280, deserialized.WindowWidth);
         Assert.Equal(2, deserialized.GalleryFilter);
         Assert.Equal(3, deserialized.GallerySortKey);
         Assert.True(deserialized.GallerySortDescending);
@@ -69,7 +58,6 @@ public sealed class AppSettingsTests
         Assert.True(deserialized.SlideshowLoop);
         Assert.Equal(5.0, deserialized.SlideshowInterval); // default
         Assert.Equal(1.0, deserialized.VideoVolume); // default
-        Assert.Equal(double.NaN, deserialized.WindowX); // default
         Assert.Equal(0, deserialized.GalleryFilter); // default
         Assert.True(deserialized.ViewerFitMode); // default (old settings.json lacks it)
     }

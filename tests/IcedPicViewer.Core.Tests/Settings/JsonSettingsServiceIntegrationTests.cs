@@ -1,6 +1,5 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
-using System.Text.Json;
 using IcedPicViewer.Services.Implementations;
 using IcedPicViewer.Services.Interfaces;
 
@@ -47,8 +46,7 @@ public sealed class JsonSettingsServiceIntegrationTests : IDisposable
     [Fact]
     public void Clamping_OutOfRangeValues_ShouldBeCorrected()
     {
-        // Write out-of-range values as JSON so Load() clamp path is exercised
-        // (avoid System.Text.Json default serializer rejecting NaN defaults).
+        // Write out-of-range values as JSON so Load()'s clamp path is exercised.
         File.WriteAllText(_settingsPath, """
             {
               "SlideshowInterval": -5.0,
@@ -59,20 +57,6 @@ public sealed class JsonSettingsServiceIntegrationTests : IDisposable
         using var service = new JsonSettingsService(_settingsPath);
         Assert.Equal(1.0, service.Current.SlideshowInterval);
         Assert.Equal(1.0, service.Current.VideoVolume);
-    }
-
-    [Fact]
-    public void SaveNow_WithDefaultNaNWindowCoords_ShouldStillPersist()
-    {
-        using var service = new JsonSettingsService(_settingsPath);
-        Assert.True(double.IsNaN(service.Current.WindowX));
-        service.Current.SlideshowLoop = true;
-        service.SaveNow();
-
-        Assert.True(File.Exists(_settingsPath));
-        using var fresh = new JsonSettingsService(_settingsPath);
-        Assert.True(fresh.Current.SlideshowLoop);
-        Assert.True(double.IsNaN(fresh.Current.WindowX));
     }
 
     [Fact]
