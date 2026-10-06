@@ -324,6 +324,23 @@
                            TextTrimming="CharacterEllipsis"
                            MaxWidth="900"/>
 
+                <!--
+                    Background thumbnail backfill: how far the "pre-generate what
+                    I haven't scrolled to yet" pass has got (GalleryViewModel.
+                    StartBackfill). The bar is the at-a-glance view; StatusText
+                    above carries the exact counts. Hidden whenever the pass is
+                    not running.
+                -->
+                <ProgressBar Width="90"
+                             Height="4"
+                             Minimum="0"
+                             Maximum="100"
+                             Value="{x:Bind ViewModel.BackfillPercent, Mode=OneWay}"
+                             Visibility="{x:Bind ViewModel.BackfillVisibility, Mode=OneWay}"
+                             VerticalAlignment="Center"
+                             Margin="0,0,8,0"
+                             ToolTipService.ToolTip="后台生成缩略图进度"/>
+
                 <!-- Incremental loading button to reduce initial lag while keeping masonry visual -->
                 <Button Content="加载更多"
                         Command="{x:Bind ViewModel.LoadMoreCommand}"

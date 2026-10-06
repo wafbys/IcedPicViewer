@@ -1092,6 +1092,16 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         }
     }
 
+    partial void OnIsVideoPlayingChanged(bool value)
+    {
+        // Playback owns the drive while it runs, so the gallery's background
+        // thumbnail pass (which reads other files) is held. Hanging this off the
+        // flag — rather than the play/stop call sites — means every exit path
+        // (stop, navigation, decode failure, app close) releases it.
+        if (value) _galleryViewModel.SuspendBackfill();
+        else _galleryViewModel.ResumeBackfill();
+    }
+
     partial void OnDisplayImageChanged(WinImageSource? value)
     {
         DisplayImageChanged?.Invoke(this, EventArgs.Empty);

@@ -14,6 +14,28 @@ public sealed class GalleryStatusFormatterTests
     public void FormatItemBreakdown_WithVideos()
         => Assert.Equal("2 张图片 · 1 个视频", GalleryStatusFormatter.FormatItemBreakdown(2, 1));
 
+    [Theory]
+    [InlineData(0, 0, "")]
+    [InlineData(0, 2258, "后台生成缩略图 0/2258（0%）")]
+    [InlineData(1234, 2258, "后台生成缩略图 1234/2258（55%）")]
+    [InlineData(2258, 2258, "后台生成缩略图 2258/2258（100%）")]
+    // Defensive: never print a percentage outside 0-100 or counts past the total.
+    [InlineData(3000, 2258, "后台生成缩略图 2258/2258（100%）")]
+    public void FormatBackfillProgress(int completed, int total, string expected)
+        => Assert.Equal(expected, GalleryStatusFormatter.FormatBackfillProgress(completed, total));
+
+    [Fact]
+    public void AppendBackfill_KeepsStatusWhenIdle()
+        => Assert.Equal(
+            "已加载 3 张图片",
+            GalleryStatusFormatter.AppendBackfill("已加载 3 张图片", 0, 0));
+
+    [Fact]
+    public void AppendBackfill_AppendsRunningProgress()
+        => Assert.Equal(
+            "显示 3 张图片 / 500（还可加载 497） · 后台生成缩略图 100/497（20%）",
+            GalleryStatusFormatter.AppendBackfill("显示 3 张图片 / 500（还可加载 497）", 100, 497));
+
     [Fact]
     public void FormatScanning_WithoutPath()
         => Assert.Equal(

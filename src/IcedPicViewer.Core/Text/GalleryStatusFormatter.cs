@@ -77,6 +77,31 @@ public static class GalleryStatusFormatter
     public static string FormatLoadingMore(int loadedCount, int discoveredCount)
         => $"加载中 {loadedCount} / {discoveredCount}…";
 
+    /// <summary>
+    /// Status-bar segment for the background thumbnail backfill — the pass that
+    /// pre-generates thumbnails for items the user has not scrolled to yet, so
+    /// they are already on disk when they get there. Empty while it is not
+    /// running (including after it finishes).
+    /// </summary>
+    public static string FormatBackfillProgress(int completed, int total)
+    {
+        if (total <= 0) return "";
+        var clamped = Math.Clamp(completed, 0, total);
+        var percent = (int)Math.Round(clamped * 100.0 / total);
+        return $"后台生成缩略图 {clamped}/{total}（{percent}%）";
+    }
+
+    /// <summary>
+    /// Appends <see cref="FormatBackfillProgress"/> to a status line, so the
+    /// backfill shows up alongside whatever the gallery is already saying
+    /// (scanning, loaded counts, filters).
+    /// </summary>
+    public static string AppendBackfill(string status, int completed, int total)
+    {
+        var progress = FormatBackfillProgress(completed, total);
+        return progress.Length == 0 ? status : $"{status} · {progress}";
+    }
+
     public static string FormatError(string message)
         => $"错误：{message}";
 
