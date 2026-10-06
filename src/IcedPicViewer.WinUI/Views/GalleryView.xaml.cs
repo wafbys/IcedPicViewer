@@ -247,25 +247,41 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             _viewerViewModel = null;
         }
 
-        var offset = ViewModel.LastViewedYOffset;
-        if (offset > 0)
-        {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                MainScrollViewer.UpdateLayout();
-                MainScrollViewer.ChangeView(null, offset, null, true);
-            });
-        }
-
         // SizeChanged might not fire on the first navigation if the
-        // window keeps its previous size (e.g., the user navigated
-        // back to the gallery after a viewer roundtrip and the
-        // window hasn't been resized). Force an initial sizing pass
-        // here so the cards always reflect the actual viewport width
-        // — otherwise the cached value from the previous sizing would
-        // be used and the cards could be too wide / narrow after a
-        // window resize that happened in another view.
+        // window keeps its previous size (e.g., returning to the gallery
+        // after a viewer roundtrip and the window hasn't been resized).
+        // Force an initial sizing pass here so the cards always reflect
+        // the actual viewport width.
         ApplyThumbnailCardWidth(MainScrollViewer.ActualWidth);
+
+        // Restore scroll so the item the viewer was showing is visible. The
+        // masonry positions are only valid after a layout pass, and a saved Y
+        // is often stale (0) because the viewer opened before the gallery had
+        // arranged the newly loaded page — so recompute from the index.
+        var index = ViewModel.LastViewedIndex;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            MainScrollViewer.UpdateLayout();
+            ScrollToGalleryItem(index);
+        });
+    }
+
+    /// <summary>
+    /// Scrolls the masonry so the item at <paramref name="index"/> is visible
+    /// (roughly a third of the way down the viewport for context). No-op when
+    /// the index is out of range or the panel is not laid out yet.
+    /// </summary>
+    private void ScrollToGalleryItem(int index)
+    {
+        if (index < 0 || index >= ViewModel.Items.Count) return;
+
+        var panel = _masonryPanel ?? FindMasonryPanel(MainScrollViewer);
+        if (panel is null) return;
+
+        var y = panel.GetItemYPosition(index);
+        var viewport = MainScrollViewer.ViewportHeight;
+        var target = Math.Max(0, y - viewport * 0.33);
+        MainScrollViewer.ChangeView(null, target, null, disableAnimation: true);
     }
 
     private void OnMainScrollViewerSizeChanged(object sender, SizeChangedEventArgs e)
@@ -519,6 +535,10 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     private void OnViewerNavigationChanged(object? sender, EventArgs e)
     {
         if (_viewerViewModel == null) return;
+
+        // Track the currently-shown item so returning to the gallery can
+        // scroll it into view (also covers next/prev inside the viewer).
+        ViewModel.LastViewedIndex = _viewerViewModel.CurrentIndex;
 
         var panel = FindMasonryPanel(MainScrollViewer);
         if (panel != null)
