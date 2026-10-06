@@ -1,5 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using System.IO.Compression;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
 using IcedPicViewer.Services.Interfaces;
@@ -181,6 +182,107 @@ public sealed class DirectoryScannerTests : IDisposable
         Assert.Equal(2, s.DirectoryCount);  // _tempDir + sub
         Assert.Equal(0, s.ArchiveCount);
         Assert.True(s.ElapsedMs >= 0);
+    }
+
+    [Fact]
+    public async Task ScanAsync_WithCache_SecondRunSeesNewFile()
+    {
+        var scanRoot = Path.Combine(_tempDir, "root_new");
+        Directory.CreateDirectory(scanRoot);
+        await File.WriteAllTextAsync(Path.Combine(scanRoot, "a.jpg"), "x");
+
+        var extMap = new (string, MediaKind)[] { (".jpg", MediaKind.Image) };
+        var scanner = new DirectoryScanner(new FileScanCache(Path.Combine(_tempDir, "cache_new")));
+
+        Assert.Single(await CollectAsync(scanner, scanRoot, extMap));
+
+        // Adding a child bumps the directory mtime, so the cached listing must
+        // be discarded even though the file itself was never enumerated.
+        await Task.Delay(20);
+        await File.WriteAllTextAsync(Path.Combine(scanRoot, "b.jpg"), "x");
+
+        Assert.Equal(2, (await CollectAsync(scanner, scanRoot, extMap)).Count);
+    }
+
+    [Fact]
+    public async Task ScanAsync_WithCache_SecondRunSeesDeletedFile()
+    {
+        var scanRoot = Path.Combine(_tempDir, "root_del");
+        Directory.CreateDirectory(scanRoot);
+        await File.WriteAllTextAsync(Path.Combine(scanRoot, "a.jpg"), "x");
+        await File.WriteAllTextAsync(Path.Combine(scanRoot, "b.jpg"), "x");
+
+        var extMap = new (string, MediaKind)[] { (".jpg", MediaKind.Image) };
+        var scanner = new DirectoryScanner(new FileScanCache(Path.Combine(_tempDir, "cache_del")));
+
+        Assert.Equal(2, (await CollectAsync(scanner, scanRoot, extMap)).Count);
+
+        await Task.Delay(20);
+        File.Delete(Path.Combine(scanRoot, "b.jpg"));
+
+        Assert.Single(await CollectAsync(scanner, scanRoot, extMap));
+    }
+
+    [Fact]
+    public async Task ScanAsync_WithCache_RefreshesArchiveEditedInPlace()
+    {
+        var scanRoot = Path.Combine(_tempDir, "root_zip");
+        Directory.CreateDirectory(scanRoot);
+        var zipPath = Path.Combine(scanRoot, "pack.zip");
+        CreateZip(zipPath, "a.jpg");
+
+        var extMap = new (string, MediaKind)[] { (".jpg", MediaKind.Image) };
+        var scanner = new DirectoryScanner(new FileScanCache(Path.Combine(_tempDir, "cache_zip")));
+
+        Assert.Single(await CollectAsync(scanner, scanRoot, extMap));
+
+        // An in-place archive edit changes the archive's (size, mtime) but NOT
+        // the containing directory's mtime, so the per-archive validity token
+        // is what has to catch it.
+        using (var archive = ZipFile.Open(zipPath, ZipArchiveMode.Update))
+        {
+            var entry = archive.CreateEntry("b.jpg");
+            using var writer = new StreamWriter(entry.Open());
+            writer.Write("x");
+        }
+
+        Assert.Equal(2, (await CollectAsync(scanner, scanRoot, extMap)).Count);
+    }
+
+    [Fact]
+    public async Task ScanAsync_WithCorruptCache_FallsBackToFullScan()
+    {
+        var scanRoot = Path.Combine(_tempDir, "root_corrupt");
+        Directory.CreateDirectory(scanRoot);
+        await File.WriteAllTextAsync(Path.Combine(scanRoot, "a.jpg"), "x");
+
+        var cacheDir = Path.Combine(_tempDir, "cache_corrupt");
+        var extMap = new (string, MediaKind)[] { (".jpg", MediaKind.Image) };
+        var scanner = new DirectoryScanner(new FileScanCache(cacheDir));
+
+        Assert.Single(await CollectAsync(scanner, scanRoot, extMap));
+
+        var cacheFile = Assert.Single(Directory.GetFiles(cacheDir, "scan_*.bin"));
+        await File.WriteAllTextAsync(cacheFile, "garbage");
+
+        Assert.Single(await CollectAsync(scanner, scanRoot, extMap));
+    }
+
+    private static async Task<List<MediaRef>> CollectAsync(
+        DirectoryScanner scanner, string root, IEnumerable<(string Extension, MediaKind Kind)> extMap)
+    {
+        var list = new List<MediaRef>();
+        await foreach (var media in scanner.ScanAsync(root, recursive: true, extensions: extMap))
+            list.Add(media);
+        return list;
+    }
+
+    private static void CreateZip(string path, string entryName)
+    {
+        using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        var entry = archive.CreateEntry(entryName);
+        using var writer = new StreamWriter(entry.Open());
+        writer.Write("x");
     }
 
     /// <summary>Synchronous <see cref="IProgress{T}"/> so tests can assert

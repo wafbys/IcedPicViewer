@@ -11,6 +11,15 @@ public class DirectoryScanner : IDirectoryScanner
     private static readonly HashSet<string> _recycleBinNames = new(
         ["$RECYCLE.BIN", "Recycler", "RECYCLED"], StringComparer.OrdinalIgnoreCase);
 
+    private readonly IScanCache? _scanCache;
+
+    /// <summary>
+    /// <paramref name="scanCache"/> is optional: when null the scanner always
+    /// walks the filesystem (tests, or a shell that opts out). Production
+    /// injects a <see cref="FileScanCache"/> via DI.
+    /// </summary>
+    public DirectoryScanner(IScanCache? scanCache = null) => _scanCache = scanCache;
+
     public static bool IsRecycleBin(string path)
     {
         var current = path;
@@ -48,6 +57,35 @@ public class DirectoryScanner : IDirectoryScanner
             }
         }
 
+        var normalizedRoot = NormalizeRoot(rootPath);
+
+        // Cache is used only for the production path, where a media extension
+        // filter is always supplied. A null filter means "every file as Image",
+        // which a cache built from a media filter cannot represent, so we fall
+        // back to a plain walk and do not save.
+        var cacheEnabled = _scanCache is not null && extensionMap is not null;
+        ScanCacheSnapshot? loadedSnapshot = null;
+        ScanCacheSnapshot? saveSnapshot = null;
+        if (cacheEnabled)
+        {
+            var signature = ComputeExtensionsSignature(extensions!);
+            // A missing/corrupt/expired cache is normal on the first run; fall
+            // back to an empty snapshot so every directory is enumerated.
+            loadedSnapshot = _scanCache!.Load(rootPath, signature)
+                ?? new ScanCacheSnapshot
+                {
+                    RootPath = normalizedRoot,
+                    ExtensionsSignature = signature,
+                };
+            // Rebuilt fresh: only directories actually visited this run are
+            // emitted, so deleted/moved directories fall out of the cache.
+            saveSnapshot = new ScanCacheSnapshot
+            {
+                RootPath = normalizedRoot,
+                ExtensionsSignature = signature,
+            };
+        }
+
         var directories = new Queue<string>();
         directories.Enqueue(rootPath);
 
@@ -71,125 +109,216 @@ public class DirectoryScanner : IDirectoryScanner
 
             directoryCount++;
 
-            // Announce the directory *before* the blocking enumeration call.
-            // On a slow NTFS folder that call can take several seconds, and
-            // reporting after it would leave the status bar stuck on the
-            // previous folder during that window.
+            // Announce the directory before any blocking work so a slow folder
+            // does not leave the status bar stuck on the previous one.
             if (currentPathReporter is not null) currentPathReporter.Report(currentDir);
 
-            var dirSw = Stopwatch.StartNew();
-            IEnumerator<FileSystemInfo>? enumerator = null;
-            try
+            var relPath = RelativePath(normalizedRoot, currentDir);
+            var dirMtimeTicks = GetDirMtimeUtcTicks(currentDir);
+
+            CachedDirectory? cached = null;
+            if (cacheEnabled && loadedSnapshot!.Directories.TryGetValue(relPath, out var c))
             {
-                // P0: enumerate FileSystemInfo, not path strings. The old
-                // Directory.GetFileSystemEntries + Directory.Exists +
-                // File.Exists sequence cost two extra metadata syscalls per
-                // entry; the FileSystemInfo returned here already carries the
-                // attributes from the single FindNextFile pass, so the
-                // directory/file decision is free.
-                enumerator = new DirectoryInfo(currentDir).EnumerateFileSystemInfos().GetEnumerator();
-                while (true)
+                cached = c;
+            }
+
+            // A directory is reusable when its mtime is unchanged. NTFS bumps a
+            // directory's mtime on child add/remove/rename, so this catches the
+            // cases that matter for a viewer (new/deleted media).
+            var reuse = cached is not null && cached.DirMtimeUtcTicks == dirMtimeTicks;
+            var dirEntry = new CachedDirectory { RelativePath = relPath, DirMtimeUtcTicks = dirMtimeTicks };
+            var cacheable = true;
+            var dirSw = Stopwatch.StartNew();
+
+            if (reuse)
+            {
+                foreach (var sub in cached!.Subdirectories)
+                {
+                    dirEntry.Subdirectories.Add(sub);
+                    if (recursive)
+                    {
+                        var full = Path.Combine(currentDir, sub);
+                        if (!IsRecycleBin(full)) directories.Enqueue(full);
+                    }
+                }
+
+                fileCount += cached.Files.Count;
+                foreach (var f in cached.Files)
                 {
                     ct.ThrowIfCancellationRequested();
-
-                    FileSystemInfo info;
-                    try
+                    dirEntry.Files.Add(f);
+                    if (extensionMap!.TryGetValue(Path.GetExtension(f.Name), out var kind))
                     {
-                        if (!enumerator.MoveNext()) break;
-                        info = enumerator.Current;
+                        discovered++;
+                        if (discoveredReporter is not null) discoveredReporter.Report(discovered);
+                        yield return MediaRef.FromFile(Path.Combine(currentDir, f.Name), kind);
                     }
-                    catch (UnauthorizedAccessException) { break; }
-                    catch (DirectoryNotFoundException) { break; }
-                    catch (IOException) { break; }
+                }
 
-                    bool isDirectory;
-                    try
+                // Archives are validated per file, not by the containing
+                // directory's mtime: an in-place archive edit does not change
+                // the directory mtime.
+                foreach (var a in cached.Archives)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var full = Path.Combine(currentDir, a.Name);
+                    var (size, ticks) = StatFile(full);
+                    if (size == a.Size && ticks == a.MtimeUtcTicks)
                     {
-                        isDirectory = (info.Attributes & FileAttributes.Directory) != 0;
-                    }
-                    catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or IOException)
-                    {
-                        // The entry vanished between enumeration and attribute
-                        // read — same outcome as the old Exists() returning false.
-                        continue;
-                    }
-
-                    if (isDirectory)
-                    {
-                        if (recursive && !IsRecycleBin(info.FullName)) directories.Enqueue(info.FullName);
-                        continue;
-                    }
-
-                    fileCount++;
-                    var entry = info.FullName;
-
-                    if (ArchiveHelper.IsArchiveFileName(entry) && ArchiveHelper.IsArchive(entry))
-                    {
-                        // For archive enumeration we report the archive's own
-                        // path (not the entry key — entry keys are
-                        // archive-internal paths like "folder/img.jpg" and
-                        // are not actionable for the user). v0.14.2+ archive
-                        // entries include both image and video kinds; the
-                        // full (image+video) extension map is passed through
-                        // so EnumerateArchiveAsync can stamp the right Kind
-                        // on each yielded source. The downstream VM +
-                        // services dispatch on Kind for metadata + thumbnail
-                        // extraction; VideoMetadataService handles the
-                        // archive case by extracting to a temp file.
-                        archiveCount++;
-                        if (currentPathReporter is not null) currentPathReporter.Report(entry);
-                        var archiveSw = Stopwatch.StartNew();
-                        await foreach (var media in EnumerateArchiveAsync(entry, extensionMap, errorReporter, ct))
+                        dirEntry.Archives.Add(a);
+                        foreach (var e in a.Entries)
                         {
                             discovered++;
                             if (discoveredReporter is not null) discoveredReporter.Report(discovered);
-                            yield return media;
+                            yield return MediaRef.FromArchive(full, e.Key, e.Kind);
                         }
-                        archiveMs += archiveSw.ElapsedMilliseconds;
                     }
                     else
                     {
-                        // Loose file: classify by extension. If no filter
-                        // was passed, default to Image (the record-struct
-                        // default kind). The lookup is O(1) once the map
-                        // is built, and Path.GetExtension is the only per-
-                        // file allocation.
-                        var ext = Path.GetExtension(entry);
-                        MediaKind kind = MediaKind.Image;
-                        bool include = true;
-                        if (extensionMap != null)
+                        archiveCount++;
+                        if (currentPathReporter is not null) currentPathReporter.Report(full);
+                        var archiveSw = Stopwatch.StartNew();
+                        var listed = await ListArchiveEntriesAsync(full, extensionMap, errorReporter, ct);
+                        archiveMs += archiveSw.ElapsedMilliseconds;
+                        var ca = new CachedArchive { Name = a.Name, Size = size, MtimeUtcTicks = ticks };
+                        foreach (var e in listed)
                         {
-                            if (!extensionMap.TryGetValue(ext, out kind))
-                            {
-                                include = false;
-                            }
+                            ca.Entries.Add(e);
+                            discovered++;
+                            if (discoveredReporter is not null) discoveredReporter.Report(discovered);
+                            yield return MediaRef.FromArchive(full, e.Key, e.Kind);
                         }
-                        if (!include) continue;
-
-                        discovered++;
-                        if (discoveredReporter is not null) discoveredReporter.Report(discovered);
-                        yield return MediaRef.FromFile(entry, kind);
+                        dirEntry.Archives.Add(ca);
                     }
                 }
             }
-            finally
+            else
             {
+                IEnumerator<FileSystemInfo>? enumerator = null;
                 try
                 {
-                    enumerator?.Dispose();
+                    // P0: enumerate FileSystemInfo, not path strings. The old
+                    // Directory.GetFileSystemEntries + Directory.Exists +
+                    // File.Exists sequence cost two extra metadata syscalls per
+                    // entry; the FileSystemInfo returned here already carries the
+                    // attributes from the single FindNextFile pass.
+                    enumerator = new DirectoryInfo(currentDir).EnumerateFileSystemInfos().GetEnumerator();
+                    while (true)
+                    {
+                        ct.ThrowIfCancellationRequested();
+
+                        FileSystemInfo info;
+                        try
+                        {
+                            if (!enumerator.MoveNext()) break;
+                            info = enumerator.Current;
+                        }
+                        catch (UnauthorizedAccessException) { cacheable = false; break; }
+                        catch (DirectoryNotFoundException) { cacheable = false; break; }
+                        catch (IOException) { cacheable = false; break; }
+
+                        bool isDirectory;
+                        try
+                        {
+                            isDirectory = (info.Attributes & FileAttributes.Directory) != 0;
+                        }
+                        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or IOException)
+                        {
+                            // The entry vanished between enumeration and
+                            // attribute read.
+                            continue;
+                        }
+
+                        if (isDirectory)
+                        {
+                            dirEntry.Subdirectories.Add(Path.GetFileName(info.FullName));
+                            if (recursive && !IsRecycleBin(info.FullName)) directories.Enqueue(info.FullName);
+                            continue;
+                        }
+
+                        fileCount++;
+                        var entry = info.FullName;
+
+                        if (ArchiveHelper.IsArchiveFileName(entry) && ArchiveHelper.IsArchive(entry))
+                        {
+                            archiveCount++;
+                            if (currentPathReporter is not null) currentPathReporter.Report(entry);
+                            var archiveSw = Stopwatch.StartNew();
+                            var listed = await ListArchiveEntriesAsync(entry, extensionMap, errorReporter, ct);
+                            archiveMs += archiveSw.ElapsedMilliseconds;
+
+                            var (size, ticks) = StatFile(entry);
+                            var ca = new CachedArchive
+                            {
+                                Name = Path.GetFileName(entry),
+                                Size = size,
+                                MtimeUtcTicks = ticks,
+                            };
+                            foreach (var e in listed)
+                            {
+                                ca.Entries.Add(e);
+                                discovered++;
+                                if (discoveredReporter is not null) discoveredReporter.Report(discovered);
+                                yield return MediaRef.FromArchive(entry, e.Key, e.Kind);
+                            }
+                            dirEntry.Archives.Add(ca);
+                        }
+                        else
+                        {
+                            // Loose file: classify by extension. With no filter
+                            // (null map) every file is included as Image.
+                            var ext = Path.GetExtension(entry);
+                            MediaKind kind = MediaKind.Image;
+                            bool include = true;
+                            if (extensionMap is not null)
+                            {
+                                if (!extensionMap.TryGetValue(ext, out kind))
+                                {
+                                    include = false;
+                                }
+                            }
+                            if (!include) continue;
+
+                            dirEntry.Files.Add(new CachedFile(Path.GetFileName(entry), kind));
+                            discovered++;
+                            if (discoveredReporter is not null) discoveredReporter.Report(discovered);
+                            yield return MediaRef.FromFile(entry, kind);
+                        }
+                    }
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
+                finally
                 {
-                    Trace.TraceError($"DirectoryScanner: enumerator dispose failed for {currentDir}: {ex.Message}");
+                    try
+                    {
+                        enumerator?.Dispose();
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        Trace.TraceError($"DirectoryScanner: enumerator dispose failed for {currentDir}: {ex.Message}");
+                    }
                 }
-                sumDirectoryMs += dirSw.ElapsedMilliseconds;
+            }
+
+            sumDirectoryMs += dirSw.ElapsedMilliseconds;
+
+            // Only cache a directory whose enumeration completed; a partially
+            // enumerated (access-denied / vanished) directory would otherwise
+            // be served from cache as if it were empty.
+            if (cacheEnabled && cacheable)
+            {
+                saveSnapshot!.Directories[relPath] = dirEntry;
             }
         }
 
-        // Emitted only when the scan runs to completion (early cancellation
-        // disposes the generator before this point). Archive listing happens
-        // inside the per-directory try, so subtract it out to keep
-        // EnumerateMs about pure filesystem enumeration.
+        // Persist only on a completed scan. Archive listing happens inside the
+        // per-directory timing, so subtract it to keep EnumerateMs about pure
+        // enumeration.
+        if (cacheEnabled && !ct.IsCancellationRequested)
+        {
+            saveSnapshot!.SavedUtcTicks = DateTime.UtcNow.Ticks;
+            _scanCache!.Save(saveSnapshot);
+        }
+
         statsReporter?.Report(new ScanStats(
             DirectoryCount: directoryCount,
             FileCount: fileCount,
@@ -200,23 +329,19 @@ public class DirectoryScanner : IDirectoryScanner
             ArchiveMs: archiveMs));
     }
 
-    private static async IAsyncEnumerable<MediaRef> EnumerateArchiveAsync(
+    /// <summary>
+    /// Lists an archive's media entries, resolving each entry's kind from the
+    /// extension map. Returns an empty list (and reports a scan error) when the
+    /// archive cannot be read, so one bad archive never aborts the scan.
+    /// </summary>
+    private static async Task<List<CachedArchiveEntry>> ListArchiveEntriesAsync(
         string archivePath,
         Dictionary<string, MediaKind>? extensionMap,
         IProgress<ScanError>? errorReporter,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+        CancellationToken ct)
     {
-        // Translate the (extension → kind) map into the
-        // extension-only hash set that ArchiveHelper.ListEntries
-        // expects for its own filter parameter. ListEntries is
-        // deliberately kind-agnostic — the kind lives in the
-        // caller's dispatch, not in the archive helper. We do the
-        // kind lookup here per-entry to keep the archive helper
-        // simple and to make the scanner's contract explicit: "give
-        // me entries whose extension is in this set, I'll tag them
-        // with the right kind on the way out".
         HashSet<string>? extensionSet = null;
-        if (extensionMap != null)
+        if (extensionMap is not null)
         {
             extensionSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var ext in extensionMap.Keys)
@@ -228,47 +353,82 @@ public class DirectoryScanner : IDirectoryScanner
         List<ArchiveEntryInfo> entries;
         try
         {
-            // ListEntries returns a lazy IEnumerable (it's a generator). If we
-            // await the raw IEnumerable out of Task.Run, the lambda finishes
-            // without ever enumerating — the first MoveNext happens later in
-            // the foreach below, OUTSIDE this try/catch, so any exception
-            // (e.g. "Cannot determine compressed stream type" on a .7z file
-            // that SharpCompress 0.49.1 doesn't support) escapes the generator
-            // and bubbles all the way up to LoadDirectoryAsync's outer catch,
-            // which sets StatusText = "Error: ..." and leaves the gallery
-            // empty — even files after the bad archive are dropped.
-            //
-            // .ToList() forces enumeration inside the lambda, so the exception
-            // (if any) is raised on the await line and caught here. One bad
-            // archive → reported to status bar + skipped, scan continues.
+            // ListEntries is a lazy generator: awaiting the raw IEnumerable out
+            // of Task.Run would return before enumerating, and the first
+            // MoveNext (which can throw, e.g. SharpCompress choking on a .7z)
+            // would happen outside this try/catch and abort the whole scan.
+            // .ToList() forces enumeration inside the lambda so one bad archive
+            // is reported and skipped instead.
             entries = await Task.Run(() => ArchiveHelper.ListEntries(archivePath, extensionSet).ToList(), ct);
         }
         catch (OperationCanceledException)
         {
-            yield break;
+            return new List<CachedArchiveEntry>();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Trace.TraceError($"DirectoryScanner: failed to enumerate {archivePath}: {ex.Message}");
             errorReporter?.Report(new ScanError(archivePath, ClassifyArchiveError(ex)));
-            yield break;
+            return new List<CachedArchiveEntry>();
         }
 
+        var result = new List<CachedArchiveEntry>(entries.Count);
         foreach (var entry in entries)
         {
             ct.ThrowIfCancellationRequested();
-            // Look up the kind from the entry's extension. Falls back to
-            // Image (the record-struct default) for an entry whose
-            // extension isn't in the map — a defensive default in case
-            // the filter was set to a different superset than what
-            // ListEntries saw (e.g., if a future caller passes a
-            // permissive filter).
+            // Fall back to Image for an entry whose extension isn't in the map
+            // (the record-struct default).
             var ext = Path.GetExtension(entry.Key);
-            var kind = extensionMap != null && extensionMap.TryGetValue(ext, out var k)
+            var kind = extensionMap is not null && extensionMap.TryGetValue(ext, out var k)
                 ? k
                 : MediaKind.Image;
-            yield return MediaRef.FromArchive(archivePath, entry.Key, kind);
+            result.Add(new CachedArchiveEntry(entry.Key, kind));
         }
+        return result;
+    }
+
+    private static long GetDirMtimeUtcTicks(string dir)
+    {
+        try
+        {
+            return new DirectoryInfo(dir).LastWriteTimeUtc.Ticks;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Trace.TraceError($"DirectoryScanner: directory mtime failed for {dir}: {ex.Message}");
+            return -1;
+        }
+    }
+
+    private static (long Size, long Ticks) StatFile(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? (info.Length, info.LastWriteTimeUtc.Ticks) : (-1L, -1L);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return (-1L, -1L);
+        }
+    }
+
+    private static string RelativePath(string normalizedRoot, string dir)
+    {
+        var normalizedDir = NormalizeRoot(dir);
+        if (string.Equals(normalizedRoot, normalizedDir, StringComparison.OrdinalIgnoreCase)) return "";
+        return Path.GetRelativePath(normalizedRoot, normalizedDir);
+    }
+
+    private static string NormalizeRoot(string path) =>
+        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static string ComputeExtensionsSignature(IEnumerable<(string Extension, MediaKind Kind)> extensions)
+    {
+        var parts = extensions
+            .Select(e => $"{e.Extension.ToLowerInvariant()}:{(int)e.Kind}")
+            .OrderBy(s => s, StringComparer.Ordinal);
+        return string.Join(";", parts);
     }
 
     /// <summary>
