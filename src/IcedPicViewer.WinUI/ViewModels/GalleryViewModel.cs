@@ -463,14 +463,31 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     {
         var token = _loadCts?.Token ?? CancellationToken.None;
         var id = MediaRef.FromFile(path, _imageLoader.GetKindForFile(path)).ToString();
+        if (_imageIndex.TryGetValue(id, out var alreadyLoaded)) return alreadyLoaded;
 
-        // The target may sort beyond the first page; keep loading pages until
-        // it is materialised (bounded by the pending queue).
-        while (!_imageIndex.ContainsKey(id) && CanLoadMore && !token.IsCancellationRequested)
+        // The target can sit far down the sorted view. Materialising every
+        // preceding page would decode the whole folder's thumbnails and hang
+        // the UI, so SEEK: recompute the view, jump the pending queue to the
+        // page that contains the target, and materialise only that page.
+        var view = await BuildViewAsync(token);
+        if (token.IsCancellationRequested) return null;
+
+        var index = view.FindIndex(m => string.Equals(m.ToString(), id, StringComparison.Ordinal));
+        if (index < 0) return null; // not in the current view at all
+
+        var pageStart = index / PageSize * PageSize;
+        await RunOnUiAsync(() =>
         {
-            await LoadNextPageAsync(token);
-        }
+            lock (_remainingLock)
+            {
+                _remainingSources = view.Skip(pageStart).ToList();
+                CanLoadMore = _remainingSources.Count > 0;
+            }
+            Items.Clear();
+        });
 
+        if (token.IsCancellationRequested) return null;
+        await LoadNextPageAsync(token);
         return _imageIndex.TryGetValue(id, out var item) ? item : null;
     }
 
