@@ -105,19 +105,16 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     // ThumbConcurrency - BackfillConcurrency free: the user is never queued
     // behind the backfill. It is also deliberately gentle — this runs while the
     // user browses a possibly slow drive.
+    /// <summary>
+    /// How many thumbnails the backfill generates at once. Low on purpose: it
+    /// shares the 6-way thumbnail semaphore with the visible pipeline, so the user
+    /// always keeps at least 4 slots, and a slow drive is not asked for more
+    /// parallel reads than it can serve.
+    /// </summary>
     private const int BackfillConcurrency = 2;
 
     /// <summary>Minimum gap between status-bar progress updates.</summary>
     private const int BackfillReportIntervalMs = 150;
-
-    /// <summary>
-    /// Upper bound for a single backfill pass. The cache budget (4 GB) holds only
-    /// ~8k lossless entries, so generating past that is wasted drive work — and a
-    /// whole-drive scan would otherwise grind a slow disk for hours. Each pass is
-    /// capped well under the cache's practical capacity and re-armed when the user
-    /// asks for more (Load More), which also re-snapshots the still-pending items.
-    /// </summary>
-    private const int BackfillMaxPerRun = 5000;
 
     private CancellationTokenSource? _backfillCts;
 
@@ -130,6 +127,13 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     /// <summary>Generation of the running backfill; stale workers must not touch the progress properties.</summary>
     private int _backfillRunId;
+
+    /// <summary>
+    /// True once the scanner for the current folder has finished. The backfill is
+    /// held until then (the scan gets the drive), but does NOT wait for the first
+    /// page to settle — generation runs alongside the visible fill.
+    /// </summary>
+    private bool _scanFinished;
 
     private long _backfillLastReportTick;
 
@@ -518,6 +522,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         LastViewedYOffset = 0;
         LoadingState = LoadingState.Idle;
         StatusText = GalleryStatusFormatter.IdleDefault;
+        _scanFinished = false;
+        ThumbnailTimings.LogSummaryAndReset();
     }
 
     /// <summary>
@@ -682,6 +688,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
         FolderPath = path;
 
+        // Report the previous folder's thumbnail phase timings (if any) and start
+        // a fresh window, so each folder's numbers are readable on their own.
+        ThumbnailTimings.LogSummaryAndReset();
+
         try
         {
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, newCts.Token);
@@ -692,6 +702,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             // Any previous folder's backfill must stop now: the scanner wants the
             // drive, and its pending list belongs to the old folder.
             StopBackfill();
+            _scanFinished = false;
             Items.Clear();
             lock (_remainingLock)
             {
@@ -761,6 +772,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 token);
 
             await scanTask;
+            // From here on the scanner is done, so the background thumbnail pass
+            // may start even though the first page is still settling: it uses at
+            // most 2 of the 6 thumbnail slots, so the visible fill keeps 4.
+            _scanFinished = true;
 
             if (token.IsCancellationRequested)
             {
@@ -796,8 +811,13 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             StartWatching(path);
             LoadingState = LoadingState.Completed;
             UpdateStatus();
-            // Pre-generate thumbnails for whatever the user has not reached yet.
-            StartBackfill(token);
+            // The rebuild above already started the background pass (it no longer
+            // waits for the scan to settle); only start one if it did not, so the
+            // progress does not restart from zero a second later.
+            if (!IsBackfilling)
+            {
+                StartBackfill(token);
+            }
         }
         catch (Exception ex)
         {
@@ -1132,9 +1152,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             await LoadNextPageAsync(linkedCts.Token);
             UpdateStatus();
-            // The user asked for more: if no pass is running (e.g. the previous
-            // one hit its cap), extend the background generation to what is still
-            // pending.
+            // Items the user pulled in are now generated on the visible path; if no
+            // background pass is running (it finished, or never started), start one
+            // so newly pending items are covered too.
             if (!IsBackfilling)
             {
                 StartBackfill(linkedCts.Token);
@@ -1174,12 +1194,11 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private void StartBackfill(CancellationToken ct)
     {
         StopBackfill();
-        if (_disposed || LoadingState == LoadingState.Scanning) return;
+        if (_disposed || !_scanFinished) return;
 
         List<MediaRef> pending;
         lock (_remainingLock) pending = _remainingSources.ToList();
         if (pending.Count == 0) return;
-        if (pending.Count > BackfillMaxPerRun) pending = pending.Take(BackfillMaxPerRun).ToList();
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _backfillCts = cts;
@@ -1188,7 +1207,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         BackfillDone = 0;
         BackfillTotal = pending.Count;
         _backfillLastReportTick = Environment.TickCount64;
-        UpdateStatus();
+        RefreshStatus();
 
         _ = Task.Run(() => RunBackfillAsync(runId, pending, cts.Token), CancellationToken.None);
     }
@@ -1307,7 +1326,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             if (runId != _backfillRunId) return;
             BackfillDone = completed;
-            UpdateStatus();
+            RefreshStatus();
         });
     }
 
@@ -1317,7 +1336,19 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         if (runId != _backfillRunId) return;
         BackfillDone = 0;
         BackfillTotal = 0;
-        UpdateStatus();
+        RefreshStatus();
+    }
+
+    /// <summary>
+    /// Status refresh that respects the current phase. The backfill can now run
+    /// while the first page is still settling (i.e. LoadingState is still
+    /// Scanning), and it must not replace the live scanning line with the settled
+    /// one — both carry the backfill segment, so either is correct for its phase.
+    /// </summary>
+    private void RefreshStatus()
+    {
+        if (LoadingState == LoadingState.Scanning) UpdateScanningStatusText();
+        else UpdateStatus();
     }
 
     /// <summary>
@@ -1505,14 +1536,17 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             firstReason = _scanErrors[0].Reason;
         }
 
-        StatusText = GalleryStatusFormatter.FormatScanning(
-            DiscoveredCount,
-            breakdown,
-            currentPath: string.IsNullOrEmpty(CurrentScanningPath) ? null : CurrentScanningPath,
-            scanErrorCount: _scanErrors.Count,
-            firstSkippedFileName: firstName,
-            firstSkippedReason: firstReason,
-            queryLabel: GalleryStatusFormatter.FormatQueryLabel(Filter, SearchText));
+        StatusText = GalleryStatusFormatter.AppendBackfill(
+            GalleryStatusFormatter.FormatScanning(
+                DiscoveredCount,
+                breakdown,
+                currentPath: string.IsNullOrEmpty(CurrentScanningPath) ? null : CurrentScanningPath,
+                scanErrorCount: _scanErrors.Count,
+                firstSkippedFileName: firstName,
+                firstSkippedReason: firstReason,
+                queryLabel: GalleryStatusFormatter.FormatQueryLabel(Filter, SearchText)),
+            BackfillDone,
+            BackfillTotal);
     }
 
     private void StartWatching(string path)
@@ -1832,6 +1866,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                     await RunOnUiAsync(async () =>
                     {
                         if (ct.IsCancellationRequested) return;
+                        var uiStarted = Stopwatch.GetTimestamp();
                         var src = new SoftwareBitmapSource();
                         await src.SetBitmapAsync(t.Bitmap);
                         item.Thumbnail = src;
@@ -1842,6 +1877,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                             if (item is VideoItem video && t.Duration is { } d)
                                 video.ApplyDuration(d);
                         }
+                        ThumbnailTimings.Add(ThumbnailPhase.UiHandoff, Stopwatch.GetTimestamp() - uiStarted);
                     });
                 }
             }
