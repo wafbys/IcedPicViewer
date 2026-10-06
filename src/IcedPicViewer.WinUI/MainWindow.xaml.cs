@@ -38,6 +38,13 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
     /// </summary>
     public bool IsFullscreen => AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
 
+    private OverlappedPresenter? Overlapped => AppWindow.Presenter as OverlappedPresenter;
+
+    /// <summary>True while the window is maximized (caption-button maximize, not F11 fullscreen).</summary>
+    private bool IsMaximized => Overlapped?.State == OverlappedPresenterState.Maximized;
+
+    private bool IsMinimized => Overlapped?.State == OverlappedPresenterState.Minimized;
+
     /// <summary>
     /// Toggle between normal (overlapped) and fullscreen presentation.
     /// Uses the WinUI 3 <see cref="Microsoft.UI.Windowing.AppWindow.SetPresenter"/>
@@ -142,6 +149,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         RootFrame.Navigate(typeof(GalleryView));
 
         AppWindow.Closing += AppWindow_Closing;
+        AppWindow.Changed += AppWindow_Changed;
 
         // Thread-scope WH_KEYBOARD hook for ViewerView shortcuts
         // (Left/Right/Delete/Escape). Replaces 6 earlier XAML-layer
@@ -370,6 +378,18 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         SaveWindowState();
     }
 
+    private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        // Remember the last non-maximized / non-fullscreen / non-minimized
+        // bounds so a maximized (or fullscreen) session persists a sane
+        // "restore to" geometry instead of the screen-sized bounds.
+        if (IsFullscreen || IsMaximized || IsMinimized) return;
+        var size = sender.Size;
+        if (size.Width <= 0 || size.Height <= 0) return;
+        var pos = sender.Position;
+        _lastWindowedBounds = new Windows.Graphics.RectInt32(pos.X, pos.Y, size.Width, size.Height);
+    }
+
     private void SaveWindowState()
     {
         try
@@ -378,12 +398,16 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             var tempFile = file + ".tmp";
 
             bool isFs = IsFullscreen;
+            bool isMax = IsMaximized;
             int x = AppWindow.Position.X;
             int y = AppWindow.Position.Y;
             int w = AppWindow.Size.Width;
             int h = AppWindow.Size.Height;
 
-            if (isFs && _lastWindowedBounds.Width > 0 && _lastWindowedBounds.Height > 0)
+            // In fullscreen / maximized, AppWindow reports the screen-sized
+            // bounds; persist the last windowed bounds instead so that
+            // un-maximizing after a relaunch returns to a sane size.
+            if ((isFs || isMax) && _lastWindowedBounds.Width > 0 && _lastWindowedBounds.Height > 0)
             {
                 x = _lastWindowedBounds.X;
                 y = _lastWindowedBounds.Y;
@@ -391,7 +415,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
                 h = _lastWindowedBounds.Height;
             }
 
-            var content = $"{x},{y},{w},{h},{(isFs ? 1 : 0)}";
+            var content = $"{x},{y},{w},{h},{(isFs ? 1 : 0)},{(isMax ? 1 : 0)}";
 
             File.WriteAllText(tempFile, content);
             File.Move(tempFile, file, overwrite: true);
@@ -437,10 +461,16 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
             bool wasFullscreen = parts.Length >= 5 &&
                 int.TryParse(parts[4], out var fs) && fs != 0;
+            bool wasMaximized = parts.Length >= 6 &&
+                int.TryParse(parts[5], out var max) && max != 0;
 
             if (wasFullscreen)
             {
                 AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+            }
+            else if (wasMaximized && AppWindow.Presenter is OverlappedPresenter presenter)
+            {
+                presenter.Maximize();
             }
 
             Trace.TraceInformation($"Restored window state: {content}");
