@@ -1,5 +1,8 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using System.Collections.Generic;
+using IcedPicViewer.Core.Media;
+
 namespace IcedPicViewer.Core.Text;
 
 /// <summary>
@@ -27,12 +30,14 @@ public static class GalleryStatusFormatter
         string? currentPath = null,
         int scanErrorCount = 0,
         string? firstSkippedFileName = null,
-        string? firstSkippedReason = null)
+        string? firstSkippedReason = null,
+        string? queryLabel = null)
     {
         var err = FormatErrorSuffix(scanErrorCount, firstSkippedFileName, firstSkippedReason);
+        var prefix = queryLabel is null ? "" : $"筛选 {queryLabel} · ";
         if (!string.IsNullOrEmpty(currentPath))
-            return $"扫描中：{currentPath}（已发现 {discoveredCount}）{err}";
-        return $"扫描中… 已发现 {discoveredCount}，显示 {itemBreakdown}{err}";
+            return $"{prefix}扫描中：{currentPath}（已发现 {discoveredCount}）{err}";
+        return $"{prefix}扫描中… 已发现 {discoveredCount}，显示 {itemBreakdown}{err}";
     }
 
     public static string FormatGallery(
@@ -41,12 +46,32 @@ public static class GalleryStatusFormatter
         int remainingCount,
         int scanErrorCount = 0,
         string? firstSkippedFileName = null,
-        string? firstSkippedReason = null)
+        string? firstSkippedReason = null,
+        string? queryLabel = null,
+        int? matchedCount = null)
     {
         var err = FormatErrorSuffix(scanErrorCount, firstSkippedFileName, firstSkippedReason);
+        if (queryLabel is not null)
+        {
+            var matched = matchedCount ?? (discoveredCount - remainingCount);
+            return $"筛选 {queryLabel}：显示 {itemBreakdown} / 匹配 {matched}（共 {discoveredCount}，还可加载 {remainingCount}）{err}";
+        }
         if (remainingCount > 0)
             return $"显示 {itemBreakdown} / {discoveredCount}（还可加载 {remainingCount}）{err}";
         return $"已加载 {itemBreakdown}{err}";
+    }
+
+    /// <summary>
+    /// Human label for the active filter/search, or null when the view shows
+    /// everything. e.g. <c>图片 · 查找 "*.jpg"</c>.
+    /// </summary>
+    public static string? FormatQueryLabel(MediaFilter filter, string? search)
+    {
+        var parts = new List<string>(2);
+        if (filter == MediaFilter.Image) parts.Add("图片");
+        else if (filter == MediaFilter.Video) parts.Add("视频");
+        if (!string.IsNullOrWhiteSpace(search)) parts.Add($"查找 \"{search.Trim()}\"");
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
     }
 
     public static string FormatLoadingMore(int loadedCount, int discoveredCount)

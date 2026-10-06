@@ -600,6 +600,26 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     }
 
     /// <summary>
+    /// Top-bar "打开文件": pick one file, open its containing folder, then jump
+    /// straight into the viewer at that file.
+    /// </summary>
+    private async void OpenFileBtn_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var item = await ViewModel.OpenFileAsync();
+            if (item is not null)
+            {
+                OpenViewer(item);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError($"OpenFileBtn_Click error: {ex}");
+        }
+    }
+
+    /// <summary>
     /// Top-bar Slideshow button. Opens the viewer at the last-viewed
     /// item (or the first if none yet) and asks the singleton
     /// <see cref="ViewerViewModel"/> to start the auto-advance timer.

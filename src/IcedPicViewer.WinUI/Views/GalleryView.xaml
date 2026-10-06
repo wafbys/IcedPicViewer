@@ -169,6 +169,7 @@
               Background="{ThemeResource LayerFillColorDefaultBrush}"
               Visibility="{x:Bind HeaderVisibility, Mode=OneWay}">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
@@ -182,6 +183,28 @@
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE8DA;" FontSize="16"/>
                         <TextBlock Text="打开文件夹" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Click="OpenFileBtn_Click"
+                        VerticalAlignment="Stretch"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="12,0"
+                        ToolTipService.ToolTip="打开文件">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8E5;" FontSize="16"/>
+                        <TextBlock Text="打开文件" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Command="{x:Bind ViewModel.CloseFolderCommand}"
+                        VerticalAlignment="Stretch"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="12,0"
+                        ToolTipService.ToolTip="关闭目录">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8BB;" FontSize="16"/>
+                        <TextBlock Text="关闭目录" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
                 <Button Command="{x:Bind ViewModel.RefreshCommand}"
@@ -220,7 +243,42 @@
                     </StackPanel>
                 </Button>
             </StackPanel>
-            <Button Grid.Column="1"
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Margin="8,0">
+                <ComboBox SelectedIndex="{x:Bind ViewModel.FilterIndex, Mode=TwoWay}"
+                          MinWidth="92"
+                          VerticalAlignment="Center"
+                          ToolTipService.ToolTip="筛选：全部 / 图片 / 视频">
+                    <ComboBoxItem Content="全部"/>
+                    <ComboBoxItem Content="图片"/>
+                    <ComboBoxItem Content="视频"/>
+                </ComboBox>
+                <ComboBox SelectedIndex="{x:Bind ViewModel.SortIndex, Mode=TwoWay}"
+                          MinWidth="104"
+                          VerticalAlignment="Center"
+                          ToolTipService.ToolTip="排序：名称 / 日期 / 大小 / 扩展名">
+                    <ComboBoxItem Content="名称"/>
+                    <ComboBoxItem Content="日期"/>
+                    <ComboBoxItem Content="大小"/>
+                    <ComboBoxItem Content="扩展名"/>
+                </ComboBox>
+                <ToggleButton IsChecked="{x:Bind ViewModel.SortDescending, Mode=TwoWay}"
+                              Content="{x:Bind ViewModel.SortDirectionLabel, Mode=OneWay}"
+                              MinWidth="60"
+                              VerticalAlignment="Center"
+                              ToolTipService.ToolTip="正序 / 倒序"/>
+                <AutoSuggestBox Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}"
+                                PlaceholderText="查找（支持 * 和 ?）"
+                                QueryIcon="Find"
+                                Width="200"
+                                VerticalAlignment="Center"
+                                ToolTipService.ToolTip="按文件名查找；支持 * 和 ? 通配符"/>
+            </StackPanel>
+            <Button Grid.Column="2"
                     Click="AboutButton_Click"
                     VerticalAlignment="Stretch"
                     Background="Transparent"

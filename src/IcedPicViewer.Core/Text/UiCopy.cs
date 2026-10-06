@@ -14,6 +14,13 @@ public static class UiCopy
     public const string GotIt = "知道了";
     public const string Delete = "删除";
     public const string OpenFolder = "打开文件夹";
+    public const string OpenFile = "打开文件";
+    public const string CloseFolder = "关闭目录";
+    public const string FilterLabel = "筛选";
+    public const string SortLabel = "排序";
+    public const string SearchPlaceholder = "查找（支持 * 和 ?）";
+    public const string SortAscending = "正序";
+    public const string SortDescending = "倒序";
     public const string Refresh = "刷新";
     public const string LoadMore = "加载更多";
     public const string Slideshow = "幻灯片";

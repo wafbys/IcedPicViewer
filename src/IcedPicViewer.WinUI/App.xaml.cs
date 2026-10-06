@@ -203,6 +203,9 @@ public partial class App : Application
         // Folder picker (modern Windows App SDK picker)
         services.AddTransient<IFolderPickerService, FolderPickerService>();
 
+        // Single-file picker (gallery "打开文件").
+        services.AddTransient<IFilePickerService, FilePickerService>();
+
         // Modal dialogs (ContentDialog). Singleton — stateless, just
         // wraps XamlRoot resolution and ContentDialog construction so VMs
         // don't take a dependency on Microsoft.UI.Xaml.

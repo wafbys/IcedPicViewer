@@ -1,5 +1,6 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -8,6 +9,7 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcedPicViewer.Core.Layout;
+using IcedPicViewer.Core.Media;
 using IcedPicViewer.Core.Text;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Implementations;
@@ -24,6 +26,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private readonly IMediaLoader _imageLoader;
     private readonly IVideoMetadataService _videoMetadataService;
     private readonly IFolderPickerService _folderPicker;
+    private readonly IFilePickerService _filePicker;
     private readonly IDialogService _dialogService;
     private readonly ISettingsService _settingsService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
@@ -40,6 +43,33 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _loadCts;
     private IDisposable? _fileWatcher;
     private bool _disposed;
+
+    // Master list of every source discovered for the current folder, in scan
+    // order. The visible gallery is a filtered / searched / sorted VIEW derived
+    // from this (see RebuildViewAsync). Guarded by _remainingLock because the
+    // scanner's worker and the UI thread both touch it.
+    private readonly List<MediaRef> _allSources = new();
+
+    // O(1) id set mirroring _allSources (dedupe on watcher adds).
+    private readonly HashSet<string> _allSourceIds = new(StringComparer.Ordinal);
+
+    // (size, mtime) per media id, so sorting by Date/Size over the whole set
+    // does not re-stat every file on every rebuild. Populated at page load and
+    // by EnsureMetadataAsync; cleared when the folder changes.
+    private readonly ConcurrentDictionary<string, (long Size, DateTime Mtime)> _metadataCache =
+        new(StringComparer.Ordinal);
+
+    // Bumped on every view rebuild. In-flight page loads capture it and discard
+    // their batch if it changed, so items from a superseded filter/sort can't
+    // leak into the new collection.
+    private int _viewGeneration;
+
+    // Debounces query changes (typing in the search box fires per keystroke).
+    private CancellationTokenSource? _queryDebounceCts;
+
+    // Set while OpenFileAsync mutates Filter/SearchText before it explicitly
+    // reloads, so those setters don't schedule their own rebuilds.
+    private bool _suppressRebuild;
 
     // Re-entry guard for the scan-time, fire-and-forget page fill. The
     // IngestScanBatch callback fires roughly every 50 ms during a scan and
@@ -161,6 +191,65 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     public partial string? FolderPath { get; set; }
 
+    // ── 筛选 / 排序 / 查找 ──────────────────────────────────────────────
+    // Applied over the WHOLE discovered set (not just the loaded page); a
+    // change rebuilds the view and refills from the first page.
+
+    [ObservableProperty]
+    public partial MediaFilter Filter { get; set; } = MediaFilter.All;
+
+    [ObservableProperty]
+    public partial MediaSortKey SortKey { get; set; } = MediaSortKey.Name;
+
+    [ObservableProperty]
+    public partial bool SortDescending { get; set; }
+
+    [ObservableProperty]
+    public partial string SearchText { get; set; } = "";
+
+    partial void OnFilterChanged(MediaFilter value)
+    {
+        OnPropertyChanged(nameof(FilterIndex));
+        OnPropertyChanged(nameof(IsQueryActive));
+        ScheduleViewRebuild();
+    }
+
+    partial void OnSortKeyChanged(MediaSortKey value)
+    {
+        OnPropertyChanged(nameof(SortIndex));
+        ScheduleViewRebuild();
+    }
+
+    partial void OnSortDescendingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(SortDirectionLabel));
+        ScheduleViewRebuild();
+    }
+
+    partial void OnSearchTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsQueryActive));
+        ScheduleViewRebuild();
+    }
+
+    // ComboBox.SelectedIndex binds to these (enums have no XAML-friendly
+    // binding), and setting them routes back through the enum properties.
+    public int FilterIndex
+    {
+        get => (int)Filter;
+        set { if (value >= 0) Filter = (MediaFilter)value; }
+    }
+
+    public int SortIndex
+    {
+        get => (int)SortKey;
+        set { if (value >= 0) SortKey = (MediaSortKey)value; }
+    }
+
+    public bool IsQueryActive => Filter != MediaFilter.All || !string.IsNullOrWhiteSpace(SearchText);
+
+    public string SortDirectionLabel => SortDescending ? UiCopy.SortDescending : UiCopy.SortAscending;
+
 
     [ObservableProperty]
     public partial int LastViewedIndex { get; set; } = -1;
@@ -222,6 +311,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         IMediaLoader imageLoader,
         IVideoMetadataService videoMetadataService,
         IFolderPickerService folderPicker,
+        IFilePickerService filePicker,
         IDialogService dialogService,
         ISettingsService settingsService)
     {
@@ -229,6 +319,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         _imageLoader = imageLoader;
         _videoMetadataService = videoMetadataService;
         _folderPicker = folderPicker;
+        _filePicker = filePicker;
         _dialogService = dialogService;
         _settingsService = settingsService;
 
@@ -288,6 +379,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 _fileWatcher?.Dispose();
                 _loadCts?.Cancel();
                 _loadCts?.Dispose();
+                _queryDebounceCts?.Cancel();
+                _queryDebounceCts?.Dispose();
                 _thumbnailLoadSemaphore.Dispose();
                 Items.CollectionChanged -= OnItemsCollectionChanged;
             }
@@ -305,26 +398,107 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Clears the current folder (items, watcher, cts) and returns to idle.</summary>
+    [RelayCommand]
+    private void CloseFolder()
+    {
+        var old = Interlocked.Exchange(ref _loadCts, null);
+        old?.Cancel();
+        old?.Dispose();
+
+        _fileWatcher?.Dispose();
+        _fileWatcher = null;
+
+        _queryDebounceCts?.Cancel();
+
+        FolderPath = null;
+        Items.Clear();
+        lock (_remainingLock)
+        {
+            _allSources.Clear();
+            _allSourceIds.Clear();
+            _remainingSources.Clear();
+            CanLoadMore = false;
+        }
+        _metadataCache.Clear();
+        Interlocked.Increment(ref _viewGeneration);
+        DiscoveredCount = 0;
+        IsLoadingMore = false;
+        _scanErrors.Clear();
+        CurrentScanningPath = "";
+        LastViewedIndex = -1;
+        LastViewedYOffset = 0;
+        LoadingState = LoadingState.Idle;
+        StatusText = GalleryStatusFormatter.IdleDefault;
+    }
+
+    /// <summary>
+    /// Picks a single file, opens its containing folder, and returns the item
+    /// so the view can jump straight into the viewer. Null on cancel.
+    /// </summary>
+    public async Task<MediaItem?> OpenFileAsync()
+    {
+        var extensions = _imageLoader.SupportedMedia
+            .Select(m => m.Extension)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var path = await _filePicker.PickFileAsync(UiCopy.OpenFile, extensions);
+        if (string.IsNullOrEmpty(path)) return null;
+
+        var dir = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(dir)) return null;
+
+        // Make sure the target is visible regardless of the active query.
+        _suppressRebuild = true;
+        Filter = MediaFilter.All;
+        SearchText = "";
+        _suppressRebuild = false;
+
+        await LoadDirectoryAsync(dir);
+        return await LocateAndMaterializeAsync(path);
+    }
+
+    private async Task<MediaItem?> LocateAndMaterializeAsync(string path)
+    {
+        var token = _loadCts?.Token ?? CancellationToken.None;
+        var id = MediaRef.FromFile(path, _imageLoader.GetKindForFile(path)).ToString();
+
+        // The target may sort beyond the first page; keep loading pages until
+        // it is materialised (bounded by the pending queue).
+        while (!_imageIndex.ContainsKey(id) && CanLoadMore && !token.IsCancellationRequested)
+        {
+            await LoadNextPageAsync(token);
+        }
+
+        return _imageIndex.TryGetValue(id, out var item) ? item : null;
+    }
+
     public bool RemoveItem(MediaItem item)
     {
+        var wasLoaded = false;
         var index = Items.IndexOf(item);
         if (index >= 0)
         {
             Items.RemoveAt(index);
-            if (DiscoveredCount > 0)
-            {
-                DiscoveredCount--;
-            }
-            lock (_remainingLock)
-            {
-                _remainingSources.RemoveAll(s => s.ToString() == item.Id);
-                CanLoadMore = _remainingSources.Count > 0;
-            }
-
-            UpdateStatus();
-            return true;
+            wasLoaded = true;
         }
-        return false;
+
+        lock (_remainingLock)
+        {
+            _allSourceIds.Remove(item.Id);
+            _allSources.RemoveAll(s => s.ToString() == item.Id);
+            _remainingSources.RemoveAll(s => s.ToString() == item.Id);
+            DiscoveredCount = _allSources.Count;
+            CanLoadMore = _remainingSources.Count > 0;
+        }
+        _metadataCache.TryRemove(item.Id, out _);
+
+        if (wasLoaded)
+        {
+            UpdateStatus();
+        }
+        return wasLoaded;
     }
 
     public async Task DeleteItemAsync(MediaItem item)
@@ -413,12 +587,16 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             Items.Clear();
             lock (_remainingLock)
             {
+                _allSources.Clear();
+                _allSourceIds.Clear();
                 _remainingSources.Clear();
             }
             DiscoveredCount = 0;
             CanLoadMore = false;
             _scanErrors.Clear();
             CurrentScanningPath = "";
+            _metadataCache.Clear();
+            Interlocked.Increment(ref _viewGeneration);
 
             // Throttled progress sinks for the scan. A whole-drive scan can
             // yield tens of thousands of sources in a few seconds and churn
@@ -491,6 +669,21 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 if (token.IsCancellationRequested) break;
                 await Task.Delay(50, token);
             }
+
+            if (token.IsCancellationRequested) return;
+
+            // The scan streamed items in discovery order. Re-apply the current
+            // filter / search / sort over the now-complete set so the first
+            // page reflects it (thumbnails reload from cache, so this is cheap).
+            await RebuildViewAsync();
+            // Let the post-rebuild first page settle so the gallery isn't
+            // momentarily empty while the "completed" status is shown.
+            while (_pageFillInFlight)
+            {
+                if (token.IsCancellationRequested) break;
+                await Task.Delay(20, token);
+            }
+            if (token.IsCancellationRequested) return;
 
             StartWatching(path);
             LoadingState = LoadingState.Completed;
@@ -584,18 +777,181 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private void IngestScanBatch(List<MediaRef> batch, int discovered, CancellationToken ct)
     {
         if (ct.IsCancellationRequested) return;
+
+        var filter = Filter;
+        var search = SearchText;
+        var matches = new List<MediaRef>(batch.Count);
+        foreach (var media in batch)
+        {
+            if (MatchesQuery(media, filter, search)) matches.Add(media);
+        }
+
         lock (_remainingLock)
         {
-            _remainingSources.AddRange(batch);
+            foreach (var media in batch)
+            {
+                if (_allSourceIds.Add(media.ToString()))
+                {
+                    _allSources.Add(media);
+                    if (MatchesQuery(media, filter, search)) matches.Add(media);
+                }
+            }
+            DiscoveredCount = _allSources.Count;
+            // Stream matching items in discovery order; the final ordering is
+            // applied by RebuildViewAsync once the scan completes.
+            _remainingSources.AddRange(matches);
         }
-        DiscoveredCount = discovered;
-        UpdateScanningStatusText();
 
-        if (!_pageFillInFlight && Items.Count < PageSize)
+        UpdateScanningStatusText();
+        StartPageFill(ct);
+    }
+
+    private static bool MatchesQuery(MediaRef media, MediaFilter filter, string? search)
+        => MediaQuery.MatchesFilter(filter, media.Kind)
+           && MediaQuery.MatchesSearch(MediaQuery.GetDisplayName(media), search);
+
+    /// <summary>
+    /// Starts the single-consumer page fill if the first page is not full and
+    /// there is pending work. Safe to call repeatedly; the
+    /// <see cref="_pageFillInFlight"/> guard makes it a no-op while a fill runs.
+    /// </summary>
+    private void StartPageFill(CancellationToken ct)
+    {
+        if (_pageFillInFlight || Items.Count >= PageSize) return;
+
+        int remaining;
+        lock (_remainingLock) remaining = _remainingSources.Count;
+        if (remaining == 0) return;
+
+        _pageFillInFlight = true;
+        _ = DrainPageFillAsync(ct);
+    }
+
+    // ── 视图重建（筛选 / 排序 / 查找）────────────────────────────────────
+
+    private void ScheduleViewRebuild()
+    {
+        if (_disposed || _suppressRebuild) return;
+
+        _queryDebounceCts?.Cancel();
+        _queryDebounceCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _queryDebounceCts = cts;
+        _ = DebounceRebuildAsync(cts.Token);
+    }
+
+    private async Task DebounceRebuildAsync(CancellationToken ct)
+    {
+        try
         {
-            _pageFillInFlight = true;
-            _ = DrainPageFillAsync(ct);
+            await Task.Delay(250, ct);
         }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (ct.IsCancellationRequested || _disposed) return;
+        await RebuildViewAsync();
+    }
+
+    /// <summary>
+    /// Rebuilds <see cref="Items"/> from the filtered / searched / sorted view
+    /// of the whole discovered set and refills the first page. Thumbnails are
+    /// served from cache, so the reload is cheap.
+    /// </summary>
+    private async Task RebuildViewAsync()
+    {
+        var token = _loadCts?.Token ?? CancellationToken.None;
+        var generation = Interlocked.Increment(ref _viewGeneration);
+
+        List<MediaRef> view;
+        try
+        {
+            view = await BuildViewAsync(token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested || generation != Volatile.Read(ref _viewGeneration)) return;
+
+        await RunOnUiAsync(() =>
+        {
+            if (generation != Volatile.Read(ref _viewGeneration)) return;
+            lock (_remainingLock)
+            {
+                _remainingSources = view;
+                CanLoadMore = view.Count > 0;
+            }
+            Items.Clear();
+        });
+
+        if (token.IsCancellationRequested) return;
+        UpdateStatus();
+        StartPageFill(token);
+    }
+
+    private async Task<List<MediaRef>> BuildViewAsync(CancellationToken ct)
+    {
+        List<MediaRef> all;
+        lock (_remainingLock) all = _allSources.ToList();
+
+        IEnumerable<MediaRef> query = all;
+        var filter = Filter;
+        if (filter != MediaFilter.All)
+            query = query.Where(m => MediaQuery.MatchesFilter(filter, m.Kind));
+        var search = SearchText;
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(m => MediaQuery.MatchesSearch(MediaQuery.GetDisplayName(m), search));
+
+        var view = query.ToList();
+
+        switch (SortKey)
+        {
+            case MediaSortKey.Name:
+                view.Sort((a, b) => SortDescending ? MediaQuery.CompareName(b, a) : MediaQuery.CompareName(a, b));
+                break;
+
+            case MediaSortKey.Extension:
+                view.Sort((a, b) => SortDescending ? MediaQuery.CompareExtension(b, a) : MediaQuery.CompareExtension(a, b));
+                break;
+
+            case MediaSortKey.Date:
+            case MediaSortKey.Size:
+                await EnsureMetadataAsync(view, ct);
+                ct.ThrowIfCancellationRequested();
+                var cache = _metadataCache;
+                var byDate = SortKey == MediaSortKey.Date;
+                view.Sort((a, b) =>
+                {
+                    var (aSize, aDate) = cache.TryGetValue(a.ToString(), out var ma) ? ma : (0L, DateTime.MinValue);
+                    var (bSize, bDate) = cache.TryGetValue(b.ToString(), out var mb) ? mb : (0L, DateTime.MinValue);
+                    var result = byDate ? aDate.CompareTo(bDate) : aSize.CompareTo(bSize);
+                    if (result == 0) result = MediaQuery.CompareName(a, b);
+                    return SortDescending ? -result : result;
+                });
+                break;
+        }
+
+        return view;
+    }
+
+    /// <summary>Fills (size, mtime) for every media in the list into the cache.</summary>
+    private async Task EnsureMetadataAsync(List<MediaRef> list, CancellationToken ct)
+    {
+        var missing = list.Where(m => !_metadataCache.ContainsKey(m.ToString())).ToList();
+        if (missing.Count == 0) return;
+
+        await Task.Run(async () =>
+        {
+            foreach (var media in missing)
+            {
+                ct.ThrowIfCancellationRequested();
+                var (size, mtime) = await GetSourceMetadataAsync(media, ct).ConfigureAwait(false);
+                _metadataCache[media.ToString()] = (size, mtime);
+            }
+        }, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -687,6 +1043,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     {
         if (pageSize < 0) pageSize = PageSize;
 
+        // Capture the view generation so a batch started before a filter/sort
+        // change is discarded rather than mixed into the rebuilt collection.
+        var generation = Volatile.Read(ref _viewGeneration);
+
         List<MediaRef> batch;
         lock (_remainingLock)
         {
@@ -708,11 +1068,13 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         {
             if (ct.IsCancellationRequested) return;
             var (size, mtime) = await GetSourceMetadataAsync(media, ct);
+            _metadataCache[media.ToString()] = (size, mtime);
             created.Add(CreatePlaceholderItem(media, size, mtime));
         }
 
         await RunOnUiAsync(() =>
         {
+            if (generation != Volatile.Read(ref _viewGeneration)) return;
             foreach (var item in created)
             {
                 if (ct.IsCancellationRequested) return;
@@ -820,13 +1182,16 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             firstReason = _scanErrors[0].Reason;
         }
 
+        var queryLabel = GalleryStatusFormatter.FormatQueryLabel(Filter, SearchText);
         StatusText = GalleryStatusFormatter.FormatGallery(
             breakdown,
             DiscoveredCount,
             remaining,
             scanErrorCount: _scanErrors.Count,
             firstSkippedFileName: firstName,
-            firstSkippedReason: firstReason);
+            firstSkippedReason: firstReason,
+            queryLabel: queryLabel,
+            matchedCount: queryLabel is null ? null : Items.Count + remaining);
     }
 
     /// <summary>
@@ -852,7 +1217,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             currentPath: string.IsNullOrEmpty(CurrentScanningPath) ? null : CurrentScanningPath,
             scanErrorCount: _scanErrors.Count,
             firstSkippedFileName: firstName,
-            firstSkippedReason: firstReason);
+            firstSkippedReason: firstReason,
+            queryLabel: GalleryStatusFormatter.FormatQueryLabel(Filter, SearchText));
     }
 
     private void StartWatching(string path)
@@ -925,63 +1291,39 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
         if (ArchiveHelper.IsArchiveFileName(info.Path) && ArchiveHelper.IsArchive(info.Path))
         {
-            // A new archive appeared: open it and add every image entry to the gallery.
-            var (newItems, error) = await AddArchiveEntriesAsync(info.Path, token);
-            if (error is not null)
-            {
-                _scanErrors.Add(error);
-                UpdateStatus();
-            }
-            if (newItems.Count > 0)
-            {
-                DiscoveredCount += newItems.Count;
-                UpdateStatus();
-                foreach (var newItem in newItems)
-                {
-                    _ = LoadThumbnailAsync(newItem, CancellationToken.None);
-                }
-            }
+            // A new archive appeared: enumerate its entries into the master
+            // list, then rebuild the (filtered/sorted) view.
+            var (refs, error) = await AddArchiveEntriesAsync(info.Path, token);
+            if (error is not null) _scanErrors.Add(error);
+            if (AddSourcesToMaster(refs)) ScheduleViewRebuild();
+            else UpdateStatus();
             return;
         }
 
         if (!_imageLoader.IsSupportedFormat(info.Path)) return;
-        var kind = _imageLoader.GetKindForFile(info.Path);
-        var media = MediaRef.FromFile(info.Path, kind);
-        if (_imageIndex.ContainsKey(media.ToString())) return;
+        var media = MediaRef.FromFile(info.Path, _imageLoader.GetKindForFile(info.Path));
+        if (!AddSourcesToMaster(new[] { media })) return;
 
         var (size, mtime) = await GetSourceMetadataAsync(media, token);
         if (token.IsCancellationRequested) return;
-
-        var item = CreatePlaceholderItem(media, size, mtime);
-
-        Items.Add(item);
-        DiscoveredCount++;
-        UpdateStatus();
-        await LoadThumbnailAsync(item, CancellationToken.None);
+        _metadataCache[media.ToString()] = (size, mtime);
+        ScheduleViewRebuild();
     }
 
     /// <summary>
-    /// Enumerates entries in the given archive and creates a
-    /// <see cref="MediaItem"/> for each (image or video, dispatched by
-    /// the entry's extension). Returns the list of items plus an
-    /// optional <see cref="ScanError"/> if the archive could not be
-    /// read at all (caller surfaces it in the status bar alongside
-    /// initial scan errors).
+    /// Enumerates media entries in the given archive. Returns the refs plus an
+    /// optional <see cref="ScanError"/> if the archive could not be read at all
+    /// (caller surfaces it in the status bar alongside scan errors).
     /// </summary>
-    private async Task<(List<MediaItem> Items, ScanError? Error)> AddArchiveEntriesAsync(
+    private async Task<(List<MediaRef> Refs, ScanError? Error)> AddArchiveEntriesAsync(
         string archivePath, CancellationToken token)
     {
-        var result = new List<MediaItem>();
+        var result = new List<MediaRef>();
         try
         {
-            var archiveInfo = new FileInfo(archivePath);
-            var mtime = archiveInfo.Exists ? archiveInfo.LastWriteTime : DateTime.MinValue;
-
-            // Build the extension → kind lookup once and use it both
-            // for ListEntries (extension set) and per-entry kind
-            // stamping. The full media list covers both image and
-            // video; an archive's entries go through the same
-            // dispatch as loose files.
+            // Build the extension → kind lookup once; the full media list
+            // covers both image and video, so an archive's entries go through
+            // the same dispatch as loose files.
             var extensionMap = new Dictionary<string, MediaKind>(StringComparer.OrdinalIgnoreCase);
             foreach (var (ext, kind) in _imageLoader.SupportedMedia)
             {
@@ -989,18 +1331,14 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             }
             var extensionSet = new HashSet<string>(extensionMap.Keys, StringComparer.OrdinalIgnoreCase);
 
-            await Task.Run(async () =>
+            await Task.Run(() =>
             {
-                var entries = ArchiveHelper.ListEntries(archivePath, extensionSet);
-                foreach (var entry in entries)
+                foreach (var entry in ArchiveHelper.ListEntries(archivePath, extensionSet))
                 {
                     if (token.IsCancellationRequested) break;
                     var ext = Path.GetExtension(entry.Key);
                     if (!extensionMap.TryGetValue(ext, out var kind)) continue;
-                    var media = MediaRef.FromArchive(archivePath, entry.Key, kind);
-                    if (_imageIndex.ContainsKey(media.ToString())) continue;
-
-                    result.Add(CreatePlaceholderItem(media, entry.UncompressedSize, mtime));
+                    result.Add(MediaRef.FromArchive(archivePath, entry.Key, kind));
                 }
             }, token);
         }
@@ -1010,6 +1348,53 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             return (result, new ScanError(archivePath, ClassifyArchiveError(ex)));
         }
         return (result, null);
+    }
+
+    /// <summary>Adds refs not already known to the master list. Returns true if anything was added.</summary>
+    private bool AddSourcesToMaster(IReadOnlyList<MediaRef> refs)
+    {
+        var added = false;
+        lock (_remainingLock)
+        {
+            foreach (var media in refs)
+            {
+                if (_allSourceIds.Add(media.ToString()))
+                {
+                    _allSources.Add(media);
+                    added = true;
+                }
+            }
+            if (added) DiscoveredCount = _allSources.Count;
+        }
+        return added;
+    }
+
+    /// <summary>
+    /// Removes a source from the master list, the pending view and the loaded
+    /// collection (if present). Returns true if it was known.
+    /// </summary>
+    private bool RemoveSourceById(string id)
+    {
+        bool known;
+        lock (_remainingLock)
+        {
+            known = _allSourceIds.Remove(id);
+            if (known)
+            {
+                _allSources.RemoveAll(s => s.ToString() == id);
+                _remainingSources.RemoveAll(s => s.ToString() == id);
+                DiscoveredCount = _allSources.Count;
+                CanLoadMore = _remainingSources.Count > 0;
+            }
+        }
+        if (!known) return false;
+
+        _metadataCache.TryRemove(id, out _);
+        if (_imageIndex.TryGetValue(id, out var loaded))
+        {
+            Items.Remove(loaded);
+        }
+        return true;
     }
 
     /// <summary>
@@ -1028,38 +1413,23 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     private void HandleDeleted(FileChangeInfo info)
     {
-        // Direct file deletion (e.g. a loose .jpg or .mp4 removed): match
-        // by id. Use the kind from the extension so the id matches the
-        // kind-tagged id we created when the item was added — without
-        // this, a deleted .mp4 would never find its VideoItem in the
-        // index because FromFile() defaults to Image.
+        // Direct file deletion (loose .jpg / .mp4): match by id, using the
+        // kind from the extension so a .mp4 finds its VideoItem.
         var directId = MediaRef.FromFile(info.Path, _imageLoader.GetKindForFile(info.Path)).ToString();
-        if (_imageIndex.TryGetValue(directId, out var directItem))
+        if (!RemoveSourceById(directId))
         {
-            Items.Remove(directItem);
-            if (DiscoveredCount > 0) DiscoveredCount--;
+            // Archive deletion: remove every entry whose media points at the
+            // gone archive (case-insensitive to mirror Windows file lookup).
+            List<string> archiveIds;
             lock (_remainingLock)
             {
-                _remainingSources.RemoveAll(s => s.ToString() == directId);
+                archiveIds = _allSources
+                    .Where(m => string.Equals(m.Path, info.Path, StringComparison.OrdinalIgnoreCase))
+                    .Select(m => m.ToString())
+                    .ToList();
             }
-            CanLoadMore = _remainingSources.Count > 0;
-            UpdateStatus();
-            return;
+            foreach (var id in archiveIds) RemoveSourceById(id);
         }
-
-        // Archive deletion: remove every entry whose media points at the
-        // gone archive. Match the Source.Path (case-insensitive to mirror
-        // Windows file lookup).
-        var toRemove = _imageIndex.Values
-            .Where(item => string.Equals(item.Media.Path, info.Path, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (toRemove.Count == 0) return;
-
-        foreach (var item in toRemove)
-        {
-            Items.Remove(item);
-        }
-        if (DiscoveredCount >= toRemove.Count) DiscoveredCount -= toRemove.Count;
         UpdateStatus();
     }
 
@@ -1078,62 +1448,67 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         modifiedItem.FullImage = null;
         await LoadThumbnailAsync(modifiedItem, CancellationToken.None);
         if (token.IsCancellationRequested) return;
+
+        // size/mtime may have changed, which affects date/size ordering.
+        var (size, mtime) = await GetSourceMetadataAsync(modifiedItem.Media, token);
+        _metadataCache[id] = (size, mtime);
+        ScheduleViewRebuild();
     }
 
     private async Task HandleRenamedAsync(FileChangeInfo info, CancellationToken token)
     {
-        // Archive renames: the new archive may contain the same entries
-        // (likely, if it was a simple rename) — easiest correct behaviour is
-        // to drop the entries from the old path and re-add from the new path.
+        // Archive renames: drop the old entries, re-add from the new path.
         if (info.OldPath != null && ArchiveHelper.IsArchiveFileName(info.OldPath))
         {
-            var oldPathItems = _imageIndex.Values
-                .Where(item => string.Equals(item.Media.Path, info.OldPath, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            foreach (var item in oldPathItems)
+            List<string> oldIds;
+            lock (_remainingLock)
             {
-                Items.Remove(item);
+                oldIds = _allSources
+                    .Where(m => string.Equals(m.Path, info.OldPath, StringComparison.OrdinalIgnoreCase))
+                    .Select(m => m.ToString())
+                    .ToList();
             }
-            if (DiscoveredCount >= oldPathItems.Count) DiscoveredCount -= oldPathItems.Count;
+            foreach (var id in oldIds) RemoveSourceById(id);
 
             if (File.Exists(info.Path) && ArchiveHelper.IsArchive(info.Path))
             {
-                var (newItems, error) = await AddArchiveEntriesAsync(info.Path, token);
-                if (error is not null)
-                {
-                    _scanErrors.Add(error);
-                }
-                DiscoveredCount += newItems.Count;
-                foreach (var newItem in newItems)
-                {
-                    _ = LoadThumbnailAsync(newItem, CancellationToken.None);
-                }
+                var (refs, error) = await AddArchiveEntriesAsync(info.Path, token);
+                if (error is not null) _scanErrors.Add(error);
+                AddSourcesToMaster(refs);
             }
-            UpdateStatus();
+            ScheduleViewRebuild();
             return;
         }
 
         if (info.OldPath == null) return;
-        // Same kind-aware lookup as HandleModified/HandleDeleted: the
-        // item's id was created with Kind=Video for .mp4/.mkv files,
-        // so we have to look up under the same Kind.
+        // Same kind-aware lookup as HandleModified/HandleDeleted.
         var oldId = MediaRef.FromFile(info.OldPath, _imageLoader.GetKindForFile(info.OldPath)).ToString();
-        if (!_imageIndex.TryGetValue(oldId, out var renamedItem)) return;
+        var newMedia = MediaRef.FromFile(info.Path, _imageLoader.GetKindForFile(info.Path));
 
-        // UpdateMedia carries the new path. Preserve the existing kind
-        // because the rename didn't change the file type — if the user
-        // renames foo.mp4 to bar.mp4 the new id must still match a
-        // video, not an image. The new path's GetKindForFile would
-        // return the same thing anyway, but using Source.Kind here
-        // is explicit about the intent.
-        Items.Remove(renamedItem);  // triggers index removal on OldPath
-        renamedItem.UpdateMedia(MediaRef.FromFile(info.Path, renamedItem.Media.Kind));
-        Items.Add(renamedItem);     // triggers index insertion on NewPath
-        renamedItem.Thumbnail = null;
-        renamedItem.FullImage = null;
-        await LoadThumbnailAsync(renamedItem, CancellationToken.None);
-        if (token.IsCancellationRequested) return;
+        // Keep the same MediaItem instance when it is loaded (preserves state);
+        // the remove/add pair refreshes the id index. Otherwise only the master
+        // list changes and the debounced rebuild picks it up.
+        if (_imageIndex.TryGetValue(oldId, out var renamedItem))
+        {
+            Items.Remove(renamedItem);   // index removal on OldPath
+            renamedItem.UpdateMedia(newMedia);
+            Items.Add(renamedItem);      // index insertion on NewPath
+            renamedItem.Thumbnail = null;
+            renamedItem.FullImage = null;
+            await LoadThumbnailAsync(renamedItem, CancellationToken.None);
+            if (token.IsCancellationRequested) return;
+        }
+
+        lock (_remainingLock)
+        {
+            _allSourceIds.Remove(oldId);
+            _allSources.RemoveAll(s => s.ToString() == oldId);
+            if (_allSourceIds.Add(newMedia.ToString())) _allSources.Add(newMedia);
+            DiscoveredCount = _allSources.Count;
+        }
+        _metadataCache.TryRemove(oldId, out _);
         UpdateStatus();
+        ScheduleViewRebuild();
     }
 
     private async Task LoadThumbnailAsync(MediaItem item, CancellationToken ct)
