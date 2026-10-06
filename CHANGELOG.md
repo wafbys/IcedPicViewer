@@ -2,6 +2,11 @@
 
 ## 未发布
 
+### 修复：查看器导航订阅跨实例泄漏
+
+- **根因**：`GalleryView` 每次进查看器返回都会新建实例（本项目 Frame 不缓存页面），而 `ViewerViewModel.NavigationChanged` 的订阅只在 `OnNavigatedTo` 里解绑**当前实例**的字段；新实例该字段为 null，于是**旧实例的订阅从不释放** → 每次「看图 → 返回」累积（内存泄漏 + 重复回调）。
+- **修复**：页面侧订阅整体移除。`ViewerViewModel.OnCurrentIndexChanged` 本就同步 `GalleryViewModel.LastViewedIndex`，页面不需要额外订阅；相应删除 `ViewerViewModel.NavigationChanged` 事件、`GalleryView` 的 `_viewerViewModel` 字段与订阅/解绑逻辑。「返回定位到当前图片」改用这个同步值。
+
 ### 关闭查看器返回瀑布流时定位到当前图片
 
 - 之前返回时按保存的 Y 偏移滚动，但打开查看器时瀑布流常常还没完成布局 → 偏移为 0 → 回到顶部；而且查看器内翻页也没更新 `LastViewedIndex`。

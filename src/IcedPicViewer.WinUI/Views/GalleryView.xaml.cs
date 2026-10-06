@@ -17,7 +17,6 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
     private MediaItem? _selectedItemForDelete;
     private int _isNavigatingToViewer;
-    private ViewerViewModel? _viewerViewModel;
 
     // 用于实现"滚动到底部自动加载更多"
     // 采用 debounce 机制避免快速滚动时频繁触发（符合性能要求）
@@ -240,12 +239,6 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-
-        if (_viewerViewModel != null)
-        {
-            _viewerViewModel.NavigationChanged -= OnViewerNavigationChanged;
-            _viewerViewModel = null;
-        }
 
         // SizeChanged might not fire on the first navigation if the
         // window keeps its previous size (e.g., returning to the gallery
@@ -515,35 +508,17 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
                 ViewModel.LastViewedYOffset = panel.GetItemYPosition(index);
             }
 
-            // ViewerViewModel is a Singleton — only subscribe the first time. The
-            // OnNavigatedTo unsubscribe paired with this guard keeps it 1:1.
-            if (_viewerViewModel == null)
-            {
-                _viewerViewModel = App.GetService<ViewerViewModel>();
-                _viewerViewModel.NavigationChanged += OnViewerNavigationChanged;
-            }
-            await _viewerViewModel.OpenItem(item);
+            // ViewerViewModel (singleton) keeps GalleryViewModel.LastViewedIndex
+            // in sync via OnCurrentIndexChanged — no page-side subscription is
+            // needed (and that subscription used to leak across viewer visits,
+            // since each visit creates a fresh GalleryView).
+            await App.GetService<ViewerViewModel>().OpenItem(item);
 
             _navigationService.NavigateTo<ViewerView>();
         }
         finally
         {
             System.Threading.Interlocked.Exchange(ref _isNavigatingToViewer, 0);
-        }
-    }
-
-    private void OnViewerNavigationChanged(object? sender, EventArgs e)
-    {
-        if (_viewerViewModel == null) return;
-
-        // Track the currently-shown item so returning to the gallery can
-        // scroll it into view (also covers next/prev inside the viewer).
-        ViewModel.LastViewedIndex = _viewerViewModel.CurrentIndex;
-
-        var panel = FindMasonryPanel(MainScrollViewer);
-        if (panel != null)
-        {
-            ViewModel.LastViewedYOffset = panel.GetItemYPosition(_viewerViewModel.CurrentIndex);
         }
     }
 

@@ -60,7 +60,6 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     public partial WinImageSource? DisplayImage { get; set; }
 
     public event EventHandler? DisplayImageChanged;
-    public event EventHandler? NavigationChanged;
 
     // The displayed bitmap's pixel dimensions. ActualWidth/Height fall back
     // to SelectedItem.OriginalWidth/Height until the bitmap has loaded.
@@ -349,8 +348,8 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             // Direct CurrentIndex set bypasses NavigateNextCommand,
             // which is the path that calls ShowSelectedItemAsync and
             // populates DisplayImage for the view. Without this
-            // explicit call, the index updates in the UI (DisplayIndex
-            // + NavigationChanged) but the bitmap doesn't refresh —
+            // explicit call, the index updates in the UI (DisplayIndex)
+            // but the bitmap doesn't refresh —
             // the viewer keeps showing the previous image.
             await ShowSelectedItemAsync();
         }
@@ -1204,7 +1203,6 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         _galleryViewModel.LastViewedIndex = value;
         NavigatePreviousCommand.NotifyCanExecuteChanged();
         NavigateNextCommand.NotifyCanExecuteChanged();
-        NavigationChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private bool CanNavigatePrevious() => Items.Count > 0 && CurrentIndex > 0;
