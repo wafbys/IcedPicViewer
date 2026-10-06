@@ -65,4 +65,19 @@ public class AppSettings
 
     /// <summary>Last folder successfully opened (empty = none).</summary>
     public string LastFolderPath { get; set; } = "";
+
+    /// <summary>
+    /// Gallery media filter: 0=All, 1=Image, 2=Video. Stored as int so the
+    /// JSON stays decoupled from the enum in Core.Media.
+    /// </summary>
+    public int GalleryFilter { get; set; }
+
+    /// <summary>Gallery sort key: 0=Name, 1=Date, 2=Size, 3=Extension.</summary>
+    public int GallerySortKey { get; set; }
+
+    /// <summary>True when the gallery sorts descending.</summary>
+    public bool GallerySortDescending { get; set; }
+
+    /// <summary>True when the viewer fits the image to the window (false = 1:1).</summary>
+    public bool ViewerFitMode { get; set; } = true;
 }

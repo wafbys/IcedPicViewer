@@ -509,6 +509,10 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             _fullResCts?.Dispose();
             _fullResCts = null;
         }
+
+        // Persist (same write-back pattern as the slideshow preferences).
+        _settingsService.Current.ViewerFitMode = value;
+        _settingsService.ScheduleSave();
     }
 
     private async Task LoadFullResFor1To1Async(MediaItem item, CancellationToken ct)
@@ -1169,6 +1173,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         IsSlideshowShuffling = _settingsService.Current.SlideshowShuffle;
         SlideshowInterval = _settingsService.Current.SlideshowInterval;
         Volume = _settingsService.Current.VideoVolume;
+        IsFitMode = _settingsService.Current.ViewerFitMode;
 
         // Named handlers (not lambdas) so Dispose can unsubscribe — avoids lambda
         // captures keeping this singleton alive past the App's lifetime.

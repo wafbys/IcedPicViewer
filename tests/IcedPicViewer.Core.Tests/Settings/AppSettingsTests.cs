@@ -22,6 +22,10 @@ public sealed class AppSettingsTests
         Assert.Equal(720, defaults.WindowHeight);
         Assert.False(defaults.WindowMaximized);
         Assert.Equal("", defaults.LastFolderPath);
+        Assert.Equal(0, defaults.GalleryFilter);
+        Assert.Equal(0, defaults.GallerySortKey);
+        Assert.False(defaults.GallerySortDescending);
+        Assert.True(defaults.ViewerFitMode);
     }
 
     [Fact]
@@ -36,6 +40,10 @@ public sealed class AppSettingsTests
             WindowHeight = 800,
             WindowX = 100,
             WindowY = 200,
+            GalleryFilter = 2,
+            GallerySortKey = 3,
+            GallerySortDescending = true,
+            ViewerFitMode = false,
         };
 
         var json = JsonSerializer.Serialize(settings);
@@ -45,6 +53,10 @@ public sealed class AppSettingsTests
         Assert.Equal(10.0, deserialized.SlideshowInterval);
         Assert.Equal(0.75, deserialized.VideoVolume);
         Assert.Equal(1280, deserialized.WindowWidth);
+        Assert.Equal(2, deserialized.GalleryFilter);
+        Assert.Equal(3, deserialized.GallerySortKey);
+        Assert.True(deserialized.GallerySortDescending);
+        Assert.False(deserialized.ViewerFitMode);
     }
 
     [Fact]
@@ -58,6 +70,8 @@ public sealed class AppSettingsTests
         Assert.Equal(5.0, deserialized.SlideshowInterval); // default
         Assert.Equal(1.0, deserialized.VideoVolume); // default
         Assert.Equal(double.NaN, deserialized.WindowX); // default
+        Assert.Equal(0, deserialized.GalleryFilter); // default
+        Assert.True(deserialized.ViewerFitMode); // default (old settings.json lacks it)
     }
 
 }

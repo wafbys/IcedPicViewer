@@ -211,19 +211,32 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(FilterIndex));
         OnPropertyChanged(nameof(IsQueryActive));
+        PersistGalleryQuerySettings();
         ScheduleViewRebuild();
     }
 
     partial void OnSortKeyChanged(MediaSortKey value)
     {
         OnPropertyChanged(nameof(SortIndex));
+        PersistGalleryQuerySettings();
         ScheduleViewRebuild();
     }
 
     partial void OnSortDescendingChanged(bool value)
     {
         OnPropertyChanged(nameof(SortDirectionLabel));
+        PersistGalleryQuerySettings();
         ScheduleViewRebuild();
+    }
+
+    /// <summary>Writes the gallery filter/sort toggles through to settings.json.</summary>
+    private void PersistGalleryQuerySettings()
+    {
+        var settings = _settingsService.Current;
+        settings.GalleryFilter = (int)Filter;
+        settings.GallerySortKey = (int)SortKey;
+        settings.GallerySortDescending = SortDescending;
+        _settingsService.ScheduleSave();
     }
 
     partial void OnSearchTextChanged(string value)
@@ -328,6 +341,16 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         // setter would re-trigger ScheduleSave for the value we just
         // read — assignment to the field is enough.
         _slideshowInterval = _settingsService.Current.SlideshowInterval;
+
+        // Hydrate persisted gallery toggles. Validate the enum-backed ints so a
+        // hand-edited settings.json cannot select an invalid combo index.
+        _suppressRebuild = true;
+        var savedFilter = _settingsService.Current.GalleryFilter;
+        if (savedFilter is >= 0 and <= 2) Filter = (MediaFilter)savedFilter;
+        var savedSort = _settingsService.Current.GallerySortKey;
+        if (savedSort is >= 0 and <= 3) SortKey = (MediaSortKey)savedSort;
+        SortDescending = _settingsService.Current.GallerySortDescending;
+        _suppressRebuild = false;
 
         // Progress<T> captures the sync context of the thread that created
         // it (the UI thread here), so the callback is auto-dispatched back
