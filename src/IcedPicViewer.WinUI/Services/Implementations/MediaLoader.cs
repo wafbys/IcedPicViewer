@@ -104,10 +104,10 @@ public class MediaLoader : IMediaLoader
         if (thumb is { } t)
         {
             _thumbnailCache.Store(cacheKey, t);
-            // Persist under the caller's 6-way thumbnail semaphore instead of
-            // fire-and-forget: this bounds WIC encode concurrency, and the
-            // bitmap is not handed to the UI (SoftwareBitmapSource) until the
-            // write is done, so encoder and UI never touch it at once.
+            // Persisting returns as soon as the bitmap is cloned: the disk cache
+            // owns a bounded encode pool (PNG compression is ~5-10x a JPEG
+            // encode), so the gallery is not held back by it, and the clone —
+            // not this bitmap — is what the encoder touches.
             await _thumbnailDiskCache.StoreAsync(media, maxSize, t, ct);
         }
         return thumb;

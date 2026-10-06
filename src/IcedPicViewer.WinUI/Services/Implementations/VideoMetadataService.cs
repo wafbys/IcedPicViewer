@@ -243,8 +243,8 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             var oh = f.SourceHeight > 0 ? f.SourceHeight : 0;
             var thumb = new CachedThumb(sb, ow, oh, f.Duration);
             _thumbnailCache.Store(cacheKey, thumb);
-            // See MediaLoader: bounded (awaited) write so encode concurrency
-            // cannot pile up on the thread pool.
+            // See MediaLoader: this returns once the bitmap is cloned, so the
+            // FFmpeg decode path is never blocked by the PNG encode.
             await _thumbnailDiskCache.StoreAsync(media, maxSize, thumb, ct);
             return thumb;
         }
