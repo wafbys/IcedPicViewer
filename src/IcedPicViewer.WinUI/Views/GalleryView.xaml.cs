@@ -139,21 +139,29 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     // hiding the chrome therefore does NOT resize the content area;
     // the user's thumbnail layout stays exactly where it was.
     //
-    // Outside fullscreen the chrome is always Visible. Inside fullscreen:
-    // large top/bottom edge hot-zones reveal header/status; leave-edge
-    // schedules a short delayed hide (media-player style).
+    // Header: auto-hides in BOTH presenters now — windowed mode used to
+    // pin it over the top of the masonry. The top edge hot-zone reveals
+    // it; leaving the zone schedules the delayed hide. The first gallery
+    // entry of a session dwells longer (InitialChromeDwellMs) so the
+    // toolbar has a chance to be discovered; later entries (including
+    // coming back from the viewer) use the normal countdown. Hiding is
+    // suppressed while the user is working inside the header (combo
+    // open, suggestions open, keyboard focus inside — see
+    // IsChromeInteractionActive).
     //
-    // HeaderVisibility / StatusVisibility derive from both
-    // IsFullscreenStatic() (windowed = always Visible) and the
-    // per-bar IsHeaderVisible / IsStatusVisible flag. The XAML
-    // OneWay bind to the chrome Grid's Visibility is what actually
-    // shows / hides the overlay.
+    // Status bar: pinned visible in windowed mode (it carries scan /
+    // backfill progress and delete feedback); it auto-hides together
+    // with the header only in fullscreen, where the bottom hot-zone
+    // reveals it.
     // ----------------------------------------------------------------
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; the body reads only static-friendly inputs but the binding surface is the instance form.")]
-    public Visibility HeaderVisibility => IsFullscreenStatic()
-        ? (IsHeaderVisible ? Visibility.Visible : Visibility.Collapsed)
-        : Visibility.Visible;
+    /// <summary>
+    /// Bound by the header chrome's Visibility. The auto-hide contract
+    /// applies in both presenters now; the status bar keeps its windowed
+    /// exception (see the region comment above).
+    /// </summary>
+    public Visibility HeaderVisibility =>
+        IsHeaderVisible ? Visibility.Visible : Visibility.Collapsed;
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; the body reads only static-friendly inputs but the binding surface is the instance form.")]
     public Visibility StatusVisibility => IsFullscreenStatic()
@@ -169,10 +177,10 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             if (_isHeaderVisible == value) return;
             _isHeaderVisible = value;
             OnPropertyChanged(nameof(IsHeaderVisible));
-            // HeaderVisibility derives from this + IsFullscreenStatic();
-            // x:Bind on Visibility needs the explicit notification to
-            // re-evaluate. Setters never raise PropertyChanged for
-            // computed properties on their own.
+            // HeaderVisibility derives from this flag; x:Bind on
+            // Visibility needs the explicit notification to re-evaluate.
+            // Setters never raise PropertyChanged for computed properties
+            // on their own.
             OnPropertyChanged(nameof(HeaderVisibility));
         }
     }
@@ -197,7 +205,24 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     private const double ChromeBottomZoneMinPx = 72;
     private const double ChromeTopZoneHeightFraction = 0.12;
     private const double ChromeBottomZoneHeightFraction = 0.08;
-    private const int ChromeHideDelayMs = 900;
+    private const int ChromeHideDelayMs = 2000;
+
+    /// <summary>
+    /// The first gallery entry of a session keeps the header up this long
+    /// before the normal auto-hide rhythm starts, so the toolbar is
+    /// discoverable on a cold start. One-shot per process: every later
+    /// visit (including coming back from the viewer) uses
+    /// <see cref="ChromeHideDelayMs"/>.
+    /// </summary>
+    private const int InitialChromeDwellMs = 5000;
+    private static bool s_initialChromeDwellPending = true;
+
+    private static int TakeInitialDwellDelay()
+    {
+        if (!s_initialChromeDwellPending) return ChromeHideDelayMs;
+        s_initialChromeDwellPending = false;
+        return InitialChromeDwellMs;
+    }
 
     private bool _pointerInTopHotZone;
     private bool _pointerInBottomHotZone;
@@ -209,25 +234,18 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     {
         if (e.PropertyName == nameof(MainWindow.IsFullscreen))
         {
-            var fs = IsFullscreenStatic();
-            if (fs)
-            {
-                // Brief show then auto-hide (cue that edges work).
-                _pointerInTopHotZone = false;
-                _pointerInBottomHotZone = false;
-                IsHeaderVisible = true;
-                IsStatusVisible = true;
-                StopChromeHideTimer();
-                ScheduleChromeHide();
-            }
-            else
-            {
-                StopChromeHideTimer();
-                _pointerInTopHotZone = false;
-                _pointerInBottomHotZone = false;
-                IsHeaderVisible = true;
-                IsStatusVisible = true;
-            }
+            // Both presenters now auto-hide the header, so every path
+            // (the initial sync from the ctor, entering fullscreen,
+            // leaving fullscreen) behaves the same: show the chrome,
+            // then let the countdown collapse it again. Leaving
+            // fullscreen used to pin the chrome visible; without this
+            // the header would stay open after a fullscreen roundtrip.
+            _pointerInTopHotZone = false;
+            _pointerInBottomHotZone = false;
+            IsHeaderVisible = true;
+            IsStatusVisible = true;
+            StopChromeHideTimer();
+            ScheduleChromeHide(TakeInitialDwellDelay());
         }
     }
 
@@ -283,18 +301,42 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     }
 
     /// <summary>
-    /// Fullscreen edge hot-zones (Photos / media-player style).
-    /// Top band → header; bottom band → status. Leaving both schedules
-    /// a single delayed hide (not re-armed by mid-screen scroll moves).
+    /// Chrome edge hot-zones (Photos / media-player style).
+    /// Top band → header (both presenters); bottom band → status
+    /// (fullscreen only — the status bar is pinned visible in windowed
+    /// mode). Leaving the edges schedules a single delayed hide (not
+    /// re-armed by mid-screen scroll moves).
     /// </summary>
     private void RootGrid_PointerMoved(object sender, PointerRoutedEventArgs e)
-    {
-        if (!IsFullscreenStatic())
-            return;
+        => HandleChromePointer(e);
 
+    // Touch and pen taps produce PointerPressed but often no PointerMoved
+    // frames, so a contact inside the top zone must count as a reveal
+    // gesture too — otherwise touch users could never bring the
+    // auto-hidden header back (there is no hover on touch).
+    private void RootGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
+        => HandleChromePointer(e);
+
+    // Keyboard-only users have no pointer to wave at the top edge, and
+    // the header owns the gallery's primary actions (open folder /
+    // refresh). Tab is the "I want to reach the controls" gesture, so it
+    // reveals the header; focus then lands inside it, which keeps it up
+    // through IsChromeInteractionActive. The key itself is not handled —
+    // focus navigation proceeds normally.
+    private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Tab) return;
+        StopChromeHideTimer();
+        IsHeaderVisible = true;
+    }
+
+    private void HandleChromePointer(PointerRoutedEventArgs e)
+    {
         var pos = e.GetCurrentPoint(RootGrid).Position;
         var height = RootGrid.ActualHeight;
         if (height <= 0) return;
+
+        var fullscreen = IsFullscreenStatic();
 
         var topZone = Math.Max(ChromeTopZoneMinPx, height * ChromeTopZoneHeightFraction);
         if (IsHeaderVisible)
@@ -305,7 +347,11 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             bottomZone = Math.Max(bottomZone, StatusChrome.ActualHeight > 0 ? StatusChrome.ActualHeight + 32 : 96);
 
         var inTop = pos.Y <= topZone;
-        var inBottom = pos.Y >= height - bottomZone;
+        // The bottom hot-zone only exists in fullscreen: there it reveals
+        // the status bar, but in windowed mode the status bar never
+        // hides, so counting a bottom-edge move as "edge activity" would
+        // bypass the normal countdown and snap the header away instantly.
+        var inBottom = fullscreen && pos.Y >= height - bottomZone;
 
         if (inTop || inBottom)
         {
@@ -317,8 +363,10 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             // Independent: leaving one edge while staying on the other
             // should hide only the unused bar after delay — when only
             // one edge is active, clear the other immediately.
+            // (Fullscreen only: in windowed mode the status bar is
+            // pinned and the header follows the normal countdown.)
             if (!inTop) IsHeaderVisible = false;
-            if (!inBottom) IsStatusVisible = false;
+            if (fullscreen && !inBottom) IsStatusVisible = false;
             return;
         }
 
@@ -328,17 +376,26 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         _pointerInBottomHotZone = false;
         if (wasInEdge)
             ScheduleChromeHide();
-        else if ((IsHeaderVisible || IsStatusVisible) && _chromeHideTimer is null)
+        else if (IsAnyHideableChromeVisible() && _chromeHideTimer is null)
             ScheduleChromeHide();
     }
 
-    private void ScheduleChromeHide()
+    /// <summary>
+    /// True when any chrome bar that participates in the auto-hide for the
+    /// current presenter is visible. The status bar counts only in
+    /// fullscreen; in windowed mode it is pinned visible, so counting it
+    /// here would re-arm a do-nothing countdown on every mid-screen move
+    /// even after the header has already collapsed.
+    /// </summary>
+    private bool IsAnyHideableChromeVisible()
+        => IsHeaderVisible || (IsFullscreenStatic() && IsStatusVisible);
+
+    private void ScheduleChromeHide(int delayMs = ChromeHideDelayMs)
     {
-        if (!IsFullscreenStatic()) return;
         if (_chromeHideTimer is not null) return;
         var t = DispatcherQueue.CreateTimer();
         t.IsRepeating = false;
-        t.Interval = TimeSpan.FromMilliseconds(ChromeHideDelayMs);
+        t.Interval = TimeSpan.FromMilliseconds(delayMs);
         t.Tick += OnChromeHideTick;
         _chromeHideTimer = t;
         t.Start();
@@ -347,10 +404,50 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     private void OnChromeHideTick(DispatcherQueueTimer sender, object args)
     {
         StopChromeHideTimer();
-        if (!IsFullscreenStatic()) return;
         if (_pointerInTopHotZone || _pointerInBottomHotZone) return;
+        if (IsChromeInteractionActive()) return;
         IsHeaderVisible = false;
-        IsStatusVisible = false;
+        // The status bar only participates in the auto-hide in fullscreen;
+        // windowed mode keeps it pinned (progress + feedback).
+        if (IsFullscreenStatic()) IsStatusVisible = false;
+    }
+
+    /// <summary>
+    /// True while the user is working inside the header toolbar — a combo
+    /// box dropdown or the search suggestion list is open, or keyboard
+    /// focus sits inside the header. Collapsing the header then would
+    /// yank a dropdown off screen or strand focus inside a hidden
+    /// element. The countdown is abandoned, not deferred: the next
+    /// pointer move outside the top zone re-arms it.
+    /// </summary>
+    private bool IsChromeInteractionActive()
+    {
+        if (FilterCombo.IsDropDownOpen || SortCombo.IsDropDownOpen || SearchBox.IsSuggestionListOpen)
+        {
+            return true;
+        }
+
+        if (RootGrid.XamlRoot is { } root &&
+            FocusManager.GetFocusedElement(root) is DependencyObject focused)
+        {
+            return IsElementInsideHeader(focused);
+        }
+
+        return false;
+    }
+
+    private bool IsElementInsideHeader(DependencyObject element)
+    {
+        // The header is a direct child of RootGrid, so this walk is at
+        // most a couple of hops.
+        for (var node = element; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (ReferenceEquals(node, HeaderChrome))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void StopChromeHideTimer()

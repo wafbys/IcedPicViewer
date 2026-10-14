@@ -11,7 +11,9 @@
     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
 
     <Grid x:Name="MainContentGrid" IsTabStop="True"
-          PointerMoved="MainContentGrid_PointerMoved">
+          PointerMoved="MainContentGrid_PointerMoved"
+          PointerPressed="MainContentGrid_PointerPressed"
+          KeyDown="MainContentGrid_KeyDown">
         <Grid.ContextFlyout>
             <MenuFlyout>
                 <MenuFlyoutItem Text="打开文件位置" Click="OpenFileLocation_Click"/>

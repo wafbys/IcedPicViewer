@@ -98,21 +98,27 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
 
     // ----------------------------------------------------------------
-    // Fullscreen chrome (edge hot-zone, mainstream media-player style)
+    // Floating chrome (edge hot-zone, mainstream media-player style).
+    // Applies in BOTH presenters: in fullscreen the bar would cover the
+    // immersive canvas, and in windowed mode it permanently covered the
+    // top band of the image — so the same auto-hide applies either way.
     //
     // Reveal: pointer in a generous top band (max of ~10% height / 96px,
     // and the command bar's own height + slack when already shown).
     // Hide: only after leaving the zone for ChromeHideDelayMs — not on
     // every mid-screen move (that used to restart a timer forever while
-    // scrolling). Enter fullscreen briefly shows chrome then auto-hides
-    // so users learn the edge cue.
+    // scrolling) — and never while the user is still interacting with
+    // the bar (overflow menu open / focus inside it; see
+    // IsChromeInteractionActive). Entering the viewer or switching
+    // presenters briefly shows chrome then auto-hides so users learn the
+    // edge cue.
     // ----------------------------------------------------------------
     private bool _isCommandBarVisible = true;
     private bool _pointerInChromeHotZone;
     private DispatcherQueueTimer? _chromeHideTimer;
 
     /// <summary>Delay after leaving the edge before chrome collapses.</summary>
-    private const int ChromeHideDelayMs = 900;
+    private const int ChromeHideDelayMs = 2000;
 
     /// <summary>Minimum top edge band when chrome is hidden (DIP).</summary>
     private const double ChromeTopZoneMinPx = 96;
@@ -132,10 +138,13 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         }
     }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; the body reads only static / state-free inputs but the binding surface is the instance form.")]
-    public Visibility CommandBarVisibility => IsFullscreenStatic()
-        ? (IsCommandBarVisible ? Visibility.Visible : Visibility.Collapsed)
-        : Visibility.Visible;
+    /// <summary>
+    /// Bound by the CommandBar's Visibility. The auto-hide state applies in
+    /// both presenters now — in windowed mode the bar used to be pinned
+    /// visible and permanently covered the top of the image.
+    /// </summary>
+    public Visibility CommandBarVisibility =>
+        IsCommandBarVisible ? Visibility.Visible : Visibility.Collapsed;
 
     private double ComputeTopHotZoneHeight(double viewportHeight)
     {
@@ -152,10 +161,28 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     }
 
     private void MainContentGrid_PointerMoved(object sender, PointerRoutedEventArgs e)
-    {
-        if (!IsFullscreenStatic())
-            return;
+        => HandleChromePointer(e);
 
+    // Touch and pen taps produce PointerPressed but often no PointerMoved
+    // frames at all, so a contact that lands in the top zone must count as
+    // a reveal gesture too — otherwise touch users could never bring the
+    // auto-hidden bar back (there is no hover on touch).
+    private void MainContentGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
+        => HandleChromePointer(e);
+
+    // Keyboard-only users cannot hover the top edge. Tab is the "I want
+    // to reach the controls" gesture, so it reveals the bar; focus then
+    // lands inside it and IsChromeInteractionActive keeps it up. The key
+    // itself is not handled — focus navigation proceeds normally.
+    private void MainContentGrid_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Tab) return;
+        StopChromeHideTimer();
+        IsCommandBarVisible = true;
+    }
+
+    private void HandleChromePointer(PointerRoutedEventArgs e)
+    {
         var y = e.GetCurrentPoint(MainContentGrid).Position.Y;
         var h = MainContentGrid.ActualHeight;
         if (h <= 0) return;
@@ -185,7 +212,6 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
 
     private void ScheduleChromeHide()
     {
-        if (!IsFullscreenStatic()) return;
         if (_chromeHideTimer is not null) return; // already counting down
         var t = DispatcherQueue.CreateTimer();
         t.IsRepeating = false;
@@ -198,8 +224,48 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     private void OnChromeHideTick(DispatcherQueueTimer sender, object args)
     {
         StopChromeHideTimer();
-        if (!IsFullscreenStatic() || _pointerInChromeHotZone) return;
+        if (_pointerInChromeHotZone) return;
+        if (IsChromeInteractionActive()) return;
         IsCommandBarVisible = false;
+    }
+
+    /// <summary>
+    /// True while the user is interacting with the command bar itself, in
+    /// which case the countdown must not collapse it: hiding would yank an
+    /// open overflow menu off screen, or drop keyboard focus out from
+    /// under the user (the slideshow-interval slider lives in the bar).
+    /// The countdown is abandoned rather than deferred — the next pointer
+    /// move out of the top zone re-arms it.
+    /// </summary>
+    private bool IsChromeInteractionActive()
+    {
+        if (ViewerCommandBar.IsOpen)
+        {
+            return true;
+        }
+
+        if (MainContentGrid.XamlRoot is { } root &&
+            FocusManager.GetFocusedElement(root) is DependencyObject focused)
+        {
+            return IsElementInsideCommandBar(focused);
+        }
+
+        return false;
+    }
+
+    private bool IsElementInsideCommandBar(DependencyObject element)
+    {
+        // The bar is a direct child of MainContentGrid, so this walk is at
+        // most a couple of hops. The walk accepts any DependencyObject so
+        // a future focusable non-control can't crash it.
+        for (var node = element; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (ReferenceEquals(node, ViewerCommandBar))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void StopChromeHideTimer()
@@ -219,20 +285,15 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
             OnPropertyChanged(nameof(IsFullscreenLabel));
             OnPropertyChanged(nameof(IsFullscreenTooltip));
 
-            if (IsFullscreen)
-            {
-                // Brief show so users know chrome exists, then auto-hide.
-                _pointerInChromeHotZone = false;
-                IsCommandBarVisible = true;
-                StopChromeHideTimer();
-                ScheduleChromeHide();
-            }
-            else
-            {
-                StopChromeHideTimer();
-                _pointerInChromeHotZone = false;
-                IsCommandBarVisible = true;
-            }
+            // Both directions behave the same now that windowed chrome
+            // auto-hides too: show the bar briefly (entering fullscreen
+            // must not look like the bar vanished for no reason, and
+            // leaving it must not pin the bar open), then let the
+            // countdown collapse it again.
+            _pointerInChromeHotZone = false;
+            IsCommandBarVisible = true;
+            StopChromeHideTimer();
+            ScheduleChromeHide();
         }
     }
 
@@ -707,6 +768,12 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         // navigation.
         _copyResetTimer?.Stop();
         _copyResetTimer = null;
+
+        // Same reasoning for the chrome auto-hide timer — and now that
+        // windowed chrome counts down too, this is no longer fullscreen
+        // only: a tick firing after teardown would flip visibility on a
+        // defunct page and keep it alive through the timer's delegate.
+        StopChromeHideTimer();
     }
 
     private void OnDisplayImageChanged(object? sender, EventArgs e)

@@ -27,7 +27,9 @@
         pointer is over the ScrollViewer's empty area.
     -->
     <Grid x:Name="RootGrid"
-          PointerMoved="RootGrid_PointerMoved">
+          PointerMoved="RootGrid_PointerMoved"
+          PointerPressed="RootGrid_PointerPressed"
+          KeyDown="RootGrid_KeyDown">
         <Grid.RowDefinitions>
             <RowDefinition Height="0"/>
             <RowDefinition Height="*"/>
@@ -252,7 +254,8 @@
                         HorizontalAlignment="Right"
                         VerticalAlignment="Center"
                         Margin="8,0">
-                <ComboBox SelectedIndex="{x:Bind ViewModel.FilterIndex, Mode=TwoWay}"
+                <ComboBox x:Name="FilterCombo"
+                          SelectedIndex="{x:Bind ViewModel.FilterIndex, Mode=TwoWay}"
                           MinWidth="92"
                           VerticalAlignment="Center"
                           ToolTipService.ToolTip="筛选：全部 / 图片 / 视频">
@@ -260,7 +263,8 @@
                     <ComboBoxItem Content="图片"/>
                     <ComboBoxItem Content="视频"/>
                 </ComboBox>
-                <ComboBox SelectedIndex="{x:Bind ViewModel.SortIndex, Mode=TwoWay}"
+                <ComboBox x:Name="SortCombo"
+                          SelectedIndex="{x:Bind ViewModel.SortIndex, Mode=TwoWay}"
                           MinWidth="104"
                           VerticalAlignment="Center"
                           ToolTipService.ToolTip="排序：名称 / 日期 / 大小 / 扩展名">
@@ -274,7 +278,8 @@
                               MinWidth="60"
                               VerticalAlignment="Center"
                               ToolTipService.ToolTip="正序 / 倒序"/>
-                <AutoSuggestBox Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}"
+                <AutoSuggestBox x:Name="SearchBox"
+                                Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}"
                                 PlaceholderText="查找（支持 * 和 ?）"
                                 QueryIcon="Find"
                                 Width="200"
