@@ -295,7 +295,8 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
 
         return key switch
         {
-            Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right =>
+            Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right or
+            Windows.System.VirtualKey.Home or Windows.System.VirtualKey.End =>
                 IsInside<Slider>(focused),
             Windows.System.VirtualKey.Space =>
                 IsInside<ButtonBase>(focused),

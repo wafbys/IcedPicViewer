@@ -1266,6 +1266,41 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Home: jump to the first item of the loaded range (index 0 is always
+    /// materialised — page one is what auto-fill fills first).
+    /// </summary>
+    [RelayCommand]
+    private async Task NavigateFirstAsync()
+    {
+        if (Items.Count == 0 || CurrentIndex <= 0) return;
+        StopAndDisposePlayer();
+        CurrentIndex = 0;
+        await ShowSelectedItemAsync();
+    }
+
+    /// <summary>
+    /// End: jump to the last item of the loaded range. When the view is
+    /// already at the loaded end but more pages exist, one load-more round
+    /// runs first — repeated presses therefore walk the batches to the true
+    /// end without materialising the whole folder at once (the same bounded
+    /// behaviour as Next at a page boundary).
+    /// </summary>
+    [RelayCommand]
+    private async Task NavigateLastAsync()
+    {
+        if (Items.Count == 0) return;
+        if (CurrentIndex >= Items.Count - 1)
+        {
+            if (!_galleryViewModel.CanLoadMore || _galleryViewModel.IsLoadingMore) return;
+            await _galleryViewModel.LoadMoreAsync();
+            if (CurrentIndex >= Items.Count - 1) return;
+        }
+        StopAndDisposePlayer();
+        CurrentIndex = Items.Count - 1;
+        await ShowSelectedItemAsync();
+    }
+
     [RelayCommand]
     private void Close()
     {

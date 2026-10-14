@@ -543,6 +543,14 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
                 if (vm.NavigateNextCommand.CanExecute(null))
                     vm.NavigateNextCommand.Execute(null);
                 break;
+            case Windows.System.VirtualKey.Home:
+                if (vm.NavigateFirstCommand.CanExecute(null))
+                    vm.NavigateFirstCommand.Execute(null);
+                break;
+            case Windows.System.VirtualKey.End:
+                if (vm.NavigateLastCommand.CanExecute(null))
+                    vm.NavigateLastCommand.Execute(null);
+                break;
             case Windows.System.VirtualKey.Delete:
                 if (vm.DeleteCommand.CanExecute(null))
                     vm.DeleteCommand.Execute(null);
