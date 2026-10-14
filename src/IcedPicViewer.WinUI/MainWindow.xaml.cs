@@ -21,6 +21,10 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
     private Windows.Graphics.RectInt32 _lastWindowedBounds;
 
+    // Configured in the ctor (minimum size + kept so ToggleFullscreen can
+    // restore this exact instance instead of a fresh default presenter).
+    private OverlappedPresenter? _overlappedPresenter;
+
     private static string GetSettingsPath()
     {
         // Window geometry lives in %LOCALAPPDATA%\IcedPicViewer (AppDataPaths).
@@ -60,7 +64,16 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         var prevIsFullscreen = IsFullscreen;
         if (IsFullscreen)
         {
-            AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+            // Restore the configured instance (not the bare enum) so the
+            // minimum-size constraints survive a fullscreen roundtrip.
+            if (_overlappedPresenter is not null)
+            {
+                AppWindow.SetPresenter(_overlappedPresenter);
+            }
+            else
+            {
+                AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+            }
         }
         else
         {
@@ -142,14 +155,32 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
         // Minimum window size. Below ~680 DIP the gallery header cannot
         // fit even in its icon-only compact state (GalleryView.xaml's
-        // adaptive states), so the window would otherwise be resizable
-        // into a clipped-toolbar state; 480 height keeps the empty state
-        // and the status bar usable.
-        if (AppWindow.Presenter is OverlappedPresenter overlappedPresenter)
-        {
-            overlappedPresenter.PreferredMinimumWidth = 680;
-            overlappedPresenter.PreferredMinimumHeight = 480;
-        }
+        // adaptive states). Configure a dedicated OverlappedPresenter
+        // instance and APPLY it: merely setting these properties on the
+        // existing default presenter does not make the OS enforce them
+        // for user resizing (verified by querying WM_GETMINMAXINFO — the
+        // min track size still came back as 0). The instance is kept in a
+        // field so ToggleFullscreen can restore it (instance-based
+        // SetPresenter preserves the constraint; the kind-based overload
+        // would swap in a fresh default presenter).
+        _overlappedPresenter = OverlappedPresenter.Create();
+        // AppWindow / presenter APIs use PHYSICAL pixels while the
+        // header's adaptive breakpoints are DIP, so the floor must be
+        // scaled by the window DPI: an unscaled 680 on a 150% display is
+        // only 453 DIP and would let the user drag back into the
+        // truncated state (verified via WM_GETMINMAXINFO + a simulated
+        // edge drag: the min track was enforced, but at 680 phys).
+        // XamlRoot is not attached yet in this ctor (reading
+        // Content.XamlRoot.RasterizationScale silently fell back to 1.0),
+        // so ask Win32 for the DPI directly. The floor is sampled once;
+        // moving to a monitor with a different DPI keeps the physical
+        // floor (a slightly different DIP floor) — acceptable for a
+        // minimum-size guard.
+        var dpi = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        var rasterizationScale = dpi > 0 ? dpi / 96.0 : 1.0;
+        _overlappedPresenter.PreferredMinimumWidth = (int)Math.Round(680 * rasterizationScale);
+        _overlappedPresenter.PreferredMinimumHeight = (int)Math.Round(480 * rasterizationScale);
+        AppWindow.SetPresenter(_overlappedPresenter);
 
         RestoreWindowState();
 
@@ -225,6 +256,9 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             _hookInstalled = true;
         }
     }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 
     // ---- WH_KEYBOARD thread-scope hook ----
 
