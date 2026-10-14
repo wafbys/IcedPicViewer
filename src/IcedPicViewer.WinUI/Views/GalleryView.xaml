@@ -200,7 +200,7 @@
                                     <TextBlock Text="{x:Bind Name, Mode=OneWay}"
                                                Style="{StaticResource AppCaptionTextBlockStyle}"
                                                Foreground="White"
-                                               FontWeight="SemiBold"
+                                               FontWeight="Bold"
                                                TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="{x:Bind InfoLine, Mode=OneWay}"
                                                Style="{StaticResource AppCaptionTextBlockStyle}"

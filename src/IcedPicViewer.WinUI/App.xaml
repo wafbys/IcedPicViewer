@@ -35,9 +35,10 @@
                 SemiBold 请求下中文会出现「首字加粗、其余常规」的逐字不一致
                 （2026-10 截图实证：同一 20px 字符串里 还=粗、其余=常规；
                 显式字体链下渲染统一）。页面引用这些 App* 版本即可。
-                注意：微软雅黑 UI 只有 Light/Regular/Bold、没有 Semibold，
-                所以 SemiBold 请求会统一落到 Regular（层次靠字号区分）；
-                若要标题更重，给对应样式或元素加 FontWeight="Bold" 即可。
+                字重：微软雅黑 UI 只有 Light/Regular/Bold、没有 Semibold，
+                半粗请求会静默退化为 Regular。为了保住设计意图里的强调层级，
+                三支「强调型」样式（BodyStrong / Subtitle / Title）显式使用
+                Bold —— 雅黑 UI 可用字重中唯一的重档，且渲染均匀。
             -->
             <Style x:Key="AppCaptionTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
                 <Setter Property="FontFamily" Value="Segoe UI Variable Text, Microsoft YaHei UI" />
@@ -47,12 +48,15 @@
             </Style>
             <Style x:Key="AppBodyStrongTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
                 <Setter Property="FontFamily" Value="Segoe UI Variable Text, Microsoft YaHei UI" />
+                <Setter Property="FontWeight" Value="Bold" />
             </Style>
             <Style x:Key="AppSubtitleTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource SubtitleTextBlockStyle}">
                 <Setter Property="FontFamily" Value="Segoe UI Variable Text, Microsoft YaHei UI" />
+                <Setter Property="FontWeight" Value="Bold" />
             </Style>
             <Style x:Key="AppTitleTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
                 <Setter Property="FontFamily" Value="Segoe UI Variable Text, Microsoft YaHei UI" />
+                <Setter Property="FontWeight" Value="Bold" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>
