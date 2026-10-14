@@ -564,11 +564,26 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
                 vm.CloseCommand.Execute(null);
                 break;
             case Windows.System.VirtualKey.Space:
-                // Start playback, or toggle LibVLC pause (MF uses built-in controls).
+                // Videos: start playback, or toggle LibVLC pause (MF uses
+                // built-in controls). Images: Space is the slideshow's
+                // play/pause — start it, or stop it while running (the
+                // README has advertised this mapping all along).
                 if (vm.IsUsingVlc && vm.IsVideoPlaying)
                     vm.ToggleVlcPlayPause();
-                else if (vm.PlayCommand.CanExecute(null))
-                    vm.PlayCommand.Execute(null);
+                else if (vm.IsVideo)
+                {
+                    if (vm.PlayCommand.CanExecute(null))
+                        vm.PlayCommand.Execute(null);
+                }
+                else if (vm.SlideshowCommand.CanExecute(null))
+                {
+                    vm.SlideshowCommand.Execute(null);
+                }
+                break;
+            case Windows.System.VirtualKey.F:
+                // Fit ↔ 1:1 — the same toggle the toolbar button drives
+                // (README documented the shortcut; it now exists).
+                vm.IsFitMode = !vm.IsFitMode;
                 break;
             case Windows.System.VirtualKey.Number0:
             case Windows.System.VirtualKey.Number1:
