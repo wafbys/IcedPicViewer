@@ -1,5 +1,24 @@
 # 更新日志
 
+## 未发布
+
+### 修复：视频无封面（原生库与声明版本不符，失败全程静默）
+
+- **根因（两处不一致）**：v0.18.0 的 FFmpeg 9.0 升级把代码带到 `FFmpeg.AutoGen 9.0.1.1`（绑定 `avutil-61` / `avcodec-63` / …），但本机 `src/native/ffmpeg/win-x64` 仍是旧的 **8.1**（`avutil-60` / `avcodec-62`）；同时 **Core 的 `FFmpeg.AutoGen` 漏改**（仍 8.1.0 —— 应用靠 NuGet 统一到 9.0.1.1 才跑，Core 单独构建/测试则绑定 8.x）。结果 `FFmpegBootstrap` 加载 `avcodec-63` 失败 → `IsReady=false` → 每个视频抽帧返回 null。
+- **为什么没能拦住**：`IPV001` 只在「一个 DLL 都没有」时警告（8.1 旧文件让目录非空）；csproj 的 loose-layout `<Content>` 门用**单文件** `Exists('avutil-61.dll')`（升级后为假，`dotnet run` 真正执行的 `AppX\` 一个 FFmpeg DLL 都收不到）；运行时失败只写 Trace，UI 零提示。
+- **修复**：重拉 BtbN `n9.0` lgpl-shared；Core `FFmpeg.AutoGen` 8.1.0 → 9.0.1.1；WinUI csproj 的 `<FFmpegExpectedSonames>` 成为**声明的 soname 单一来源**（fetch 脚本解析同一属性，消除第二处硬编码）。
+- **构建期守卫**：`CopyFFmpegDllsToOutDir` 逐项比对实际 DLL —— 缺项报 `IPV002`（按项点名 + 给 `./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` 命令），整套缺失保留 `IPV001`；Content 门改为无条件 glob（缺目录即零文件，staging 不会再被单个文件的存在性挡掉）。实测三态：齐全静默 / 部分缺项点名 / 空目录 IPV001；另用假目录复现 8.1 场景，6 条警告逐项点名。
+- **运行期可见性**：About 页 FFmpeg 卡片加状态行——是否加载、`av_version_info()` 版本、来源目录；不可用时明说「视频缩略图、视频元数据与动图 WebP 无法解码」。此前页面只有静态「版本 9.0」文案，故障在 UI 上完全不可见。
+- **清理**：8.1 遗留 35 个文件 / 783 MB（含 4 处 bin 输出目录）；测试工程 `CA1861`（WebP 合成参数组改 `static readonly` 字段）。
+- **AGENTS.md**：FFmpeg 条目补记单一来源、Core/WinUI 两处包版本必须同步、`IPV001` / `IPV002` 语义。
+
+### 验证
+
+- Core `dotnet test` **192 passed**、0 warning；WinUI x64 Debug / Release `dotnet build` 0 warning / 0 error。
+- **真实抽帧实测**（自生成 2 s / 320×240 测试片，走生产路径 `VideoFrameExtractor`）：缩略图 256×192、时长 2 s、5426 种 RGB、缓冲区 196 608 B 精确。
+- 输出根与 `AppX\` loose layout（Debug + Release）均为 7 个 9.0 DLL，无 8.x 残留。
+- 待人工确认（未实测 GUI）：封面观感、About 状态行的实际渲染效果；`av_version_info()` 实测返回 `n9.0.2-27-g7e93014c5b-20261014`。
+
 ## v0.18.0 (2026-10-14)
 
 **主题：对照 WinUI Gallery / Fluent 2 的规范审计与体验强化**
