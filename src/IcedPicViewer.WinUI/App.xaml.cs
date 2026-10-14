@@ -205,6 +205,7 @@ public partial class App : Application
 
         // Single-file picker (gallery "打开文件").
         services.AddTransient<IFilePickerService, FilePickerService>();
+        services.AddSingleton<IJumpListService, JumpListService>();
 
         // Modal dialogs (ContentDialog). Singleton — stateless, just
         // wraps XamlRoot resolution and ContentDialog construction so VMs
@@ -264,6 +265,10 @@ public partial class App : Application
         // threw" stack trace they get when the decode fails.
         ProbeAndWarnMissingCodecs();
 
+        // Jump list: replay the persisted recent folders into the shell and
+        // route launch arguments coming from jump-list items to the gallery.
+        ApplyJumpListAndActivation();
+
         // FFmpeg probe (development-only). Runs only when:
 //   - IPV_FFMPEG_PROBE=1 env var (does NOT propagate through MSIX
 //     `winapp.exe launch` — see FFmpegProbeService doc comment), OR
@@ -280,6 +285,48 @@ if (FFmpegProbeService.IsProbeRequested || File.Exists(
 {
     _ = new FFmpegProbeService().RunAsync();
 }
+    }
+
+    /// <summary>
+    /// Shell jump-list integration: mirror the persisted recent folders into
+    /// the taskbar jump list, and honour launch arguments coming from
+    /// jump-list items — a folder path opens that folder, the
+    /// <see cref="JumpListService.OpenFolderPickerArgument"/> token shows the
+    /// folder picker. Failures are traced, never fatal.
+    /// </summary>
+    private void ApplyJumpListAndActivation()
+    {
+        var settings = GetService<ISettingsService>();
+        var jumpList = GetService<IJumpListService>();
+        _ = jumpList.UpdateRecentFoldersAsync(settings.Current.RecentFolders);
+
+        string? argument = null;
+        try
+        {
+            var activation = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
+            if (activation.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.Launch &&
+                activation.Data is Windows.ApplicationModel.Activation.LaunchActivatedEventArgs launchArgs)
+            {
+                argument = launchArgs.Arguments;
+            }
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"ApplyJumpListAndActivation: activation args unavailable: {ex.Message}");
+        }
+
+        if (string.IsNullOrEmpty(argument)) return;
+
+        var gallery = GetService<GalleryViewModel>();
+        var dispatcher = _window!.DispatcherQueue;
+        if (string.Equals(argument, JumpListService.OpenFolderPickerArgument, StringComparison.Ordinal))
+        {
+            dispatcher.TryEnqueue(() => gallery.OpenFolderCommand.Execute(null));
+        }
+        else if (Directory.Exists(argument))
+        {
+            dispatcher.TryEnqueue(() => _ = gallery.OpenFolderByPathAsync(argument));
+        }
     }
 
     private void OnAppWindowClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)

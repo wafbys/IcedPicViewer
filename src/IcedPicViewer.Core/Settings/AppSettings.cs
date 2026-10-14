@@ -1,5 +1,7 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using System.Collections.Generic;
+
 namespace IcedPicViewer.Services.Interfaces;
 
 /// <summary>
@@ -62,4 +64,12 @@ public class AppSettings
 
     /// <summary>True when the viewer fits the image to the window (false = 1:1).</summary>
     public bool ViewerFitMode { get; set; } = true;
+
+    /// <summary>
+    /// Most recently opened folders, most recent first. Mirrored into the
+    /// shell jump list (taskbar right-click menu) as launch targets; entries
+    /// that no longer exist are skipped at launch time. Capped by the
+    /// gallery view-model when recording.
+    /// </summary>
+    public List<string> RecentFolders { get; set; } = new();
 }

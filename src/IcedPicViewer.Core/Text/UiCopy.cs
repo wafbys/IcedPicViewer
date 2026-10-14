@@ -21,6 +21,7 @@ public static class UiCopy
     public const string OpenFolder = "打开文件夹";
     public const string OpenFile = "打开文件";
     public const string CloseFolder = "关闭目录";
+    public const string RecentFolders = "最近文件夹";
     public const string FilterLabel = "筛选";
     public const string SortLabel = "排序";
     public const string SearchPlaceholder = "查找（支持 * 和 ?）";

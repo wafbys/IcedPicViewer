@@ -29,6 +29,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private readonly IFilePickerService _filePicker;
     private readonly IDialogService _dialogService;
     private readonly ISettingsService _settingsService;
+    private readonly IJumpListService _jumpListService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
     // P1: one Trace line per completed scan so scan cost can be attributed
@@ -415,7 +416,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         IFolderPickerService folderPicker,
         IFilePickerService filePicker,
         IDialogService dialogService,
-        ISettingsService settingsService)
+        ISettingsService settingsService,
+        IJumpListService jumpListService)
     {
         _scanner = scanner;
         _imageLoader = imageLoader;
@@ -424,6 +426,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         _filePicker = filePicker;
         _dialogService = dialogService;
         _settingsService = settingsService;
+        _jumpListService = jumpListService;
 
         // Hydrate the persisted slideshow interval. The setter is
         // not used here because the backing field is private and the
@@ -510,6 +513,47 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrEmpty(folderPath))
         {
             await LoadDirectoryAsync(folderPath);
+            RecordRecentFolder(folderPath);
+        }
+    }
+
+    /// <summary>
+    /// Opens a folder without going through the picker. Used by the shell
+    /// jump list: clicking a recent-folder item launches the app with the
+    /// folder path as its activation argument. Non-existent paths are
+    /// ignored (the stale item simply does nothing).
+    /// </summary>
+    public async Task OpenFolderByPathAsync(string folderPath)
+    {
+        if (!Directory.Exists(folderPath)) return;
+        await LoadDirectoryAsync(folderPath);
+        RecordRecentFolder(folderPath);
+    }
+
+    private const int MaxRecentFolders = 5;
+
+    /// <summary>
+    /// Prepend the folder to the persisted recents (dedup, cap) and mirror
+    /// the list into the shell jump list. Failures are non-fatal — the
+    /// jump list must never affect folder opening.
+    /// </summary>
+    private void RecordRecentFolder(string folderPath)
+    {
+        try
+        {
+            var recents = _settingsService.Current.RecentFolders;
+            recents.RemoveAll(p => string.Equals(p, folderPath, StringComparison.OrdinalIgnoreCase));
+            recents.Insert(0, folderPath);
+            if (recents.Count > MaxRecentFolders)
+            {
+                recents.RemoveRange(MaxRecentFolders, recents.Count - MaxRecentFolders);
+            }
+            _settingsService.ScheduleSave();
+            _ = _jumpListService.UpdateRecentFoldersAsync(recents);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"RecordRecentFolder error: {ex.Message}");
         }
     }
 
@@ -575,6 +619,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         _suppressRebuild = false;
 
         await LoadDirectoryAsync(dir);
+        RecordRecentFolder(dir);
         return await LocateAndMaterializeAsync(path);
     }
 
