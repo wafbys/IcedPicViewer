@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using IcedPicViewer.Models;
 using IcedPicViewer.Services.Interfaces;
 using IcedPicViewer.ViewModels;
@@ -608,8 +609,44 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     {
         if (sender is FrameworkElement element && element.DataContext is MediaItem item)
         {
+            PrepareViewerConnectedAnimation(element);
             OpenViewer(item);
         }
+    }
+
+    /// <summary>
+    /// Source side of the gallery → viewer connected animation: hand the
+    /// clicked card's already-loaded thumbnail to the animation service so
+    /// ViewerView can fly it into place once its full image is on screen.
+    /// Cards without a laid-out thumbnail (still decoding, zero size) are
+    /// skipped — animating a placeholder rectangle reads worse than no
+    /// animation at all.
+    /// </summary>
+    private static void PrepareViewerConnectedAnimation(FrameworkElement card)
+    {
+        try
+        {
+            var image = FindDescendant<Image>(card);
+            if (image?.Source is null || image.ActualWidth <= 0) return;
+            ConnectedAnimationService.GetForCurrentView()
+                .PrepareToAnimate(ViewerView.ConnectedAnimationKey, image);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError($"PrepareViewerConnectedAnimation error: {ex.Message}");
+        }
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) return match;
+            if (FindDescendant<T>(child) is { } deep) return deep;
+        }
+        return null;
     }
 
     private void ImageItem_RightTapped(object sender, RightTappedRoutedEventArgs e)

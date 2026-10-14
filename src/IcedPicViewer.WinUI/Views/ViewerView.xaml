@@ -248,8 +248,10 @@
               Grid.Row="1"
               Visibility="{x:Bind ViewModel.ImageHostVisibility, Mode=OneWay}">
             <Viewbox x:Name="FitContainer" Stretch="Uniform">
-                <Image Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
+                <Image x:Name="FitImage"
+                       Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
                        Stretch="Uniform"
+                       ImageOpened="FitImage_ImageOpened"
                        AutomationProperties.Name="{x:Bind ViewModel.SelectedItem.Name, Mode=OneWay}"/>
             </Viewbox>
 

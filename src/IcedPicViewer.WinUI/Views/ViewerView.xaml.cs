@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.ApplicationModel.DataTransfer;
@@ -892,6 +893,34 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         {
             MinimapImage.Source = null;
             UpdateMinimap();
+        }
+    }
+
+    /// <summary>
+    /// Connected-animation key used by the gallery → viewer thumbnail
+    /// transition. GalleryView prepares it with the clicked card's image
+    /// (see GalleryView.PrepareViewerConnectedAnimation); the destination
+    /// side consumes it in <see cref="FitImage_ImageOpened"/>.
+    /// </summary>
+    internal const string ConnectedAnimationKey = "gallery-to-viewer-image";
+
+    /// <summary>
+    /// Destination side of the gallery → viewer connected animation: once
+    /// the fit image has actually decoded and is on screen, fly the card's
+    /// thumbnail into place. No-op when the viewer was opened without a
+    /// card click (slideshow, activation, …) — GetAnimation returns null
+    /// and the page simply appears as before.
+    /// </summary>
+    private void FitImage_ImageOpened(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var animation = ConnectedAnimationService.GetForCurrentView().GetAnimation(ConnectedAnimationKey);
+            animation?.TryStart(FitImage);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError($"FitImage connected animation error: {ex.Message}");
         }
     }
 
