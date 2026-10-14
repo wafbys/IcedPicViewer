@@ -157,16 +157,19 @@
             Header chrome overlay. RowSpan="3" + VerticalAlignment="Top" +
             explicit Height pins it to the top of the page regardless of
             what ScrollViewer (also RowSpan 3) does underneath. Visibility
-            flips on fullscreen-entry and on mouse-near-top in fullscreen.
-            Background is opaque (LayerFillColorDefaultBrush) so the chrome
-            doesn't bleed the masonry content through it when it's shown
-            on top of the cards.
+            flips with the header auto-hide (both presenters; see
+            GalleryView.xaml.cs) and on mouse-near-top.
+            Background: the same in-app acrylic brush as the viewer's
+            floating CommandBar, so the two toolbars read as one material
+            — blur + tint keep the labels legible over the thumbnails,
+            with the framework's High Contrast / transparency-off fallbacks
+            handling the degraded paths.
         -->
         <Grid x:Name="HeaderChrome"
               Grid.Row="0" Grid.RowSpan="3"
               VerticalAlignment="Top"
               Height="48"
-              Background="{ThemeResource LayerFillColorDefaultBrush}"
+              Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
               Visibility="{x:Bind HeaderVisibility, Mode=OneWay}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>

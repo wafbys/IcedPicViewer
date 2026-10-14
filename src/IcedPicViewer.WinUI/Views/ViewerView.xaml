@@ -26,6 +26,20 @@
             the bar therefore does NOT resize the content area; the
             user's image stays exactly where it was instead of being
             pushed down by 48 px when the bar appears.
+
+            Background: floating over arbitrary image / video content means
+            the bar must supply its own legibility layer — a white photo must
+            not wash the white foreground out. AcrylicInAppFillColorDefaultBrush
+            is the SDK's in-app acrylic material (the same one the framework
+            uses for CommandBarBackgroundOpen and MediaTransportControlsPanelBackground):
+            it blurs + tints whatever sits behind the bar, ships dedicated
+            Light/Dark values, and degrades to a solid color under High Contrast
+            or when transparency effects are off. The gallery header uses the
+            same brush so the two toolbars read as one material.
+            History: custom lower-opacity variants were tried while the bar
+            was pinned visible; now that chrome auto-hides (ChromeHideDelayMs,
+            both presenters) the occlusion problem is gone and the standard
+            material wins on readability + theme fidelity.
         -->
         <Grid.RowDefinitions>
             <RowDefinition Height="0"/>
@@ -38,7 +52,7 @@
                     Canvas.ZIndex="100"
                     DefaultLabelPosition="Collapsed"
                     Visibility="{x:Bind CommandBarVisibility, Mode=OneWay}"
-                    Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                    Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}">
             <CommandBar.Content>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                     <TextBlock Text="{x:Bind ViewModel.SelectedItem.Name, Mode=OneWay}"
@@ -352,11 +366,16 @@
                 MediaPlayerElement's built-in transport controls take
                 over (in Fit mode) or the 1:1 mode custom strip takes
                 over (in native-resolution mode).
+
+                Background: same material and rationale as the viewer CommandBar
+                above — the strip floats over the static first frame (which
+                can be arbitrarily bright), so it uses the same standard
+                acrylic brush.
             -->
             <Grid x:Name="PrePlayStrip"
                   Visibility="{x:Bind ViewModel.PrePlayStripVisibility, Mode=OneWay}"
                   VerticalAlignment="Bottom"
-                  Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                  Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
                   BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
                   BorderThickness="0,1,0,0"
                   Padding="12,8"
