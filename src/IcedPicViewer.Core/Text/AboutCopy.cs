@@ -17,7 +17,7 @@ public static class AboutCopy
         => "一个基于 WinUI 3 + Windows App SDK 的图片 / 视频查看器。本地优先、纯查看器，不上传、不联网。";
 
     public static string FfmpegDescriptionZh()
-        => "版本 8.1 (BtbN 构建，LGPL 2.1+ shared)。用于读取视频元数据 (分辨率、时长、音轨) 和首帧缩略图。";
+        => "版本 9.0 (BtbN 构建，LGPL 2.1+ shared)。用于读取视频元数据 (分辨率、时长、音轨)、首帧缩略图，以及动图 WebP 的逐帧解码。";
 
     public const string CacheSectionTitle = "缩略图缓存";
 
