@@ -268,6 +268,52 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         return false;
     }
 
+    /// <summary>
+    /// True when the pressed key belongs to whatever control currently has
+    /// keyboard focus, and must NOT also be treated as a viewer shortcut.
+    ///
+    /// The WH_KEYBOARD hook deliberately calls CallNextHookEx, so the key
+    /// still reaches the focused control — without this guard a single
+    /// press did two things at once:
+    ///   - ←/→ while a slider was focused stepped the slider AND flipped
+    ///     to the previous/next image;
+    ///   - Space while a button was focused activated the button AND
+    ///     toggled playback.
+    /// Only the keys a control actually owns are yielded: sliders own
+    /// ←/→ (value stepping), buttons own Space (activation). Everything
+    /// else — including ←/→ while a non-slider control has focus — stays
+    /// a viewer shortcut.
+    /// </summary>
+    public bool IsKeyOwnedByFocusedControl(Windows.System.VirtualKey key)
+    {
+        if (MainContentGrid.XamlRoot is not { } root ||
+            FocusManager.GetFocusedElement(root) is not DependencyObject focused)
+        {
+            return false;
+        }
+
+        return key switch
+        {
+            Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right =>
+                IsInside<Slider>(focused),
+            Windows.System.VirtualKey.Space =>
+                IsInside<ButtonBase>(focused),
+            _ => false,
+        };
+    }
+
+    private static bool IsInside<T>(DependencyObject element) where T : DependencyObject
+    {
+        for (var node = element; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is T)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void StopChromeHideTimer()
     {
         if (_chromeHideTimer is null) return;

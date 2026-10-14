@@ -304,6 +304,14 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         if (RootFrame.Content is not ViewerView viewer || viewer.ViewModel is not ViewerViewModel vm)
             return;
 
+        // Yield keys the focused control owns (slider ←/→, button Space).
+        // The hook keeps calling CallNextHookEx, so the focused control
+        // also receives the key — without this guard one press did two
+        // things (slider stepped AND the image changed; button activated
+        // AND playback toggled). See ViewerView.IsKeyOwnedByFocusedControl.
+        if (viewer.IsKeyOwnedByFocusedControl(key))
+            return;
+
         switch (key)
         {
             case Windows.System.VirtualKey.Left:
