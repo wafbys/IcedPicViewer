@@ -15,6 +15,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     public GalleryViewModel ViewModel { get; }
 
     private readonly INavigationService _navigationService;
+    private readonly ITaskbarProgressService _taskbarProgress;
 
     private MediaItem? _selectedItemForDelete;
     private int _isNavigatingToViewer;
@@ -82,6 +83,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
         ViewModel = App.GetService<GalleryViewModel>();
         _navigationService = App.GetService<INavigationService>();
+        _taskbarProgress = App.GetService<ITaskbarProgressService>();
         DataContext = ViewModel;
 
         // The status bar flashes on every StatusText change (scan
@@ -96,6 +98,11 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         // the items exist). Programmatic selection raises SelectionChanged,
         // whose handler is guarded against redundant VM writes.
         SyncFilterSelector();
+
+        // Seed the taskbar progress from the current state (usually Idle →
+        // clears; matters when the page is recreated mid-scan, e.g. coming
+        // back from the viewer).
+        UpdateTaskbarProgress();
 
         // 滚动到底部自动触发 LoadMore（带 debounce）。保留原“Load More”按钮作为手动后备。
         MainScrollViewer.ViewChanged += OnMainScrollViewerViewChanged;
@@ -512,6 +519,27 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             // The VM resets the filter programmatically in OpenFileAsync —
             // the control has to follow, not only lead.
             SyncFilterSelector();
+        }
+        else if (e.PropertyName == nameof(GalleryViewModel.LoadingState))
+        {
+            UpdateTaskbarProgress();
+        }
+    }
+
+    /// <summary>
+    /// Taskbar button shows the folder scan as an endless busy animation —
+    /// visible when the window sits behind other work, which the in-app
+    /// status bar never is. Every terminal state (and Idle) clears it.
+    /// </summary>
+    private void UpdateTaskbarProgress()
+    {
+        if (ViewModel.LoadingState == LoadingState.Scanning)
+        {
+            _taskbarProgress.SetIndeterminate();
+        }
+        else
+        {
+            _taskbarProgress.Clear();
         }
     }
 

@@ -171,6 +171,11 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
         AppWindow.SetIcon("Assets/AppIcon.ico");
 
+        // Taskbar scan progress (best-effort; no-op when the shell
+        // integration is unavailable — see TaskbarProgressService).
+        App.GetService<IcedPicViewer.Services.Interfaces.ITaskbarProgressService>()
+            .Attach(WinRT.Interop.WindowNative.GetWindowHandle(this));
+
         // Minimum window size. Below ~680 DIP the gallery header cannot
         // fit even in its icon-only compact state (GalleryView.xaml's
         // adaptive states). Configure a dedicated OverlappedPresenter

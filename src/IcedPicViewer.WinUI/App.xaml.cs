@@ -206,6 +206,7 @@ public partial class App : Application
         // Single-file picker (gallery "打开文件").
         services.AddTransient<IFilePickerService, FilePickerService>();
         services.AddSingleton<IJumpListService, JumpListService>();
+        services.AddSingleton<ITaskbarProgressService, TaskbarProgressService>();
 
         // Modal dialogs (ContentDialog). Singleton — stateless, just
         // wraps XamlRoot resolution and ContentDialog construction so VMs
