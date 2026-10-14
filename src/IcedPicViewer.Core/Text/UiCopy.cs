@@ -61,6 +61,17 @@ public static class UiCopy
     public static string LibVlcOpenFailed(string path)
         => $"LibVLC 无法打开：{path}";
 
+    // ── Empty states (gallery center panel) ──────────────────────────
+    public const string ClearFiltersButton = "清除筛选";
+    public const string EmptyNoFolderTitle = "还没有打开文件夹";
+    public const string EmptyNoFolderHint = "用「打开文件夹」浏览本机的图片与视频。";
+    public const string EmptyFolderTitle = "没有可显示的媒体";
+    public const string EmptyFolderHint = "这个文件夹里没有可浏览的图片或视频。";
+    public const string EmptyNoMatchTitle = "没有匹配项";
+
+    public static string EmptyNoMatchHint(string queryLabel)
+        => $"当前筛选：{queryLabel}";
+
     // ── Dialogs ──────────────────────────────────────────────────────
     public const string CannotDeleteTitle = "无法删除";
     public const string ConfirmDeleteTitle = "确认删除";

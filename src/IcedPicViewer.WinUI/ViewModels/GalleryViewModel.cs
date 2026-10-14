@@ -248,6 +248,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(IsScanning));
         OnPropertyChanged(nameof(IsScanningVisibility));
+        NotifyEmptyState();
     }
 
     [ObservableProperty]
@@ -277,6 +278,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(FilterIndex));
         OnPropertyChanged(nameof(IsQueryActive));
+        NotifyEmptyState();
         PersistGalleryQuerySettings();
         ScheduleViewRebuild();
     }
@@ -308,6 +310,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     partial void OnSearchTextChanged(string value)
     {
         OnPropertyChanged(nameof(IsQueryActive));
+        NotifyEmptyState();
         ScheduleViewRebuild();
     }
 
@@ -328,6 +331,66 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     public bool IsQueryActive => Filter != MediaFilter.All || !string.IsNullOrWhiteSpace(SearchText);
 
     public string SortDirectionLabel => SortDescending ? UiCopy.SortDescending : UiCopy.SortAscending;
+
+    // ── Empty state (gallery center panel) ─────────────────────────────
+    // Shown while the grid has nothing to display: no folder yet, an
+    // empty folder, or a filter / search that matches nothing. The status
+    // bar carries related text but it now auto-hides, so a blank page
+    // needs its own explanation plus the obvious next action.
+
+    public Visibility EmptyStateVisibility =>
+        Items.Count == 0 && !IsScanning ? Visibility.Visible : Visibility.Collapsed;
+
+    public string EmptyStateTitle =>
+        string.IsNullOrEmpty(FolderPath)
+            ? UiCopy.EmptyNoFolderTitle
+            : IsQueryActive ? UiCopy.EmptyNoMatchTitle : UiCopy.EmptyFolderTitle;
+
+    public string EmptyStateHint
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(FolderPath)) return UiCopy.EmptyNoFolderHint;
+            if (IsQueryActive)
+            {
+                var label = GalleryStatusFormatter.FormatQueryLabel(Filter, SearchText) ?? "";
+                return UiCopy.EmptyNoMatchHint(label);
+            }
+            return UiCopy.EmptyFolderHint;
+        }
+    }
+
+    public Visibility EmptyStateOpenFolderVisibility =>
+        IsQueryActive ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility EmptyStateClearVisibility =>
+        IsQueryActive ? Visibility.Visible : Visibility.Collapsed;
+
+    // Button labels come from Core (same source as the empty-state copy),
+    // so the new UI does not add another set of literals to keep in sync.
+    // Suppression follows the page's existing x:Bind pattern: the binding
+    // surface must stay an instance member even though the value is a
+    // constant.
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; the value is a constant from Core UiCopy.")]
+    public string EmptyStateOpenFolderLabel => UiCopy.OpenFolder;
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; the value is a constant from Core UiCopy.")]
+    public string EmptyStateClearLabel => UiCopy.ClearFiltersButton;
+
+    [RelayCommand]
+    private void ClearFilters()
+    {
+        Filter = MediaFilter.All;
+        SearchText = "";
+    }
+
+    private void NotifyEmptyState()
+    {
+        OnPropertyChanged(nameof(EmptyStateVisibility));
+        OnPropertyChanged(nameof(EmptyStateTitle));
+        OnPropertyChanged(nameof(EmptyStateHint));
+        OnPropertyChanged(nameof(EmptyStateOpenFolderVisibility));
+        OnPropertyChanged(nameof(EmptyStateClearVisibility));
+    }
 
 
     [ObservableProperty]
@@ -443,6 +506,8 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 _imageIndex[item.Id] = item;
             }
         }
+
+        NotifyEmptyState();
     }
 
     public void Dispose()

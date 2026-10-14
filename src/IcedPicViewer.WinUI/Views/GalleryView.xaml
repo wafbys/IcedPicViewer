@@ -374,5 +374,43 @@
                              ToolTipService.ToolTip="后台生成缩略图进度"/>
             </StackPanel>
         </Grid>
+
+        <!--
+            Empty state. Centered panel shown when there is nothing to
+            list: no folder yet, a folder with no media, or a filter /
+            search that matches nothing. The masonry is empty in all
+            three cases, so a centered explanation plus the obvious next
+            action beats a blank page — status text alone was easy to
+            miss, and the status bar now auto-hides as well.
+        -->
+        <StackPanel Grid.Row="0" Grid.RowSpan="3"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    MaxWidth="380"
+                    Spacing="8"
+                    Visibility="{x:Bind ViewModel.EmptyStateVisibility, Mode=OneWay}">
+            <TextBlock Text="{x:Bind ViewModel.EmptyStateTitle, Mode=OneWay}"
+                       Style="{StaticResource SubtitleTextBlockStyle}"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"/>
+            <TextBlock Text="{x:Bind ViewModel.EmptyStateHint, Mode=OneWay}"
+                       Style="{StaticResource BodyTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal"
+                        Spacing="8"
+                        HorizontalAlignment="Center"
+                        Margin="0,8,0,0">
+                <Button Command="{x:Bind ViewModel.OpenFolderCommand}"
+                        Content="{x:Bind ViewModel.EmptyStateOpenFolderLabel}"
+                        Visibility="{x:Bind ViewModel.EmptyStateOpenFolderVisibility, Mode=OneWay}"/>
+                <Button Command="{x:Bind ViewModel.ClearFiltersCommand}"
+                        Content="{x:Bind ViewModel.EmptyStateClearLabel}"
+                        Visibility="{x:Bind ViewModel.EmptyStateClearVisibility, Mode=OneWay}"/>
+            </StackPanel>
+        </StackPanel>
     </Grid>
 </Page>
