@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:core="using:IcedPicViewer.Core.Text"
     xmlns:local="using:IcedPicViewer"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Title="IcedPicViewer"
@@ -33,6 +34,25 @@
             <TitleBar.IconSource>
                 <ImageIconSource ImageSource="Assets/AppIcon.ico" />
             </TitleBar.IconSource>
+            <!--
+                Search lives in the window chrome (Explorer pattern): it is
+                reachable while the gallery's auto-hidden header is out of
+                the way, and the header row gets its width back. Bound to
+                the same singleton GalleryViewModel.SearchText as before;
+                visible on the gallery only — the navigated handler below
+                collapses it on the About page and in the viewer.
+            -->
+            <TitleBar.RightHeader>
+                <AutoSuggestBox x:Name="TitleBarSearchBox"
+                                MinWidth="200"
+                                MaxWidth="360"
+                                Margin="0,0,8,0"
+                                VerticalAlignment="Center"
+                                QueryIcon="Find"
+                                PlaceholderText="{x:Bind core:UiCopy.SearchPlaceholder}"
+                                ToolTipService.ToolTip="{x:Bind core:UiCopy.SearchTooltip}"
+                                Text="{x:Bind GalleryViewModel.SearchText, Mode=TwoWay}"/>
+            </TitleBar.RightHeader>
         </TitleBar>
 
         <Frame x:Name="RootFrame" Grid.Row="1" />

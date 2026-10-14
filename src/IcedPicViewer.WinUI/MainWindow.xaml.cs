@@ -127,6 +127,13 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
     private void OnPropertyChanged(string propertyName)
         => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
 
+    /// <summary>
+    /// The gallery view-model (DI singleton). Exposed for x:Bind: the
+    /// title-bar search box two-way binds to <c>SearchText</c>, so it
+    /// drives the exact same filtering as the old in-header box.
+    /// </summary>
+    public GalleryViewModel GalleryViewModel { get; }
+
     public MainWindow()
     {
         // Self-register with App so pages navigated inside this ctor
@@ -145,6 +152,10 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         }
 
         InitializeComponent();
+
+        // The gallery view-model is a DI singleton; the title-bar search
+        // binds to the same SearchText the gallery uses (MainWindow.xaml).
+        GalleryViewModel = App.GetService<GalleryViewModel>();
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
@@ -211,6 +222,11 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         {
             AppTitleBar.IsBackButtonVisible = RootFrame.CanGoBack;
             AppTitleBar.Subtitle = args.SourcePageType == typeof(AboutPage) ? IcedPicViewer.Core.Text.UiCopy.About : "";
+            // The title-bar search belongs to the gallery only; the About
+            // page and the viewer collapse it (their chrome has no search).
+            TitleBarSearchBox.Visibility = args.SourcePageType == typeof(GalleryView)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             // The About page is document-style chrome: opening it from the
             // fullscreen gallery would hide the title bar (and with it the
             // only pointer path back), so leave fullscreen first.

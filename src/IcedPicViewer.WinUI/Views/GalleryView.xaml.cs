@@ -451,15 +451,15 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
     /// <summary>
     /// True while the user is working inside the header toolbar — a combo
-    /// box dropdown or the search suggestion list is open, or keyboard
-    /// focus sits inside the header. Collapsing the header then would
-    /// yank a dropdown off screen or strand focus inside a hidden
-    /// element. The countdown is abandoned, not deferred: the next
-    /// pointer move outside the top zone re-arms it.
+    /// box dropdown is open, or keyboard focus sits inside the header.
+    /// Collapsing the header then would yank a dropdown off screen or
+    /// strand focus inside a hidden element. The countdown is abandoned,
+    /// not deferred: the next pointer move outside the top zone re-arms it.
+    /// (The search box moved to the title bar, so it no longer participates.)
     /// </summary>
     private bool IsChromeInteractionActive()
     {
-        if (FilterCombo.IsDropDownOpen || SortCombo.IsDropDownOpen || SearchBox.IsSuggestionListOpen)
+        if (FilterCombo.IsDropDownOpen || SortCombo.IsDropDownOpen)
         {
             return true;
         }

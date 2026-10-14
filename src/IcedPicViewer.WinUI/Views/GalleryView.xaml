@@ -71,7 +71,6 @@
                         <Setter Target="AboutLabel.Visibility" Value="Collapsed"/>
                         <Setter Target="FilterCombo.MinWidth" Value="80"/>
                         <Setter Target="SortCombo.MinWidth" Value="88"/>
-                        <Setter Target="SearchBox.Width" Value="120"/>
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
@@ -336,13 +335,6 @@
                               MinWidth="60"
                               VerticalAlignment="Center"
                               ToolTipService.ToolTip="{x:Bind core:UiCopy.SortDirectionTooltip}"/>
-                <AutoSuggestBox x:Name="SearchBox"
-                                Text="{x:Bind ViewModel.SearchText, Mode=TwoWay}"
-                                PlaceholderText="{x:Bind core:UiCopy.SearchPlaceholder}"
-                                QueryIcon="Find"
-                                Width="200"
-                                VerticalAlignment="Center"
-                                ToolTipService.ToolTip="{x:Bind core:UiCopy.SearchTooltip}"/>
             </StackPanel>
             <Button Grid.Column="2"
                     Click="AboutButton_Click"
