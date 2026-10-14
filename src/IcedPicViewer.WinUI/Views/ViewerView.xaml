@@ -14,7 +14,10 @@
     <Grid x:Name="MainContentGrid" IsTabStop="True"
           PointerMoved="MainContentGrid_PointerMoved"
           PointerPressed="MainContentGrid_PointerPressed"
-          KeyDown="MainContentGrid_KeyDown">
+          KeyDown="MainContentGrid_KeyDown"
+          AllowDrop="True"
+          DragOver="MainContentGrid_DragOver"
+          Drop="MainContentGrid_Drop">
         <Grid.ContextFlyout>
             <MenuFlyout>
                 <MenuFlyoutItem Text="{x:Bind core:UiCopy.RevealInFolder}" Click="OpenFileLocation_Click"/>

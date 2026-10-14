@@ -887,6 +887,45 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         }
     }
 
+    /// <summary>
+    /// Dropping a file onto the viewer switches straight to it. Folders are
+    /// intentionally not handled here — that would have to tear the viewer
+    /// down first; the gallery's own drop covers them.
+    /// </summary>
+    private void MainContentGrid_DragOver(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        }
+    }
+
+    private async void MainContentGrid_Drop(object sender, DragEventArgs e)
+    {
+        try
+        {
+            if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems)) return;
+            var items = await e.DataView.GetStorageItemsAsync();
+            var gallery = App.GetService<GalleryViewModel>();
+            foreach (var item in items)
+            {
+                if (item is Windows.Storage.StorageFile file && gallery.IsSupportedFile(file.Path))
+                {
+                    var media = await gallery.OpenFileByPathAsync(file.Path);
+                    if (media is not null)
+                    {
+                        await ViewModel.OpenItem(media);
+                    }
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError($"MainContentGrid_Drop error: {ex}");
+        }
+    }
+
     private void ActualSizeImage_ImageOpened(object sender, RoutedEventArgs e)
     {
         if (ViewModel?.IsFitMode == false)
