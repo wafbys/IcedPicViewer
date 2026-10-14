@@ -142,6 +142,7 @@ FFmpeg 拉取产物在 `src/native/ffmpeg/{rid}/`（**不进 git**）。
 
 当前版本以仓库根 `Directory.Build.props` 的 `<Version>` 为准（解决方案级单一来源，全工程继承）；完整历史见 `CHANGELOG.md`。
 
+- **v0.19.0** - 视频封面修复与 FFmpeg 声明-实际一致性守卫（`IPV001` / `IPV002`）、About 运行期 FFmpeg 状态行、查看器音量 / 静音随时可用并跨会话记住、左右边缘翻页按钮（详见 `CHANGELOG.md`）
 - **v0.18.0** - WinUI 规范审计与体验强化：动图 GIF / WebP 播放、FFmpeg 9.0、鼠标侧键、跳转列表、连接动画、搜索进标题栏、SelectorBar 筛选、拖放打开、滚轮 / Home-End、任务栏进度、数据目录归位等（详见 `CHANGELOG.md`）
 - **v0.17.x** - 缩略图性能与磁盘缓存、图库筛选/排序/查找、窗口状态与扫描器优化（详见 `CHANGELOG.md`）
 - **v0.15.0** - Core 抽离；tag `winui-baseline`
