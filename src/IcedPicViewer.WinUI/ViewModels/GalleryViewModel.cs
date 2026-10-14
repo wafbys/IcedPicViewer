@@ -610,6 +610,17 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
         var path = await _filePicker.PickFileAsync(UiCopy.OpenFile, extensions);
         if (string.IsNullOrEmpty(path)) return null;
+        return await OpenFileByPathAsync(path);
+    }
+
+    /// <summary>
+    /// Opens one file without the picker: loads its containing folder and
+    /// returns the item so the view can enter the viewer. Shared by the
+    /// picker flow and window drag-and-drop.
+    /// </summary>
+    public async Task<MediaItem?> OpenFileByPathAsync(string path)
+    {
+        if (!File.Exists(path)) return null;
 
         var dir = Path.GetDirectoryName(path);
         if (string.IsNullOrEmpty(dir)) return null;
@@ -624,6 +635,9 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         RecordRecentFolder(dir);
         return await LocateAndMaterializeAsync(path);
     }
+
+    /// <summary>True when the path carries a supported image / video extension (drag-and-drop filter).</summary>
+    public bool IsSupportedFile(string path) => _imageLoader.IsSupportedFormat(path);
 
     private async Task<MediaItem?> LocateAndMaterializeAsync(string path)
     {

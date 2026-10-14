@@ -30,7 +30,10 @@
     <Grid x:Name="RootGrid"
           PointerMoved="RootGrid_PointerMoved"
           PointerPressed="RootGrid_PointerPressed"
-          KeyDown="RootGrid_KeyDown">
+          KeyDown="RootGrid_KeyDown"
+          AllowDrop="True"
+          DragOver="RootGrid_DragOver"
+          Drop="RootGrid_Drop">
         <!--
             窄窗自适应。实测（2026-10 截图）：<~1100 DIP 时右组（筛选/排序/
             搜索）被裁切压扁，600 DIP 时完全不可达。三档：

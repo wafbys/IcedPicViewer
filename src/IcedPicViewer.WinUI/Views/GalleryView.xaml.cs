@@ -645,6 +645,63 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         return null;
     }
 
+    /// <summary>
+    /// Accept dropped folders and supported media files (a real capability
+    /// gap for packaged apps: WM_DROPFILES never fires for them, so the
+    /// modern XAML drag-drop path is the only way in).
+    /// </summary>
+    private void RootGrid_DragOver(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        }
+    }
+
+    private async void RootGrid_Drop(object sender, DragEventArgs e)
+    {
+        try
+        {
+            if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                return;
+            }
+
+            var items = await e.DataView.GetStorageItemsAsync();
+
+            // A dropped folder opens as the gallery (same as the picker);
+            // otherwise the first supported file wins and jumps into the
+            // viewer. Multiple items: first-match semantics, matching how
+            // Explorer treats a multi-selection drop on a single document
+            // viewer.
+            foreach (var item in items)
+            {
+                if (item is Windows.Storage.StorageFolder folder)
+                {
+                    await ViewModel.OpenFolderByPathAsync(folder.Path);
+                    return;
+                }
+            }
+
+            foreach (var item in items)
+            {
+                if (item is Windows.Storage.StorageFile file && ViewModel.IsSupportedFile(file.Path))
+                {
+                    var media = await ViewModel.OpenFileByPathAsync(file.Path);
+                    if (media is not null)
+                    {
+                        OpenViewer(media);
+                    }
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError($"RootGrid_Drop error: {ex}");
+        }
+    }
+
     private void ImageItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement element && element.DataContext is MediaItem item)
