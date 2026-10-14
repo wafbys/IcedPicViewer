@@ -52,7 +52,7 @@ dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$
 
 - 前置：**Windows 开发者模式**（`dotnet run` 要注册调试包身份，未开启会报 `Developer Mode is not enabled`）+ .NET 11 runtime + Windows App Runtime 2.5。`-p:Platform=x64` 不可省。
 - WASDK **2.5.x** ↔ 目标机 Windows App Runtime **2.5**（MSIX 拉 framework；跨主版本会启动失败）。
-- 目标框架 **`net11.0-windows10.0.26100.0`**（SDK 版本由仓库根 `global.json` 固定）。**不要**给 `Microsoft.Extensions.Caching.Abstractions` / `Configuration.Abstractions` / `DependencyInjection.Abstractions` / `Diagnostics.Abstractions` / `FileProviders.Abstractions` / `Hosting.Abstractions` / `Logging.Abstractions` / `Options` / `Primitives` 加 `PackageReference`——.NET 11 起这 9 个已在共享框架内，显式引用会 `NU1510`，且版本错配会在运行期抛 `MissingMethodException`。`Microsoft.Extensions.Hosting` 仍需显式引用，版本必须与共享框架同号（当前 `11.0.0-rc.1.*`；GA 后换 `11.0.0`）。
+- 目标框架 **`net11.0-windows10.0.26100.0`**（SDK 版本由仓库根 `global.json` 固定）。**不要**给 `Microsoft.Extensions.Caching.Abstractions` / `Configuration.Abstractions` / `DependencyInjection.Abstractions` / `Diagnostics.Abstractions` / `FileProviders.Abstractions` / `Hosting.Abstractions` / `Logging.Abstractions` / `Options` / `Primitives` 加 `PackageReference`——.NET 11 起这 9 个已在共享框架内，显式引用会 `NU1510`，且版本错配会在运行期抛 `MissingMethodException`。`Microsoft.Extensions.Hosting` 仍需显式引用，版本必须与共享框架同号（当前 `11.0.0-rc.2.*`；GA 后换 `11.0.0`）。
 - WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
 - ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。
 - 平台固定 **x64**（`Platform=x64`）；solution 里 WinUI 仅映射 x64。
@@ -60,7 +60,7 @@ dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$
 
 #### 数据与持久化
 
-- 全部可变状态（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\`）都在 **`%LOCALAPPDATA%\IcedPicViewer`**。
+- 全部可变状态（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\`、`ThumbCache\` 等）都在 **`%LOCALAPPDATA%\IcedPicViewer`**。MSIX 写虚拟化已关闭（manifest `FileSystemWriteVirtualization=disabled` + `unvirtualizedResources`），这些文件确实落在真实路径，不再被重定向进包容器。
 - **新增任何持久化路径必须走 Core `AppDataPaths`**（`Root` / `SettingsFile` / `TempVideoDir` / `CrashLogFile`，或在其上 `Path.Combine`），不要再手写 `LocalApplicationData`。它没有环境变量或 marker 覆盖机制，就是唯一来源。
 - Mica 在 `MainWindow.xaml` 里以 `<MicaBackdrop />` 直接声明（有 package identity，正常生效）。
 - About 页 LGPL 链接走 `ms-appx:///License/ffmpeg-LGPL.txt`，并有 `<exe>\License\ffmpeg-LGPL.txt` 的 loose-file 回退；改该页时别把 fallback 删了。
@@ -112,7 +112,7 @@ dotnet test IcedPicViewer.slnx -c Debug
 
 #### 键盘导航（`WH_KEYBOARD` thread-scope hook）
 
-最终方案在 `src/IcedPicViewer.WinUI/MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallKeyboardHook` / `KeyboardHookProc` / `UnhookWindowsHookEx`）。
+最终方案在 `src/IcedPicViewer.WinUI/MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallInputHooks` / `KeyboardHookProc` / `MouseHookProc` / `UnhookWindowsHookEx`）。
 
 **为什么继续用 WH_KEYBOARD（不要换）**：
 - `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId` 在 WASDK 文档里仍是 **Experimental**（仅 experimental moniker），**不能**当作生产键盘方案替换 WH_KEYBOARD。2026-09 复核 WASDK 2.5.1 / `windows-app-sdk-2.0` 稳定视图：该方法签名仍带 `[Windows.Foundation.Metadata.Experimental]`，且文档页会从稳定 moniker 回退到 `2.0-experimental`。
@@ -121,6 +121,8 @@ dotnet test IcedPicViewer.slnx -c Debug
 - 因此生产路径固定为 thread-scope `WH_KEYBOARD`；窗口关闭时在 `AppWindow_Closing` 里 `UnhookWindowsHookEx` 清理（`_hookHandle != IntPtr.Zero` 才卸，失败 `Trace.TraceError`，禁止空 catch）。
 
 **机制**：`SetWindowsHookEx(WH_KEYBOARD, ..., dwThreadId=GetCurrentThreadId())` 装到 UI thread message queue → 收到所有键盘事件（不依赖焦点/HWND/XAML 路由）→ 回调 `TryEnqueue` 投递 `HandleViewerKey`。
+
+**鼠标侧键**（X1/X2）走同一套 `WH_MOUSE` thread-scope hook，由同一个 `InstallInputHooks` 一并安装/卸载；查看器 X1=上一项、X2=下一项，关于页 X1=返回。注意 WH_MOUSE 的 `wParam` 是消息标识本身，XBUTTON 身份在 `lParam` → `MOUSEHOOKSTRUCTEX.mouseData` 高字（不是 wParam），并有 NULL lParam 防御。
 
 **3 个关键实现细节**：
 1. hook callback 同步 return（`TryEnqueue` 投递，await 链从 work item 开始跑）
@@ -170,7 +172,7 @@ dotnet test IcedPicViewer.slnx -c Debug
 | drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` |
 | UI marshal | `DispatcherQueue.TryEnqueue` |
 | 解码 / 播放 | WIC / `MediaPlayerElement`（LibVLC 软渲染回退） |
-| 键盘 | `WH_KEYBOARD` thread-scope hook |
+| 键盘 / 鼠标侧键 | `WH_KEYBOARD` / `WH_MOUSE` thread-scope hook（同一个 `InstallInputHooks`） |
 | 扫描路径提示 | `CurrentScanningPath` |
 | `ImageItem` 类名 | 表示 `MediaKind.Image` 的子类，不是历史误名 |
 
