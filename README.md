@@ -27,7 +27,7 @@ tag `winui-baseline`：历史快照，仅供 diff。协作约定与**定稿架�
 - **瀑布流**（3 列铺满宽度，间距 8）
 - **混合加载**：边扫边灌到约 200 张停；滚到底自动继续（查看器翻页亦可续载）
 - 悬停信息：文件名 / 尺寸·时长·大小 / 位置
-- 查看器：Fit / 1:1、幻灯片（间隔 / 循环 / 随机）、删除与打开文件位置
+- 查看器：Fit / 1:1、幻灯片（间隔 / 循环 / 随机）、删除与打开文件位置；动图 GIF / WebP 播放
 - 视频缩略图：FFmpeg 首帧（Core）
 - 目录监控、Refresh、About（含 FFmpeg LGPL 说明）、窗口几何记忆
 - **不**自动打开上次目录
@@ -40,7 +40,7 @@ tag `winui-baseline`：历史快照，仅供 diff。协作约定与**定稿架�
 | 图片解码 | WIC |
 | 视频播放 | `MediaPlayerElement`（系统编解码；部分容器 FFmpeg remux）；LibVLC 软渲染回退（`VlcImageSurface`） |
 | 键盘全局路径 | `WH_KEYBOARD` hook（见 `AGENTS.md`） |
-| GIF | 平台 / 查看器路径 |
+| 动图 GIF / WebP | GIF：平台原生动画器；WebP：平台栈只出静帧（实测）→ 查看器自绘帧时钟（FFmpeg 全帧解码） |
 
 ### 支持的格式（诚实版）
 

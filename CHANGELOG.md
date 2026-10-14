@@ -17,11 +17,14 @@
 ### 构建与数据
 
 - 依赖对齐 .NET 11 RC2（Hosting / NetAnalyzers `11.0.0-rc.2.*`）并升级：SharpCompress 0.50.5、LibVLCSharp 3.10.2（原生 3.0.24）、Test.Sdk 18.11.0、coverlet 10.1.0、xunit 适配器 4.0.1；WinApp CLI 0.7.1。
+- **FFmpeg 升级到 9.0**：`FFmpeg.AutoGen` 8.1.0 → 9.0.1.1，原生换 BtbN `n9.0` lgpl-shared（avcodec-63 / avformat-63 / avutil-61 / avfilter-12 / swscale-10 / swresample-7）；Fetch 脚本的 soname 守卫、工程条件与 LGPL 说明文本同步更新。抽取路径全回归通过。
 - **关闭 MSIX 文件写虚拟化**：状态文件真正落在 `%LOCALAPPDATA%\IcedPicViewer`（此前被静默重定向进包容器，症状是「设置 / 日志按文档路径找不到」、窗口几何读到陈旧值）。首启无存档时默认 1280×800 居中；几何恢复 / 最大化推迟到首次激活。
 
 ### 新能力
 
 - **动图 GIF 播放**：GIF 跳过 PNG 重编码（会把动画拍平为静帧），原始字节直喂 `BitmapImage` 原生动画器；端到端实测帧切换（红 / 蓝帧）。
+- **动图 WebP 播放**：实测确认平台栈（WIC + XAML）对 WebP 只出静帧（WIC 能读到 26 帧元数据但 XAML 不驱动）。改为 FFmpeg 全帧解码（Core `AnimatedWebpExtractor`：逐帧延迟、行列对齐拷贝、帧数/像素预算上限，超限回退静帧）+ 查看器帧时钟（逐帧延迟计时、同一项返回复用已解码帧）。像素级实测：中心采样捕获到纯红 (253,0,0) ↔ 纯蓝 (0,0,254) 交替。
+  - 实测教训（已固化为测试断言）：有损带 alpha 的 WebP 解码输出是 `yuva420p` 而 codec context 报 `argb`；按后者建缩放器会得到"三条灰纹"乱码，而且**帧间仍然不同**——只断言"帧不相同"的测试漏过了它，现已加真实颜色断言。
 - **鼠标侧键**：`WH_MOUSE` thread-scope hook（与 WH_KEYBOARD 同套机制）；查看器 X1=上一项、X2=下一项，关于页 X1=返回；`MOUSEHOOKSTRUCTEX.mouseData` 解析 + NULL lParam 防御。真实鼠标待人工确认。
 - **跳转列表**：任务栏右键含「打开文件夹」任务与「最近文件夹」（`settings.json` 的 `RecentFolders`）；点击项经激活参数直达目录；API 持久化 + 带参激活端到端实测通过。
 - **卡片 → 查看器连接动画**：点击卡片时缩略图飞入查看器大图位置（前向；非卡片入口自动退化为无动画）。
