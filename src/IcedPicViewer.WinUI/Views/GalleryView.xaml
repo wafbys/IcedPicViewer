@@ -69,7 +69,6 @@
                         <Setter Target="RefreshLabel.Visibility" Value="Collapsed"/>
                         <Setter Target="SlideshowLabel.Visibility" Value="Collapsed"/>
                         <Setter Target="AboutLabel.Visibility" Value="Collapsed"/>
-                        <Setter Target="FilterCombo.MinWidth" Value="80"/>
                         <Setter Target="SortCombo.MinWidth" Value="88"/>
                     </VisualState.Setters>
                 </VisualState>
@@ -318,12 +317,20 @@
                         HorizontalAlignment="Right"
                         VerticalAlignment="Center"
                         Margin="8,0">
-                <ComboBox x:Name="FilterCombo"
-                          ItemsSource="{x:Bind core:UiCopy.FilterOptions}"
-                          SelectedIndex="{x:Bind ViewModel.FilterIndex, Mode=TwoWay}"
-                          MinWidth="92"
-                          VerticalAlignment="Center"
-                          ToolTipService.ToolTip="{x:Bind core:UiCopy.FilterTooltip}"/>
+                <!--
+                    筛选用 SelectorBar 而非下拉框：一段一点即切
+                    （下拉需要两次交互），也更贴合 Fluent 2 的现代外观。
+                    无 SelectedIndex 绑定——由 code-behind 双向桥接
+                    （见 FilterSelector_SelectionChanged / SyncFilterSelector）。
+                -->
+                <SelectorBar x:Name="FilterSelector"
+                             SelectionChanged="FilterSelector_SelectionChanged"
+                             VerticalAlignment="Center"
+                             ToolTipService.ToolTip="{x:Bind core:UiCopy.FilterTooltip}">
+                    <SelectorBarItem Text="{x:Bind core:UiCopy.FilterAll}"/>
+                    <SelectorBarItem Text="{x:Bind core:UiCopy.FilterImages}"/>
+                    <SelectorBarItem Text="{x:Bind core:UiCopy.FilterVideos}"/>
+                </SelectorBar>
                 <ComboBox x:Name="SortCombo"
                           ItemsSource="{x:Bind core:UiCopy.SortOptions}"
                           SelectedIndex="{x:Bind ViewModel.SortIndex, Mode=TwoWay}"

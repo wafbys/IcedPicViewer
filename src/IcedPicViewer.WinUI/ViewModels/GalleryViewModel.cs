@@ -315,8 +315,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         ScheduleViewRebuild();
     }
 
-    // ComboBox.SelectedIndex binds to these (enums have no XAML-friendly
-    // binding), and setting them routes back through the enum properties.
+    // WinUI selector/combo controls have no enum-friendly binding, so the
+    // view bridges through these int index properties (the filter
+    // SelectorBar via code-behind, the sort ComboBox via x:Bind). Setting
+    // them routes back through the enum properties.
     public int FilterIndex
     {
         get => (int)Filter;

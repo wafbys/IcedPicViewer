@@ -91,6 +91,12 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         // across navigations.
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
 
+        // Filter SelectorBar has no bindable index; seed it from the
+        // persisted filter (the ctor runs after InitializeComponent, so
+        // the items exist). Programmatic selection raises SelectionChanged,
+        // whose handler is guarded against redundant VM writes.
+        SyncFilterSelector();
+
         // 滚动到底部自动触发 LoadMore（带 debounce）。保留原“Load More”按钮作为手动后备。
         MainScrollViewer.ViewChanged += OnMainScrollViewerViewChanged;
 
@@ -459,7 +465,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     /// </summary>
     private bool IsChromeInteractionActive()
     {
-        if (FilterCombo.IsDropDownOpen || SortCombo.IsDropDownOpen)
+        if (SortCombo.IsDropDownOpen)
         {
             return true;
         }
@@ -500,6 +506,40 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         if (e.PropertyName == nameof(GalleryViewModel.StatusText))
         {
             FlashStatusBar();
+        }
+        else if (e.PropertyName == nameof(GalleryViewModel.FilterIndex))
+        {
+            // The VM resets the filter programmatically in OpenFileAsync —
+            // the control has to follow, not only lead.
+            SyncFilterSelector();
+        }
+    }
+
+    /// <summary>
+    /// User picked a filter segment → route into the view-model. SelectorBar
+    /// exposes no bindable index, so both directions of the sync live here.
+    /// </summary>
+    private void FilterSelector_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        var index = sender.Items.IndexOf(sender.SelectedItem);
+        if (index >= 0 && index != ViewModel.FilterIndex)
+        {
+            ViewModel.FilterIndex = index;
+        }
+    }
+
+    /// <summary>
+    /// View-model filter → SelectorBar segment (initial load, settings
+    /// hydration, OpenFileAsync reset). Guarded against re-entrancy.
+    /// </summary>
+    private void SyncFilterSelector()
+    {
+        var index = ViewModel.FilterIndex;
+        if (index < 0 || index >= FilterSelector.Items.Count) return;
+        var item = FilterSelector.Items[index];
+        if (!ReferenceEquals(FilterSelector.SelectedItem, item))
+        {
+            FilterSelector.SelectedItem = item;
         }
     }
 
