@@ -32,6 +32,12 @@ public sealed class TaskbarProgressService : ITaskbarProgressService
     {
     }
 
+    // SYSLIB1096 suggests [GeneratedComInterface] (source-generated COM).
+    // For this classic Win32 taskbar interface the source generator would
+    // drag in ComWrappers-based activation for zero benefit here — the
+    // hand-declared vtable is the established, battle-tested pattern for
+    // ITaskbarList3 and needs no marshalling code beyond the two calls.
+#pragma warning disable SYSLIB1096
     [ComImport, Guid("EA1AFB91-9E28-4B86-90E9-9E9F8A5EEFAF"),
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface ITaskbarList3
@@ -51,6 +57,7 @@ public sealed class TaskbarProgressService : ITaskbarProgressService
         void SetProgressValue(IntPtr hwnd, ulong completed, ulong total);
         void SetProgressState(IntPtr hwnd, TBPFLAG flags);
     }
+#pragma warning restore SYSLIB1096
 
     private ITaskbarList3? _taskbar;
     private IntPtr _hwnd;
