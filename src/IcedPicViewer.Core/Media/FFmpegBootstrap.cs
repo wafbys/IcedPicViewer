@@ -121,7 +121,7 @@ public static class FFmpegBootstrap
     {
         try
         {
-            // Windows: avutil-60.dll; Linux: libavutil.so*; macOS: libavutil*.dylib
+            // Windows: avutil-61.dll; Linux: libavutil.so*; macOS: libavutil*.dylib
             return Directory.EnumerateFiles(dir, "*avutil*", SearchOption.TopDirectoryOnly).Any();
         }
         catch (Exception ex)

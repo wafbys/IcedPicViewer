@@ -94,7 +94,7 @@
       src/native/ffmpeg/win-x64. The CopyFFmpegDllsToOutDir target below is
       what places them in the output root.
     -->
-    <PackageReference Include="FFmpeg.AutoGen" Version="8.1.0" />
+    <PackageReference Include="FFmpeg.AutoGen" Version="9.0.1.1" />
 
     <!--
       LibVLC: playback fallback when Media Foundation cannot decode
@@ -134,7 +134,7 @@
     puts the DLLs in the output root for the MSIX path; this Content item is what
     puts them in the loose layout for `dotnet run`. Both are needed.
   -->
-  <ItemGroup Condition="Exists('..\native\ffmpeg\win-x64\avutil-60.dll')">
+  <ItemGroup Condition="Exists('..\native\ffmpeg\win-x64\avutil-61.dll')">
     <Content Include="..\native\ffmpeg\win-x64\*.dll"
              Link="%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
@@ -160,7 +160,7 @@
   <!--
     CopyFFmpegDllsToOutDir: WinAppSDK 2.x MSIX packaging does NOT pick up
     files placed under runtimes/<rid>/native/ as direct package payload.
-    FFmpeg's LoadLibrary("avcodec-62") must find the DLLs at the package
+    FFmpeg's LoadLibrary("avcodec-63") must find the DLLs at the package
     install directory root, not in a runtimes/<rid>/native/ subfolder.
 
     This target copies the FFmpeg DLLs flat into the output root ($(OutDir)),

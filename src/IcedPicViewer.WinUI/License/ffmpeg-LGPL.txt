@@ -9,7 +9,7 @@ or any later version) 授权发布。
 ----------------
 - FFmpeg 项目主页: https://ffmpeg.org/
 - 本项目使用的构建来源 (BtbN FFmpeg-Builds): https://github.com/BtbN/FFmpeg-Builds
-- 使用的具体构建: ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip (2026-06-22)
+- 使用的具体构建: ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip (2026-10-14 获取)
 
 LGPL 合规说明
 -------------
@@ -21,16 +21,17 @@ LGPL 2.1+ 要求:
 3. **许可证显著性**: 应用程序的 AboutPage 必须署名 FFmpeg + LGPL。
    已在 IcedPicViewer 顶 bar 的 "About" 页面中体现。
 
-FFmpeg 8.1 (LGPL 2.1+ shared build) 包含的库:
-  - avcodec-62.dll  - 编码 + 解码 (~67 MB)
-  - avformat-62.dll - 容器 mux + demux
-  - avutil-60.dll   - 核心工具
-  - swresample-6.dll - 音频重采样
-  - swscale-9.dll   - 图像缩放 + 颜色空间转换
-  - avfilter-11.dll - 滤镜图 (本项目未使用)
-  - avdevice-62.dll - 输入/输出设备抽象 (本项目未使用)
+FFmpeg 9.0 (LGPL 2.1+ shared build) 包含的库:
+  - avcodec-63.dll   - 编码 + 解码 (~87 MB)
+  - avformat-63.dll  - 容器 mux + demux
+  - avutil-61.dll    - 核心工具
+  - swresample-7.dll - 音频重采样
+  - swscale-10.dll   - 图像缩放 + 颜色空间转换
+  - avfilter-12.dll  - 滤镜图 (本项目未使用)
+  - avdevice-63.dll  - 输入/输出设备抽象 (本项目未使用)
 
-详细构建哈希 / 校验信息见 `runtimes\win-x64\native\README.md`。
+详细构建哈希 / 校验信息见 `src/native/ffmpeg/win-x64/SOURCE.txt` 与
+`src/native/ffmpeg/README.md`。
 
 ========================================================================
 完整的 LGPL 2.1 许可证文本如下

@@ -21,18 +21,18 @@ $ErrorActionPreference = 'Stop'
 $dest = Join-Path $RepoRoot "src/native/ffmpeg/$Rid"
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
-# Map RID → BtbN asset selector, pinned to the FFmpeg 8.1 branch (LGPL shared).
-# BtbN names branch assets with the commit, e.g.
-#   ffmpeg-n8.1.2-52-g5a03dfa0f6-win64-lgpl-shared-8.1.zip
+# Map RID → BtbN asset selector, pinned to the FFmpeg 9.0 branch (LGPL shared).
+# BtbN names branch assets either after the branch tip or with the commit, e.g.
+#   ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip
+#   ffmpeg-n9.0.1-52-g5a03dfa0f6-win64-lgpl-shared-9.0.zip
 # so the glob must stay loose around the version. Do NOT tighten this into a
-# `-latest-` name: that fragment no longer exists upstream, the fallback then
-# picks a master nightly, and master carries next-major sonames
-# (avutil-61 / avcodec-63) that FFmpeg.AutoGen 8.1.0 cannot bind to.
+# `-latest-` name: the fallback then picks a master nightly, and master carries
+# next-major sonames that FFmpeg.AutoGen 9.0.1.1 cannot bind to.
 $map = @{
-    'win-x64'      = @{ urlPart = 'win64';      ext = 'zip';    glob = 'ffmpeg-n8.1*win64-lgpl-shared*.zip' }
-    'win-arm64'    = @{ urlPart = 'winarm64';   ext = 'zip';    glob = 'ffmpeg-n8.1*winarm64-lgpl-shared*.zip' }
-    'linux-x64'    = @{ urlPart = 'linux64';    ext = 'tar.xz'; glob = 'ffmpeg-n8.1*linux64-lgpl-shared*.tar.xz' }
-    'linux-arm64'  = @{ urlPart = 'linuxarm64'; ext = 'tar.xz'; glob = 'ffmpeg-n8.1*linuxarm64-lgpl-shared*.tar.xz' }
+    'win-x64'      = @{ urlPart = 'win64';      ext = 'zip';    glob = 'ffmpeg-n9.0*win64-lgpl-shared*.zip' }
+    'win-arm64'    = @{ urlPart = 'winarm64';   ext = 'zip';    glob = 'ffmpeg-n9.0*winarm64-lgpl-shared*.zip' }
+    'linux-x64'    = @{ urlPart = 'linux64';    ext = 'tar.xz'; glob = 'ffmpeg-n9.0*linux64-lgpl-shared*.tar.xz' }
+    'linux-arm64'  = @{ urlPart = 'linuxarm64'; ext = 'tar.xz'; glob = 'ffmpeg-n9.0*linuxarm64-lgpl-shared*.tar.xz' }
 }
 
 $meta = $map[$Rid]
@@ -81,11 +81,11 @@ if (-not $libDir) {
     throw "Could not locate avutil shared library inside archive."
 }
 
-# Soname guard. FFmpeg.AutoGen 8.1.0 hard-codes the FFmpeg 8.x library names
-# (avutil-60 / avcodec-62 / ...); a mismatched set does not fail the build —
+# Soname guard. FFmpeg.AutoGen 9.0.1.1 hard-codes the FFmpeg 9.0 library names
+# (avutil-61 / avcodec-63 / ...); a mismatched set does not fail the build —
 # FFmpegBootstrap catches the load error and just disables video thumbs, so
 # silently fetching master here costs hours of "why is video broken".
-$expected = [ordered]@{ avutil = 60; avcodec = 62; avformat = 62; avfilter = 11; swscale = 9; swresample = 6 }
+$expected = [ordered]@{ avutil = 61; avcodec = 63; avformat = 63; avfilter = 12; swscale = 10; swresample = 7 }
 $names = @(Get-ChildItem $libDir.FullName -Force | Select-Object -ExpandProperty Name)
 $missing = @()
 foreach ($lib in $expected.Keys) {
@@ -94,10 +94,10 @@ foreach ($lib in $expected.Keys) {
     }
 }
 if ($missing.Count -gt 0) {
-    throw ("FFmpeg natives do not match FFmpeg.AutoGen 8.1.0 — missing sonames: $($missing -join ', '). " +
-           "Asset '$($asset.name)' is likely a master/nightly build; pick an n8.1 (lgpl-shared) asset from " +
+    throw ("FFmpeg natives do not match FFmpeg.AutoGen 9.0.1.1 — missing sonames: $($missing -join ', '). " +
+           "Asset '$($asset.name)' is likely a master/nightly build; pick an n9.0 (lgpl-shared) asset from " +
            "https://github.com/BtbN/FFmpeg-Builds/releases. Do not 'upgrade' the sonames without bumping " +
-           "FFmpeg.AutoGen and the avutil-60/avcodec-62 checks in src/IcedPicViewer.WinUI/IcedPicViewer.csproj.")
+           "FFmpeg.AutoGen and the avutil-61/avcodec-63 checks in src/IcedPicViewer.WinUI/IcedPicViewer.csproj.")
 }
 
 Write-Host "Copying from $($libDir.FullName) → $dest"

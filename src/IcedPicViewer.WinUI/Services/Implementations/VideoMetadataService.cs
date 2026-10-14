@@ -164,8 +164,8 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
             {
                 // ffmpeg.av_version_info() touches the native DLLs through
                 // the AutoGen wrapper. On a fresh process this is the call
-                // that costs the ~6.5 s — LoadLibrary on avutil-60 /
-                // avcodec-62 / avformat-62 + JIT-compile of the static
+                // that costs the ~6.5 s — LoadLibrary on avutil-61 /
+                // avcodec-63 / avformat-63 + JIT-compile of the static
                 // wrapper methods. After this returns, every later
                 // avformat_* / avcodec_* call is in the millisecond range.
                 var v = ffmpeg.av_version_info();

@@ -1,6 +1,7 @@
 # FFmpeg shared natives
 
-Used by `IcedPicViewer.Core` / FFmpeg.AutoGen for **video thumbnails**.
+Used by `IcedPicViewer.Core` / FFmpeg.AutoGen for **video thumbnails** and
+**animated WebP frames** (the platform imaging stack serves WebP as a still).
 
 Binaries are **not** committed (large LGPL shared builds). Fetch them with:
 
@@ -24,7 +25,7 @@ in the tree consumes them.
 
 `IcedPicViewer.csproj`'s `CopyFFmpegDllsToOutDir` target copies
 `src/native/ffmpeg/win-x64/*.dll` flat into `$(OutDir)` — which is also the MSIX
-install root — because FFmpeg's `LoadLibrary("avcodec-62")` does not search
+install root — because FFmpeg's `LoadLibrary("avcodec-63")` does not search
 subdirectories. Missing natives produce build warning `IPV001` at build time and
 silently disable video thumbs/probe at runtime.
 
