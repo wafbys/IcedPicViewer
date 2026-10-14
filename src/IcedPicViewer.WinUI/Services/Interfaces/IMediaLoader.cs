@@ -63,6 +63,14 @@ public interface IMediaLoader
     Task<WinImageSource?> LoadFullAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default);
 
     /// <summary>
+    /// Frames of an animated WebP for the viewer's own frame clock (the
+    /// platform imaging stack serves WebP as a still — verified). Null for
+    /// still images, unsupported paths (archive entries), or when a decode
+    /// budget cap is hit; callers keep the static image in that case.
+    /// </summary>
+    Task<IReadOnlyList<(WinImageSource Frame, int DelayMs)>?> TryLoadAnimatedFramesAsync(MediaRef media, CancellationToken ct = default);
+
+    /// <summary>
     /// Masonry thumbnail as a <see cref="CachedThumb"/> (SoftwareBitmap +
     /// oriented original size). No PNG re-encode.
     /// </summary>

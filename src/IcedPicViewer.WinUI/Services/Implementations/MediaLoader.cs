@@ -156,16 +156,16 @@ public class MediaLoader : IMediaLoader
         {
             ct.ThrowIfCancellationRequested();
 
-            // Animated GIF: feed the original payload to BitmapImage so its
-            // native GIF animator drives it. The PNG re-encode path below
-            // decodes a single frame and would silently flatten every animated
-            // GIF to a still. targetMaxSize is ignored here on purpose: the
-            // animator needs the original stream, and the viewer stretch-fits
-            // the result inside its host anyway. Single-frame GIFs take the
-            // same path and simply display.
-            if (IsGif(media))
+            // Animated-image pipeline: feed the original payload to
+            // BitmapImage so the platform animator (WIC + XAML) can drive
+            // it. Confirmed for GIF. WebP rides the same path: on Windows 11
+            // the inbox WebP codec + XAML stack handles animated WebP where
+            // available — and where it doesn't, the still first frame shows,
+            // exactly what the PNG re-encode path below produced anyway.
+            // Single-frame images take the same path and simply display.
+            if (IsGifOrWebp(media))
             {
-                return await LoadGifAsync(media, ct);
+                return await LoadDirectImageAsync(media, ct);
             }
 
             byte[]? pngBytes;
@@ -222,20 +222,67 @@ public class MediaLoader : IMediaLoader
         }
     }
 
-    private static bool IsGif(MediaRef media)
+    /// <summary>
+    /// Animated WebP frames for the viewer's own frame clock. The platform
+    /// imaging stack (WIC + XAML) serves WebP as a still — verified
+    /// 2026-10-14 — so animated files are decoded through FFmpeg
+    /// (<see cref="AnimatedWebpExtractor"/>) and each frame is wrapped as a
+    /// ready-to-display <see cref="SoftwareBitmapSource"/>. Returns null for
+    /// still images / unsupported paths; callers keep the static image.
+    /// Must be awaited on the UI thread (SoftwareBitmapSource creation).
+    /// </summary>
+    public async Task<IReadOnlyList<(WinImageSource Frame, int DelayMs)>?> TryLoadAnimatedFramesAsync(
+        MediaRef media, CancellationToken ct = default)
+    {
+        try
+        {
+            var name = media.ArchiveEntry ?? media.Path;
+            if (!name.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var frames = await AnimatedWebpExtractor.TryExtractAsync(media, ct);
+            if (frames is null || frames.Count < 2) return null;
+
+            var sources = new List<(WinImageSource, int)>(frames.Count);
+            foreach (var frame in frames)
+            {
+                ct.ThrowIfCancellationRequested();
+                var bitmap = CreateSoftwareBitmap(frame.Bgra, frame.Width, frame.Height);
+                if (bitmap is null) continue;
+                var source = new SoftwareBitmapSource();
+                await source.SetBitmapAsync(bitmap);
+                sources.Add((source, frame.DelayMs));
+            }
+            return sources.Count >= 2 ? sources : null;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"TryLoadAnimatedFramesAsync error for {media}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static bool IsGifOrWebp(MediaRef media)
     {
         var name = media.ArchiveEntry ?? media.Path;
-        return name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase);
+        return name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".webp", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    /// Loads a GIF without re-encoding. <see cref="BitmapImage"/> plays animated
-    /// GIFs natively once its source stream holds the original payload, so the
-    /// bytes are copied into an in-memory stream: the animator keeps reading
-    /// frames for as long as the image is displayed, which rules out borrowing
-    /// the file/entry stream (that would also keep the file locked on disk).
+    /// Loads a GIF / WebP without re-encoding. <see cref="BitmapImage"/>
+    /// plays animated GIFs natively once its source stream holds the
+    /// original payload (and on Windows 11 the same route serves animated
+    /// WebP; a still frame is the worst case). The bytes are copied into an
+    /// in-memory stream: the animator keeps reading frames for as long as
+    /// the image is displayed, which rules out borrowing the file/entry
+    /// stream (that would also keep the file locked on disk).
     /// </summary>
-    private static async Task<WinImageSource?> LoadGifAsync(MediaRef media, CancellationToken ct)
+    private static async Task<WinImageSource?> LoadDirectImageAsync(MediaRef media, CancellationToken ct)
     {
         var bytes = await Task.Run(
             async () =>

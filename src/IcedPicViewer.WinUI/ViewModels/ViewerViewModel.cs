@@ -414,6 +414,108 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     private int _lastShuffleIndex = -1;
 
     // ----------------------------------------------------------------
+    // Animated WebP frame clock.
+    //
+    // The platform imaging stack serves WebP as a still (verified
+    // 2026-10-14), so the viewer plays animated WebP itself: frames are
+    // decoded once through FFmpeg (MediaLoader.TryLoadAnimatedFramesAsync),
+    // cached for the current item, and swapped on DisplayImage with each
+    // frame's own delay. Back-and-forth navigation to the same item reuses
+    // the decoded frames; navigating to another item stops the clock.
+    // ----------------------------------------------------------------
+    private DispatcherQueueTimer? _webpAnimTimer;
+    private IReadOnlyList<(WinImageSource Frame, int DelayMs)>? _webpFrames;
+    private MediaItem? _webpFramesOwner;
+    private int _webpFrameIndex;
+
+    private DispatcherQueueTimer CreateWebpTimer()
+    {
+        var timer = _dispatcher.CreateTimer();
+        timer.IsRepeating = false;
+        timer.Tick += OnWebpAnimTick;
+        return timer;
+    }
+
+    private void OnWebpAnimTick(DispatcherQueueTimer sender, object args) => ShowNextWebpFrame();
+
+    /// <summary>
+    /// Starts (or restarts) the frame clock for <paramref name="item"/> when
+    /// it is an animated WebP. All other items are a no-op. Safe to call on
+    /// every load: the current item's decoded frames are reused.
+    /// </summary>
+    private async Task StartWebpAnimationAsync(MediaItem item, CancellationToken ct)
+    {
+        // Same item as last time (typical back-navigation): restart the
+        // clock on the cached frames without decoding again.
+        if (_webpFrames is not null && ReferenceEquals(_webpFramesOwner, item))
+        {
+            _webpFrameIndex = 0;
+            ShowNextWebpFrame();
+            return;
+        }
+
+        StopWebpAnimation();
+        IReadOnlyList<(WinImageSource Frame, int DelayMs)>? frames;
+        try
+        {
+            frames = await _imageLoader.TryLoadAnimatedFramesAsync(item.Media, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"StartWebpAnimationAsync error: {ex.Message}");
+            return;
+        }
+
+        if (frames is null || frames.Count < 2) return;
+        if (ct.IsCancellationRequested || !ReferenceEquals(SelectedItem, item)) return;
+
+        _webpFrames = frames;
+        _webpFramesOwner = item;
+        _webpFrameIndex = 0;
+        ShowNextWebpFrame();
+    }
+
+    /// <summary>
+    /// Shows the next frame immediately and re-arms the clock with that
+    /// frame's delay (per-frame delays vary; a one-shot timer mirrors them
+    /// exactly instead of quantising to a fixed tick).
+    /// </summary>
+    private void ShowNextWebpFrame()
+    {
+        if (_webpFrames is null || _webpFrames.Count < 2) return;
+        if (_webpFrameIndex >= _webpFrames.Count) _webpFrameIndex = 0;
+
+        var (frame, delayMs) = _webpFrames[_webpFrameIndex];
+        DisplayImage = frame;
+        _webpFrameIndex = (_webpFrameIndex + 1) % _webpFrames.Count;
+
+        _webpAnimTimer ??= CreateWebpTimer();
+        _webpAnimTimer.Interval = TimeSpan.FromMilliseconds(delayMs);
+        _webpAnimTimer.Start();
+    }
+
+    /// <summary>
+    /// Stops the clock but keeps the decoded frames (the same item may come
+    /// back); <see cref="ClearWebpAnimation"/> drops the frames entirely.
+    /// </summary>
+    private void StopWebpAnimation()
+    {
+        _webpAnimTimer?.Stop();
+    }
+
+    private void ClearWebpAnimation()
+    {
+        _webpAnimTimer?.Stop();
+        _webpFrames = null;
+        _webpFramesOwner = null;
+        _webpFrameIndex = 0;
+    }
+
+    // ----------------------------------------------------------------
     // Video playback state.
     //
     // The viewer has two distinct surface modes: image (existing static
@@ -1313,6 +1415,10 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         // call NavigateNextCommand after the page is gone.
         StopSlideshow();
 
+        // Drop the WebP frame cache with the viewer (the frames are only
+        // meaningful while this viewer session is alive).
+        ClearWebpAnimation();
+
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _loadCts = null;
@@ -1399,9 +1505,15 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     {
         if (ct.IsCancellationRequested) return;
 
+        // Any load for the currently selected item takes over the display —
+        // stop the WebP frame clock first (it is restarted below when the
+        // item turns out to be an animated WebP).
+        StopWebpAnimation();
+
         if (item.FullImage != null && ShouldReuseFullImageCache(item, targetMaxSize))
         {
             DisplayImage = item.FullImage;
+            await StartWebpAnimationAsync(item, ct);
             return;
         }
 
@@ -1421,6 +1533,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
                 if (ReferenceEquals(SelectedItem, item))
                 {
                     DisplayImage = source;
+                    await StartWebpAnimationAsync(item, ct);
                 }
             }
         }
