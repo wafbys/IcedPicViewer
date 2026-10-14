@@ -242,37 +242,53 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         // suspenders: the ctor IS on the UI thread in practice, but
         // the dispatcher round-trip removes a class of "ctor ran on
         // the wrong thread" bugs we already hit.
-        DispatcherQueue.GetForCurrentThread().TryEnqueue(InstallKeyboardHook);
+        //
+        // The mouse X buttons (side back/forward) use the same mechanism:
+        // a thread-scope WH_MOUSE hook, because XAML surfaces no X-button
+        // events and the SetWindowSubclass route already proved unreliable
+        // for input. X1=previous / X2=next in the viewer, X1=back on the
+        // About page.
+        DispatcherQueue.GetForCurrentThread().TryEnqueue(InstallInputHooks);
     }
 
     private bool _hookInstalled;
 
-    private void InstallKeyboardHook()
+    private void InstallInputHooks()
     {
         if (_hookInstalled) return;
-        _hookProc = KeyboardHookProc;
         var threadId = GetCurrentThreadId();
+
+        _hookProc = KeyboardHookProc;
         _hookHandle = SetWindowsHookEx(WH_KEYBOARD, _hookProc, IntPtr.Zero, threadId);
         if (_hookHandle == IntPtr.Zero)
         {
             var gle = Marshal.GetLastWin32Error();
             // Hook install failed — keyboard navigation will be broken.
-            Trace.TraceError($"InstallKeyboardHook: SetWindowsHookEx(WH_KEYBOARD) failed, Win32 error {gle}");
+            Trace.TraceError($"InstallInputHooks: SetWindowsHookEx(WH_KEYBOARD) failed, Win32 error {gle}");
         }
-        else
+
+        _mouseHookProc = MouseHookProc;
+        _mouseHookHandle = SetWindowsHookEx(WH_MOUSE, _mouseHookProc, IntPtr.Zero, threadId);
+        if (_mouseHookHandle == IntPtr.Zero)
         {
-            _hookInstalled = true;
+            var gle = Marshal.GetLastWin32Error();
+            // Hook install failed — mouse X buttons will be dead; the
+            // keyboard hook is independent, so everything else works.
+            Trace.TraceError($"InstallInputHooks: SetWindowsHookEx(WH_MOUSE) failed, Win32 error {gle}");
         }
+
+        _hookInstalled = _hookHandle != IntPtr.Zero || _mouseHookHandle != IntPtr.Zero;
     }
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
 
-    // ---- WH_KEYBOARD thread-scope hook ----
+    // ---- WH_KEYBOARD / WH_MOUSE thread-scope hooks ----
 
     private delegate IntPtr HOOKPROC(int nCode, IntPtr wParam, IntPtr lParam);
 
     private const int WH_KEYBOARD = 2;
+    private const int WH_MOUSE = 7;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int idHook, HOOKPROC lpfn, IntPtr hMod, uint dwThreadId);
@@ -288,6 +304,8 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
     private HOOKPROC? _hookProc;
     private IntPtr _hookHandle;
+    private HOOKPROC? _mouseHookProc;
+    private IntPtr _mouseHookHandle;
 
     private IntPtr KeyboardHookProc(int nCode, IntPtr wParam, IntPtr lParam)
     {
@@ -331,6 +349,102 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             // Must never let exceptions escape the hook proc.
         }
         return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+    }
+
+    // ---- WH_MOUSE thread-scope hook (mouse X buttons) ----
+
+    private const int WM_XBUTTONDOWN = 0x020B;
+    private const int XBUTTON1 = 1;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    // MOUSEHOOKSTRUCT (the documented lParam payload of WH_MOUSE callbacks;
+    // extended by MOUSEHOOKSTRUCTEX whose mouseData field carries the X
+    // button for WM_XBUTTON* messages).
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEHOOKSTRUCT
+    {
+        public POINT pt;
+        public IntPtr hwnd;
+        public uint wHitTestCode;
+        public IntPtr dwExtraInfo;
+    }
+
+    private static readonly int MouseHookMouseDataOffset = Marshal.SizeOf<MOUSEHOOKSTRUCT>();
+
+    private IntPtr MouseHookProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        // Same invariants as KeyboardHookProc: fast return, no escaping
+        // exceptions, unchecked (int) casts. WH_MOUSE semantics differ from
+        // a window procedure: wParam is the message identifier itself, and
+        // the payload lives in lParam → MOUSEHOOKSTRUCTEX.mouseData, whose
+        // high word is the X button (1=back, 2=forward — the same encoding
+        // WM_XBUTTONDOWN uses in a WndProc's wParam). Act on button-down
+        // only, mirroring the keyboard hook. Messages without a payload
+        // pointer (forged/queued by other processes) are skipped instead of
+        // dereferenced.
+        try
+        {
+            if (nCode >= 0)
+            {
+                unchecked
+                {
+                    int wParam32 = (int)wParam;
+                    if (wParam32 == WM_XBUTTONDOWN)
+                    {
+                        if (lParam != IntPtr.Zero)
+                        {
+                            var mouseData = Marshal.ReadInt32(lParam, MouseHookMouseDataOffset);
+                            var isBack = ((mouseData >> 16) & 0xFFFF) == XBUTTON1;
+                            DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
+                            {
+                                try { HandleMouseXButton(isBack); }
+                                catch { /* swallowed to protect hook */ }
+                            });
+                        }
+                        // else: no payload pointer — a forged/queued message
+                        // rather than real input; skip it instead of reading.
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Must never let exceptions escape the hook proc.
+        }
+        return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+    }
+
+    /// <summary>
+    /// Mouse X buttons: X1 ("back") = previous item in the viewer / back on
+    /// the About page; X2 ("forward") = next item. The gallery is a root
+    /// page with no history, so both are no-ops there. Mirrors the
+    /// convention image viewers use (X buttons step through items).
+    /// </summary>
+    private void HandleMouseXButton(bool isBack)
+    {
+        if (RootFrame.Content is AboutPage)
+        {
+            if (isBack && RootFrame.CanGoBack)
+            {
+                RootFrame.GoBack();
+            }
+            return;
+        }
+
+        if (RootFrame.Content is not ViewerView viewer || viewer.ViewModel is not ViewerViewModel vm)
+            return;
+
+        var command = isBack ? vm.NavigatePreviousCommand : vm.NavigateNextCommand;
+        if (command.CanExecute(null))
+        {
+            command.Execute(null);
+        }
     }
 
     private void HandleViewerKey(Windows.System.VirtualKey key)
@@ -472,8 +586,8 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
     private void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
     {
-        // Uninstall the thread-scope WH_KEYBOARD hook before the window
-        // tears down. Leaving it installed risks a dangling HOOKPROC
+        // Uninstall the thread-scope WH_KEYBOARD / WH_MOUSE hooks before the
+        // window tears down. Leaving them installed risks a dangling HOOKPROC
         // (managed delegate) after the window is gone; UnhookWindowsHookEx
         // is the documented cleanup for SetWindowsHookEx.
         if (_hookHandle != IntPtr.Zero)
@@ -481,11 +595,20 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             if (!UnhookWindowsHookEx(_hookHandle))
             {
                 var gle = Marshal.GetLastWin32Error();
-                Trace.TraceError($"AppWindow_Closing: UnhookWindowsHookEx failed, Win32 error {gle}");
+                Trace.TraceError($"AppWindow_Closing: UnhookWindowsHookEx(WH_KEYBOARD) failed, Win32 error {gle}");
             }
             _hookHandle = IntPtr.Zero;
-            _hookInstalled = false;
         }
+        if (_mouseHookHandle != IntPtr.Zero)
+        {
+            if (!UnhookWindowsHookEx(_mouseHookHandle))
+            {
+                var gle = Marshal.GetLastWin32Error();
+                Trace.TraceError($"AppWindow_Closing: UnhookWindowsHookEx(WH_MOUSE) failed, Win32 error {gle}");
+            }
+            _mouseHookHandle = IntPtr.Zero;
+        }
+        _hookInstalled = false;
 
         SaveWindowState();
     }
