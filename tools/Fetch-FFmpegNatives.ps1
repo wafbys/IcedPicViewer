@@ -81,23 +81,38 @@ if (-not $libDir) {
     throw "Could not locate avutil shared library inside archive."
 }
 
-# Soname guard. FFmpeg.AutoGen 9.0.1.1 hard-codes the FFmpeg 9.0 library names
-# (avutil-61 / avcodec-63 / ...); a mismatched set does not fail the build —
-# FFmpegBootstrap catches the load error and just disables video thumbs, so
-# silently fetching master here costs hours of "why is video broken".
-$expected = [ordered]@{ avutil = 61; avcodec = 63; avformat = 63; avfilter = 12; swscale = 10; swresample = 7 }
+# Soname guard against the DECLARED FFmpeg set. The expected library names are
+# read from <FFmpegExpectedSonames> in the WinUI project — the single source of
+# truth, also checked by the build's IPV002 warning. FFmpeg.AutoGen 9.0.1.1
+# binds to exactly those sonames. A mismatched set does not fail the build; it
+# disables video thumbs at runtime, silently, so catching it here is the
+# cheapest possible fix.
+$csproj = Join-Path $RepoRoot 'src/IcedPicViewer.WinUI/IcedPicViewer.csproj'
+if (-not (Test-Path $csproj)) {
+    throw "Project file not found: $csproj (needed to read the declared FFmpeg sonames)."
+}
+$declared = [regex]::Match((Get-Content $csproj -Raw), '<FFmpegExpectedSonames>([^<]+)</FFmpegExpectedSonames>')
+if (-not $declared.Success) {
+    throw "Could not read <FFmpegExpectedSonames> from $csproj."
+}
+$expected = @($declared.Groups[1].Value -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $names = @(Get-ChildItem $libDir.FullName -Force | Select-Object -ExpandProperty Name)
 $missing = @()
-foreach ($lib in $expected.Keys) {
-    if (-not ($names | Where-Object { $_ -match "^(?:lib)?$lib[^0-9]*$($expected[$lib])" })) {
-        $missing += "$lib/$($expected[$lib])"
+foreach ($token in $expected) {
+    if ($token -notmatch '^([A-Za-z0-9_]+)-(\d+)$') {
+        throw "Unexpected soname '$token' in <FFmpegExpectedSonames> ($csproj) — expected e.g. avutil-61."
+    }
+    $lib = $Matches[1]
+    $ver = $Matches[2]
+    if (-not ($names | Where-Object { $_ -match "^(?:lib)?$lib[^0-9]*$ver" })) {
+        $missing += "$lib/$ver"
     }
 }
 if ($missing.Count -gt 0) {
-    throw ("FFmpeg natives do not match FFmpeg.AutoGen 9.0.1.1 — missing sonames: $($missing -join ', '). " +
+    throw ("FFmpeg natives do not match the declared sonames in $csproj — missing: $($missing -join ', '). " +
            "Asset '$($asset.name)' is likely a master/nightly build; pick an n9.0 (lgpl-shared) asset from " +
-           "https://github.com/BtbN/FFmpeg-Builds/releases. Do not 'upgrade' the sonames without bumping " +
-           "FFmpeg.AutoGen and the avutil-61/avcodec-63 checks in src/IcedPicViewer.WinUI/IcedPicViewer.csproj.")
+           "https://github.com/BtbN/FFmpeg-Builds/releases. Do not change the sonames without bumping " +
+           "FFmpeg.AutoGen and <FFmpegExpectedSonames> in that same project.")
 }
 
 Write-Host "Copying from $($libDir.FullName) → $dest"

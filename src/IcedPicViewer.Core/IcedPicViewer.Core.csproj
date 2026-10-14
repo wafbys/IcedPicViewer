@@ -18,7 +18,14 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="SharpCompress" Version="0.50.5" />
-    <PackageReference Include="FFmpeg.AutoGen" Version="8.1.0" />
+    <!--
+      Must stay on the same FFmpeg.AutoGen version as IcedPicViewer.csproj: Core
+      owns VideoFrameExtractor / AnimatedWebpExtractor, so the declared sonames in
+      that project's <FFmpegExpectedSonames> are the ones these bindings call.
+      A skew here does not fail the build (NuGet unifies to the higher version for
+      the app) but makes Core's own tests bind a different native set.
+    -->
+    <PackageReference Include="FFmpeg.AutoGen" Version="9.0.1.1" />
   </ItemGroup>
 
 </Project>

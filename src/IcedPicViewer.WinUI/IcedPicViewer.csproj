@@ -114,6 +114,23 @@
   </ItemGroup>
 
   <!--
+    Declared FFmpeg sonames: the native API set the FFmpeg.AutoGen PackageReference
+    above binds to. Single source of truth — consumed by two places:
+      * tools/Fetch-FFmpegNatives.ps1 parses this property for its own guard
+      * CopyFFmpegDllsToOutDir compares it against the DLLs on disk (IPV002)
+
+    Bump this property together with FFmpeg.AutoGen, then re-run
+    ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64. A stale major version (e.g.
+    FFmpeg 8.x avcodec-62 sitting next to 9.x bindings) does not fail the build
+    on its own and does not crash: FFmpegBootstrap catches the load failure and
+    disables video thumbnails at runtime, silently.
+  -->
+  <PropertyGroup>
+    <FFmpegExpectedSonames>avutil-61;avcodec-63;avformat-63;avfilter-12;swscale-10;swresample-7</FFmpegExpectedSonames>
+    <FFmpegNativeSourceDir>$(MSBuildProjectDirectory)\..\native\ffmpeg\win-x64</FFmpegNativeSourceDir>
+  </PropertyGroup>
+
+  <!--
     FFmpeg natives must be declared as <Content>, not just copied by the
     CopyFFmpegDllsToOutDir target. `dotnet run` for a packaged WinUI app goes
     through WinApp CLI, whose _WinAppCopyContentToLooseLayout target stages
@@ -133,9 +150,17 @@
     Note: this is NOT redundant with the Copy target. The Copy target is what
     puts the DLLs in the output root for the MSIX path; this Content item is what
     puts them in the loose layout for `dotnet run`. Both are needed.
+
+    Unconditional on purpose: this item's job is to get whatever natives exist on
+    disk into the loose layout, and a missing directory simply expands to zero
+    files. Completeness is not its concern — a stale or partial set is staged but
+    can never bind (FFmpegBootstrap's load fails either way), so this copy cannot
+    mask the mismatch. IPV002 in CopyFFmpegDllsToOutDir is what reports it; the
+    metadata-based completeness check cannot live here because MSBuild rejects
+    metadata references in item-definition conditions during evaluation.
   -->
-  <ItemGroup Condition="Exists('..\native\ffmpeg\win-x64\avutil-61.dll')">
-    <Content Include="..\native\ffmpeg\win-x64\*.dll"
+  <ItemGroup>
+    <Content Include="$(FFmpegNativeSourceDir)\*.dll"
              Link="%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
@@ -169,14 +194,40 @@
   -->
   <Target Name="CopyFFmpegDllsToOutDir" AfterTargets="Build" Condition="'$(_DesignTimeBuild)' != 'true'">
     <PropertyGroup>
-      <_FFmpegSourceDir>$(MSBuildProjectDirectory)\..\native\ffmpeg\win-x64\</_FFmpegSourceDir>
+      <!-- Reported in the IPV002 message; keeps it pinned to the actual reference. -->
+      <_FFmpegAutoGenVersion>@(PackageReference-&gt;WithMetadataValue('Identity', 'FFmpeg.AutoGen')-&gt;'%(Version)')</_FFmpegAutoGenVersion>
     </PropertyGroup>
     <ItemGroup>
-      <_FFmpegDlls Include="$(_FFmpegSourceDir)*.dll" />
+      <_FFmpegDlls Include="$(FFmpegNativeSourceDir)\*.dll" />
+      <!--
+        Expected file names are derived by item TRANSFORM, not by a metadata value
+        like <DllName>%(Filename).dll</DllName>: inside a target, built-in metadata
+        in a metadata value silently evaluates to empty (that produced ".dll is
+        missing" for every name). The transform yields real item specs, which is
+        also what the batched Warning below batches over.
+      -->
+      <_FFmpegExpectedSoname Include="$(FFmpegExpectedSonames)" />
+      <_FFmpegExpectedDll Include="@(_FFmpegExpectedSoname->'%(Identity).dll')" />
     </ItemGroup>
+    <PropertyGroup>
+      <!-- Empty-list-safe emptiness test that keeps an item reference out of the
+           conditions below (a bare @(_FFmpegDlls) there would batch the task over
+           that list as well). -->
+      <_FFmpegDllCount>@(_FFmpegDlls->Count())</_FFmpegDllCount>
+    </PropertyGroup>
+    <!--
+      IPV001: nothing at all on disk. IPV002: something is there but a declared
+      (FFmpeg.AutoGen-bound) soname has no DLL — the stale-set case that otherwise
+      only shows up as "video thumbnails silently gone" at runtime. IPV002 is
+      batched over the expected names, so it fires once per missing name. Both
+      messages carry the one-command fix.
+    -->
     <Warning Code="IPV001"
-             Text="FFmpeg native DLLs not found under src/native/ffmpeg/win-x64. Video thumbs/probe will fail. Run: ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64"
-             Condition="@(_FFmpegDlls) == ''" />
+             Text="FFmpeg native DLLs not found under src/native/ffmpeg/win-x64 (need: $(FFmpegExpectedSonames)). Video thumbs/probe will fail. Run: ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64"
+             Condition="'$(_FFmpegDllCount)' == '0'" />
+    <Warning Code="IPV002"
+             Text="FFmpeg natives under src/native/ffmpeg/win-x64 do not match the declared sonames: %(_FFmpegExpectedDll.Identity) is missing (declared set: $(FFmpegExpectedSonames)). FFmpeg.AutoGen $(_FFmpegAutoGenVersion) cannot bind to the set while it is absent — video thumbs/metadata fail at runtime with no error. Run: ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64"
+             Condition="'$(_FFmpegDllCount)' != '0' and !Exists('$(FFmpegNativeSourceDir)\%(_FFmpegExpectedDll.Identity)')" />
     <Copy SourceFiles="@(_FFmpegDlls)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="@(_FFmpegDlls) != ''" />
     <Message Text="CopyFFmpegDllsToOutDir: copied @(_FFmpegDlls) -&gt; $(OutDir)" Importance="high" Condition="@(_FFmpegDlls) != ''" />
   </Target>
