@@ -153,16 +153,16 @@
                                     IsHitTestVisible="False">
                                 <StackPanel Spacing="1">
                                     <TextBlock Text="{x:Bind Name, Mode=OneWay}"
-                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Style="{StaticResource AppCaptionTextBlockStyle}"
                                                Foreground="White"
                                                FontWeight="SemiBold"
                                                TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="{x:Bind InfoLine, Mode=OneWay}"
-                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Style="{StaticResource AppCaptionTextBlockStyle}"
                                                Foreground="#E0FFFFFF"
                                                TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="{x:Bind DisplayLocation, Mode=OneWay}"
-                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Style="{StaticResource AppCaptionTextBlockStyle}"
                                                Foreground="#B3FFFFFF"
                                                TextTrimming="CharacterEllipsis"/>
                                 </StackPanel>
@@ -351,7 +351,7 @@
                               Margin="0,0,8,0"/>
 
                 <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
-                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Style="{StaticResource AppCaptionTextBlockStyle}"
                            VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"
                            MaxWidth="900"/>
@@ -390,12 +390,12 @@
                     Spacing="8"
                     Visibility="{x:Bind ViewModel.EmptyStateVisibility, Mode=OneWay}">
             <TextBlock Text="{x:Bind ViewModel.EmptyStateTitle, Mode=OneWay}"
-                       Style="{StaticResource SubtitleTextBlockStyle}"
+                       Style="{StaticResource AppSubtitleTextBlockStyle}"
                        HorizontalAlignment="Center"
                        TextAlignment="Center"
                        TextWrapping="Wrap"/>
             <TextBlock Text="{x:Bind ViewModel.EmptyStateHint, Mode=OneWay}"
-                       Style="{StaticResource BodyTextBlockStyle}"
+                       Style="{StaticResource AppBodyTextBlockStyle}"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        HorizontalAlignment="Center"
                        TextAlignment="Center"

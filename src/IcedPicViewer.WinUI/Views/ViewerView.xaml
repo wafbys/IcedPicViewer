@@ -66,11 +66,11 @@
                                VerticalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                Margin="0,0,8,0"
-                               Style="{StaticResource CaptionTextBlockStyle}"/>
+                               Style="{StaticResource AppCaptionTextBlockStyle}"/>
                     <TextBlock Text="{x:Bind ViewModel.ImagePath, Mode=OneWay}"
                                VerticalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Style="{StaticResource AppCaptionTextBlockStyle}"
                                TextTrimming="CharacterEllipsis" MaxWidth="400"/>
                 </StackPanel>
             </CommandBar.Content>
@@ -186,7 +186,7 @@
                             Margin="8,0,0,0">
                     <TextBlock Text="间隔:"
                                VerticalAlignment="Center"
-                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Style="{StaticResource AppCaptionTextBlockStyle}"
                                Opacity="0.7"/>
                     <Slider x:Name="SlideshowIntervalSlider"
                             Minimum="1"
@@ -200,12 +200,12 @@
                             ToolTipService.ToolTip="幻灯片间隔（秒）"/>
                     <TextBlock Text="{x:Bind ViewModel.SlideshowIntervalText, Mode=OneWay}"
                                VerticalAlignment="Center"
-                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Style="{StaticResource AppCaptionTextBlockStyle}"
                                MinWidth="28"
                                TextAlignment="Right"/>
                     <TextBlock Text="秒"
                                VerticalAlignment="Center"
-                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Style="{StaticResource AppCaptionTextBlockStyle}"
                                Opacity="0.7"/>
                 </StackPanel>
             </AppBarElementContainer>
@@ -404,10 +404,10 @@
                     <TextBlock Text="{x:Bind ViewModel.SelectedItem.Name, Mode=OneWay}"
                                TextTrimming="CharacterEllipsis"
                                MaxLines="1"
-                               Style="{StaticResource BodyTextBlockStyle}"/>
+                               Style="{StaticResource AppBodyTextBlockStyle}"/>
                     <TextBlock Text="{x:Bind ViewModel.PrePlayDurationText, Mode=OneWay}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               Style="{StaticResource BodyTextBlockStyle}"/>
+                               Style="{StaticResource AppBodyTextBlockStyle}"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2"
                             Orientation="Horizontal"
@@ -429,7 +429,7 @@
                             ToolTipService.ToolTip="音量"/>
                     <TextBlock Text="{x:Bind ViewModel.VolumePercent, Mode=OneWay}"
                                VerticalAlignment="Center"
-                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Style="{StaticResource AppCaptionTextBlockStyle}"
                                MinWidth="36"
                                TextAlignment="Right"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -533,7 +533,7 @@
                                Grid.Column="2"
                                Text="0:00 / 0:00"
                                VerticalAlignment="Center"
-                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Style="{StaticResource AppCaptionTextBlockStyle}"
                                MinWidth="90"
                                TextAlignment="Right"/>
                 </Grid>
@@ -599,12 +599,12 @@
                 <StackPanel Grid.Column="0" Spacing="6">
                     <TextBlock Text="无法播放此视频"
                                x:Name="CannotPlayTitle"
-                               Style="{StaticResource BodyStrongTextBlockStyle}"
+                               Style="{StaticResource AppBodyStrongTextBlockStyle}"
                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
                     <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
                                TextWrapping="Wrap"
                                IsTextSelectionEnabled="True"
-                               Style="{StaticResource BodyTextBlockStyle}"/>
+                               Style="{StaticResource AppBodyTextBlockStyle}"/>
                 </StackPanel>
                 <Button Grid.Column="1"
                         x:Name="CopyErrorBtn"

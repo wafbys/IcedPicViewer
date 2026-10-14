@@ -30,7 +30,10 @@
   </Dependencies>
 
   <Resources>
-    <!-- 单语言支持：本应用未实现多语言本地化，设置为 en 避免生成多语言包支持 -->
+    <!-- 单语言支持：本应用未实现多语言本地化。zh-CN 作默认语言，保留 en。
+         默认语言同时决定 XamlAutoFontFamily（全局字体）解析到哪支 ——
+         只声明 en 时，中文字形会走泛化回退（典型症状：宋体观感）。 -->
+    <Resource Language="zh-CN"/>
     <Resource Language="en"/>
   </Resources>
 
