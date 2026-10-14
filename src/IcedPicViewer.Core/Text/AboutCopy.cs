@@ -19,6 +19,24 @@ public static class AboutCopy
     public static string FfmpegDescriptionZh()
         => "版本 9.0 (BtbN 构建，LGPL 2.1+ shared)。用于读取视频元数据 (分辨率、时长、音轨)、首帧缩略图，以及动图 WebP 的逐帧解码。";
 
+    public const string FfmpegStatusChecking = "运行状态：检测中…";
+
+    /// <summary>
+    /// Runtime FFmpeg truth line. The description above states what the build
+    /// ships and expects; this states what actually loaded in the running process
+    /// — the failure mode that used to be invisible (a missing or version-
+    /// mismatched native set silently disables video thumbnails).
+    /// </summary>
+    public static string FfmpegStatus(bool ready, string? version, string? directory)
+    {
+        if (!ready)
+            return "运行状态：不可用——视频缩略图、视频元数据与动图 WebP 无法解码（FFmpeg 原生库缺失或与 FFmpeg.AutoGen 版本不符）。";
+
+        var versionPart = string.IsNullOrEmpty(version) ? string.Empty : $"（{version}）";
+        var dirPart = string.IsNullOrEmpty(directory) ? string.Empty : $"；{directory}";
+        return $"运行状态：已加载{versionPart}{dirPart}";
+    }
+
     public const string CacheSectionTitle = "缩略图缓存";
 
     public static string CacheDescriptionZh()

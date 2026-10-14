@@ -21,6 +21,14 @@ public static class FFmpegBootstrap
     /// <summary>Resolved library directory, or null if unavailable.</summary>
     public static string? ResolvedRoot { get; private set; }
 
+    /// <summary>
+    /// Version string reported by FFmpeg itself (<c>av_version_info()</c>, e.g.
+    /// <c>n9.0.2-27-g7e93014c5b-20261014</c>), or null when the native libraries
+    /// never loaded. Filled by the same call that decides <see cref="IsReady"/>,
+    /// so null means "nothing was bound" rather than "not asked yet".
+    /// </summary>
+    public static string? Version { get; private set; }
+
     public static void EnsureInitialized()
     {
         if (Interlocked.Exchange(ref _initialized, 1) == 1)
@@ -40,7 +48,7 @@ public static class FFmpegBootstrap
 
             ffmpeg.RootPath = dir;
             ResolvedRoot = dir;
-            _ = ffmpeg.av_version_info();
+            var version = ffmpeg.av_version_info();
 
             // Default FFmpeg log level is INFO and dumps to stderr. Complex
             // MKV (PGS subtitles, multi-audio, Dolby Vision) spam probesize /
@@ -48,13 +56,15 @@ public static class FFmpegBootstrap
             // Keep ERROR+ only — real open/decode failures still surface.
             ffmpeg.av_log_set_level(ffmpeg.AV_LOG_ERROR);
 
+            Version = version;
             IsReady = true;
-            Trace.TraceInformation($"FFmpegBootstrap: ready from {dir} ({ffmpeg.av_version_info()})");
+            Trace.TraceInformation($"FFmpegBootstrap: ready from {dir} ({version})");
         }
         catch (Exception ex)
         {
             IsReady = false;
             ResolvedRoot = null;
+            Version = null;
             Trace.TraceError($"FFmpegBootstrap: init failed: {ex.Message}");
         }
     }

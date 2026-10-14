@@ -29,6 +29,8 @@ public sealed partial class AboutPage : Page
         CacheDescTextBlock.Text = AboutCopy.CacheDescriptionZh();
         ClearCacheButton.Content = UiCopy.ClearCache;
 
+        FfmpegStatusTextBlock.Text = AboutCopy.FfmpegStatusChecking;
+
         Loaded += OnLoaded;
     }
 
@@ -37,7 +39,36 @@ public sealed partial class AboutPage : Page
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         Loaded -= OnLoaded;
+        RefreshFfmpegStatus();
         await RefreshCacheStatsAsync();
+    }
+
+    /// <summary>
+    /// Fills the runtime FFmpeg line: whether the native libraries bound in this
+    /// process, which version they report, and from where. Runs on a worker thread
+    /// because the very first FFmpeg call pays the native load + binding JIT
+    /// (<see cref="App"/> warms it up at launch in parallel, so this is normally
+    /// already done by the time the page opens).
+    /// </summary>
+    private void RefreshFfmpegStatus()
+    {
+        _ = Task.Run(() =>
+        {
+            string text;
+            try
+            {
+                FFmpegBootstrap.EnsureInitialized();
+                text = AboutCopy.FfmpegStatus(
+                    FFmpegBootstrap.IsReady, FFmpegBootstrap.Version, FFmpegBootstrap.ResolvedRoot);
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"AboutPage.RefreshFfmpegStatus: {ex.GetType().Name}: {ex.Message}");
+                text = AboutCopy.FfmpegStatus(ready: false, version: null, directory: null);
+            }
+
+            DispatcherQueue.TryEnqueue(() => FfmpegStatusTextBlock.Text = text);
+        });
     }
 
     /// <summary>

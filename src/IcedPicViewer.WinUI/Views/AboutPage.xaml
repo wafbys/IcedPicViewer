@@ -90,6 +90,14 @@
                                    TextWrapping="Wrap"
                                    Style="{StaticResource AppBodyTextBlockStyle}"/>
 
+                        <!-- Runtime truth, filled by AboutPage.RefreshFfmpegStatus:
+                             whether the native libraries actually bound in this
+                             process (a stale/missing set silently disables video
+                             thumbnails, so this line is the visible signal). -->
+                        <TextBlock x:Name="FfmpegStatusTextBlock"
+                                   TextWrapping="Wrap"
+                                   Style="{StaticResource AppBodyTextBlockStyle}"/>
+
                         <!-- Links. HyperlinkButton with NavigateUri opens
                              external links in the user's default browser.
                              The license link is local (ms-appx), handled
