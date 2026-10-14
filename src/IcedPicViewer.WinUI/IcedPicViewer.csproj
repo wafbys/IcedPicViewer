@@ -77,7 +77,7 @@
       (MSIX 会依赖 framework package；跨主版本会启动失败)
     -->
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="11.0.0-rc.1.26425.128" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="11.0.0-rc.2.26504.105" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
     <!--
@@ -103,7 +103,7 @@
     <PackageReference Include="LibVLCSharp" Version="3.9.3" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
 
-    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.302">
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="11.0.100-rc.2.26504.105">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
