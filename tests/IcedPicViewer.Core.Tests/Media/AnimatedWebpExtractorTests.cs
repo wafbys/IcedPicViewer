@@ -39,27 +39,27 @@ public sealed class AnimatedWebpExtractorTests : IDisposable
     /// Two-phase red → blue animation. libwebp writes an animated file as
     /// soon as it gets multiple frames plus <c>-loop</c>.
     /// </summary>
-    private string? TryMakeAnimatedWebp(string name)
-    {
-        return TryRunFfmpeg(name, new[]
-        {
-            "-y", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=red:s=160x120:d=0.3",
-            "-f", "lavfi", "-i", "color=c=blue:s=160x120:d=0.3",
-            "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
-            "-map", "[v]", "-c:v", "libwebp", "-loop", "0",
-        });
-    }
+    private string? TryMakeAnimatedWebp(string name) => TryRunFfmpeg(name, AnimatedWebpArgs);
 
-    private string? TryMakeStillWebp(string name)
+    private string? TryMakeStillWebp(string name) => TryRunFfmpeg(name, StillWebpArgs);
+
+    // Argument lists as static readonly fields (CA1861): TryRunFfmpeg only reads
+    // them (each call appends to its own ArgumentList, never to the array).
+    private static readonly string[] AnimatedWebpArgs =
     {
-        return TryRunFfmpeg(name, new[]
-        {
-            "-y", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=green:s=160x120",
-            "-frames:v", "1", "-c:v", "libwebp",
-        });
-    }
+        "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "color=c=red:s=160x120:d=0.3",
+        "-f", "lavfi", "-i", "color=c=blue:s=160x120:d=0.3",
+        "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+        "-map", "[v]", "-c:v", "libwebp", "-loop", "0",
+    };
+
+    private static readonly string[] StillWebpArgs =
+    {
+        "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "color=c=green:s=160x120",
+        "-frames:v", "1", "-c:v", "libwebp",
+    };
 
     private string? TryRunFfmpeg(string name, string[] args)
     {
