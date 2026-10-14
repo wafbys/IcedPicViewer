@@ -12,12 +12,26 @@
 - **清理**：8.1 遗留 35 个文件 / 783 MB（含 4 处 bin 输出目录）；测试工程 `CA1861`（WebP 合成参数组改 `static readonly` 字段）。
 - **AGENTS.md**：FFmpeg 条目补记单一来源、Core/WinUI 两处包版本必须同步、`IPV001` / `IPV002` 语义。
 
-### 验证
+### 验证（FFmpeg 修复）
 
 - Core `dotnet test` **192 passed**、0 warning；WinUI x64 Debug / Release `dotnet build` 0 warning / 0 error。
 - **真实抽帧实测**（自生成 2 s / 320×240 测试片，走生产路径 `VideoFrameExtractor`）：缩略图 256×192、时长 2 s、5426 种 RGB、缓冲区 196 608 B 精确。
 - 输出根与 `AppX\` loose layout（Debug + Release）均为 7 个 9.0 DLL，无 8.x 残留。
 - 待人工确认（未实测 GUI）：封面观感、About 状态行的实际渲染效果；`av_version_info()` 实测返回 `n9.0.2-27-g7e93014c5b-20261014`。
+
+### 查看器：音量 / 静音随时可用 + 左右边缘翻页按钮（Photos 风格）
+
+- **打开视频、尚未播放时即可静音 / 调音量**：预播放条新增喇叭按钮（图标随静音状态切换），与原有音量滑块并排；两者立刻作用于已存在的播放器，并在按下播放时生效。
+- **修复「音量不记住」的根因**：Fit 模式播放中，MediaPlayerElement 的内置传送控件直接改 `MediaPlayer.Volume` / `IsMuted`，VM 之前完全看不见 → 既不落盘也不回显。现订阅 `VolumeChanged` / `IsMutedChanged` 双向同步（后台线程事件 → UI 线程派发，双向重入加保护；VM 侧写入同时设置 `IsMuted` 与 `Volume`，避免内置静音标记残留造成「音量拉高却没声」）。
+- **持久化语义**：只把音量写入 `settings.json`，**静音不落盘**（下次启动仍按记住的音量出声）；显式把音量拖到 0 会记住 0。内置控件把音量归零视作静音 —— 记住的电平保留，之后再拖高自动取消静音。
+- **边缘翻页按钮**：左右两侧垂直居中的圆形按钮，鼠标活动即出现、闲置约 2 秒淡出；显示规则**独立于工具栏**（工具栏只在顶部热区出现，箭头若跟着它则根本够不到）。首 / 末项不出对应箭头；1:1 模式右箭头内缩 16 px 避开滚动条；`IsTabStop=False`，键盘路径不变（← → / Home / End）。指针事件用 `handledEventsToo` 钩住，否则 1:1 ScrollViewer 吞掉移动后箭头不再出现。
+- 已知未覆盖（本次未改，属范围外）：**1:1 模式播放中**与 **LibVLC 播放中**仍无音量 / 静音控件（内置传送控件只在 Fit 模式出现）。
+
+### 验证（音量 / 边缘翻页）
+
+- 构建：Core `dotnet test` **192 passed**、0 warning；WinUI x64 Debug / Release `dotnet build` 0 warning / 0 error。
+- 已实测（非 GUI）：`MediaPlayer.IsMuted` / `IsMutedChanged` 在本机 Windows SDK 投影中存在（编译探针验证，避免按「只有 Volume」的错误假设接线）。
+- 待人工确认（未实测 GUI）：静音按钮与滑块的观感、内置控件调音量后重启是否记住、边缘箭头的出现 / 淡出与点击手感。
 
 ## v0.18.0 (2026-10-14)
 
