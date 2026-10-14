@@ -202,7 +202,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         RootFrame.Navigated += (_, args) =>
         {
             AppTitleBar.IsBackButtonVisible = RootFrame.CanGoBack;
-            AppTitleBar.Subtitle = args.SourcePageType == typeof(AboutPage) ? "关于" : "";
+            AppTitleBar.Subtitle = args.SourcePageType == typeof(AboutPage) ? IcedPicViewer.Core.Text.UiCopy.About : "";
             // The About page is document-style chrome: opening it from the
             // fullscreen gallery would hide the title bar (and with it the
             // only pointer path back), so leave fullscreen first.

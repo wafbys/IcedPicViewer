@@ -697,7 +697,7 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         // (Segoe Fluent Icons). Doing both glyph AND label change makes
         // the state change unmistakable even at a glance.
         CopyBtnGlyph.Glyph = "\uE73E";
-        CopyBtnLabel.Text = "已复制";
+        CopyBtnLabel.Text = IcedPicViewer.Core.Text.UiCopy.Copied;
 
         _copyResetTimer ??= CreateCopyResetTimer();
         _copyResetTimer.Stop();
@@ -712,7 +712,7 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         timer.Tick += (_, _) =>
         {
             CopyBtnGlyph.Glyph = "\uE8C8"; // Copy
-            CopyBtnLabel.Text = "复制";
+            CopyBtnLabel.Text = IcedPicViewer.Core.Text.UiCopy.Copy;
         };
         return timer;
     }

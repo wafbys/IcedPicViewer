@@ -8,6 +8,10 @@ namespace IcedPicViewer.Core.Text;
 public static class AboutCopy
 {
     public const string Title = "关于 IcedPicViewer";
+    public const string ThirdPartySectionTitle = "第三方组件";
+    public const string FfmpegHomepageLink = "FFmpeg 官方网站 (ffmpeg.org)";
+    public const string FfmpegBuildsLink = "BtbN/FFmpeg-Builds (本项目使用的构建来源)";
+    public const string LicenseFullTextLink = "LGPL 2.1 许可证全文 (本项目内嵌副本)";
 
     public static string WinUiIntro()
         => "一个基于 WinUI 3 + Windows App SDK 的图片 / 视频查看器。本地优先、纯查看器，不上传、不联网。";

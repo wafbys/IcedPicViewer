@@ -1,5 +1,7 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
+using System.Collections.Generic;
+
 namespace IcedPicViewer.Core.Text;
 
 /// <summary>
@@ -71,6 +73,44 @@ public static class UiCopy
 
     public static string EmptyNoMatchHint(string queryLabel)
         => $"当前筛选：{queryLabel}";
+
+    // ── Viewer chrome / shortcuts ────────────────────────────────────
+    public const string Previous = "上一张";
+    public const string Next = "下一张";
+    public const string RefreshTooltip = "刷新 (F5)";
+    public const string FitToggleTooltip = "适应 / 1:1 切换";
+    public const string PlayTooltip = "播放 (Space)";
+    public const string PlayPauseTooltip = "播放 / 暂停 (Space)";
+    public const string PreparingVideo = "正在准备播放...";
+    public const string Copy = "复制";
+    public const string Copied = "已复制";
+    public const string CopyErrorTooltip = "复制错误信息";
+    public const string SearchTooltip = "按文件名查找；支持 * 和 ? 通配符";
+    public const string BackfillTooltip = "后台生成缩略图进度";
+    public const string RevealInFolderTooltip = "在文件资源管理器中显示该文件";
+
+    // ── 筛选 / 排序 选项与组合提示 ───────────────────────────────────
+    public const string FilterAll = "全部";
+    public const string FilterImages = "图片";
+    public const string FilterVideos = "视频";
+    public const string SortByName = "名称";
+    public const string SortByDate = "日期";
+    public const string SortBySize = "大小";
+    public const string SortByExtension = "扩展名";
+
+    /// <summary>ComboBox.ItemsSource 用；顺序与 MediaFilter 的整数值一致。</summary>
+    public static IReadOnlyList<string> FilterOptions { get; } =
+        new[] { FilterAll, FilterImages, FilterVideos };
+
+    /// <summary>ComboBox.ItemsSource 用；顺序与 MediaSortKey 的整数值一致。</summary>
+    public static IReadOnlyList<string> SortOptions { get; } =
+        new[] { SortByName, SortByDate, SortBySize, SortByExtension };
+
+    public static string FilterTooltip => $"{FilterLabel}：{string.Join(" / ", FilterOptions)}";
+
+    public static string SortTooltip => $"{SortLabel}：{string.Join(" / ", SortOptions)}";
+
+    public static string SortDirectionTooltip => $"{SortAscending} / {SortDescending}";
 
     // ── Dialogs ──────────────────────────────────────────────────────
     public const string CannotDeleteTitle = "无法删除";

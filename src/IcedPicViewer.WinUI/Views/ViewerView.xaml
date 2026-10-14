@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:IcedPicViewer"
     xmlns:controls="using:IcedPicViewer.Controls"
+    xmlns:core="using:IcedPicViewer.Core.Text"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
@@ -16,8 +17,8 @@
           KeyDown="MainContentGrid_KeyDown">
         <Grid.ContextFlyout>
             <MenuFlyout>
-                <MenuFlyoutItem Text="打开文件位置" Click="OpenFileLocation_Click"/>
-                <MenuFlyoutItem Text="删除" Command="{x:Bind ViewModel.DeleteCommand}"/>
+                <MenuFlyoutItem Text="{x:Bind core:UiCopy.RevealInFolder}" Click="OpenFileLocation_Click"/>
+                <MenuFlyoutItem Text="{x:Bind core:UiCopy.Delete}" Command="{x:Bind ViewModel.DeleteCommand}"/>
             </MenuFlyout>
         </Grid.ContextFlyout>
         <!--
@@ -75,14 +76,14 @@
                 </StackPanel>
             </CommandBar.Content>
             <AppBarButton Icon="Cancel"
-                          Label="关闭"
+                          Label="{x:Bind core:UiCopy.Close}"
                           Command="{x:Bind ViewModel.CloseCommand}"
-                          ToolTipService.ToolTip="关闭"/>
+                          ToolTipService.ToolTip="{x:Bind core:UiCopy.Close}"/>
             <AppBarSeparator/>
             <AppBarButton Icon="Previous"
-                          Label="上一张"
+                          Label="{x:Bind core:UiCopy.Previous}"
                           Command="{x:Bind ViewModel.NavigatePreviousCommand}"
-                          ToolTipService.ToolTip="上一张"/>
+                          ToolTipService.ToolTip="{x:Bind core:UiCopy.Previous}"/>
             <AppBarElementContainer>
                 <TextBlock VerticalAlignment="Center"
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
@@ -93,9 +94,9 @@
                 </TextBlock>
             </AppBarElementContainer>
             <AppBarButton Icon="Next"
-                          Label="下一张"
+                          Label="{x:Bind core:UiCopy.Next}"
                           Command="{x:Bind ViewModel.NavigateNextCommand}"
-                          ToolTipService.ToolTip="下一张"/>
+                          ToolTipService.ToolTip="{x:Bind core:UiCopy.Next}"/>
             <AppBarSeparator/>
             <!--
                 Fit/1:1 toggle now works for both images and videos.
@@ -108,14 +109,14 @@
             -->
             <AppBarButton x:Name="FitModeBtn"
                           Icon="Zoom"
-                          Label="适应"
+                          Label="{x:Bind core:UiCopy.Fit}"
                           Click="FitModeBtn_Click"
-                          ToolTipService.ToolTip="适应 / 1:1 切换"/>
+                          ToolTipService.ToolTip="{x:Bind core:UiCopy.FitToggleTooltip}"/>
             <AppBarButton Icon="Refresh"
-                          Label="加载更多"
+                          Label="{x:Bind core:UiCopy.LoadMore}"
                           Command="{x:Bind ViewModel.LoadMoreCommand}"
                           Visibility="{x:Bind ViewModel.LoadMoreVisibility, Mode=OneWay}"
-                          ToolTipService.ToolTip="加载更多"/>
+                          ToolTipService.ToolTip="{x:Bind core:UiCopy.LoadMore}"/>
             <!--
                 Slideshow toggle. Click to start / stop the auto-advance
                 timer. Glyph + label + tooltip all switch on
@@ -228,9 +229,9 @@
             </AppBarButton>
             <CommandBar.SecondaryCommands>
                 <AppBarButton Icon="OpenFile"
-                              Label="打开文件位置"
+                              Label="{x:Bind core:UiCopy.RevealInFolder}"
                               Click="OpenFileLocation_Click"
-                              ToolTipService.ToolTip="在文件资源管理器中显示该文件"/>
+                              ToolTipService.ToolTip="{x:Bind core:UiCopy.RevealInFolderTooltip}"/>
             </CommandBar.SecondaryCommands>
         </CommandBar>
 
@@ -327,7 +328,7 @@
                 <ProgressRing IsActive="True"
                               Width="48" Height="48"
                               HorizontalAlignment="Center"/>
-                <TextBlock Text="正在准备播放..."
+                <TextBlock Text="{x:Bind core:UiCopy.PreparingVideo}"
                            FontSize="14"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            HorizontalAlignment="Center"/>
@@ -350,7 +351,7 @@
                     Width="80" Height="80"
                     CornerRadius="40"
                     Padding="0"
-                    ToolTipService.ToolTip="播放 (Space)">
+                    ToolTipService.ToolTip="{x:Bind core:UiCopy.PlayTooltip}">
                 <FontIcon Glyph="&#xE768;" FontSize="36" Foreground="White"/>
             </Button>
             <!--
@@ -391,10 +392,10 @@
                         Click="PlayOverlay_Click"
                         VerticalAlignment="Center"
                         Padding="8,4"
-                        ToolTipService.ToolTip="播放 (Space)">
+                        ToolTipService.ToolTip="{x:Bind core:UiCopy.PlayTooltip}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <FontIcon Glyph="&#xE768;" FontSize="14"/>
-                        <TextBlock Text="播放"/>
+                        <TextBlock Text="{x:Bind core:UiCopy.Play}"/>
                     </StackPanel>
                 </Button>
                 <StackPanel Grid.Column="1"
@@ -426,7 +427,7 @@
                             LargeChange="0.1"
                             VerticalAlignment="Center"
                             MinWidth="120"
-                            ToolTipService.ToolTip="音量"/>
+                            ToolTipService.ToolTip="{x:Bind core:UiCopy.Volume}"/>
                     <TextBlock Text="{x:Bind ViewModel.VolumePercent, Mode=OneWay}"
                                VerticalAlignment="Center"
                                Style="{StaticResource AppCaptionTextBlockStyle}"
@@ -514,7 +515,7 @@
                     <Button x:Name="PlayPauseBtn"
                             Grid.Column="0"
                             Click="PlayPauseBtn_Click"
-                            ToolTipService.ToolTip="播放 / 暂停 (Space)">
+                            ToolTipService.ToolTip="{x:Bind core:UiCopy.PlayPauseTooltip}">
                         <FontIcon x:Name="PlayPauseGlyph" Glyph="&#xE768;"/>
                     </Button>
                     <Slider x:Name="PositionSlider"
@@ -597,7 +598,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Spacing="6">
-                    <TextBlock Text="无法播放此视频"
+                    <TextBlock Text="{x:Bind core:VideoPlaybackCopy.CannotPlayTitle}"
                                x:Name="CannotPlayTitle"
                                Style="{StaticResource AppBodyStrongTextBlockStyle}"
                                Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
@@ -610,10 +611,10 @@
                         x:Name="CopyErrorBtn"
                         Click="CopyErrorBtn_Click"
                         VerticalAlignment="Top"
-                        ToolTipService.ToolTip="复制错误信息">
+                        ToolTipService.ToolTip="{x:Bind core:UiCopy.CopyErrorTooltip}">
                     <StackPanel x:Name="CopyBtnContent" Orientation="Horizontal" Spacing="6">
                         <FontIcon x:Name="CopyBtnGlyph" Glyph="&#xE8C8;" FontSize="14"/>
-                        <TextBlock x:Name="CopyBtnLabel" Text="复制"/>
+                        <TextBlock x:Name="CopyBtnLabel" Text="{x:Bind core:UiCopy.Copy}"/>
                     </StackPanel>
                 </Button>
             </Grid>
