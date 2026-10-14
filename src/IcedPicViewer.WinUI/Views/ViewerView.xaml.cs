@@ -147,6 +147,87 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     public Visibility CommandBarVisibility =>
         IsCommandBarVisible ? Visibility.Visible : Visibility.Collapsed;
 
+    // ----------------------------------------------------------------
+    // Edge navigation arrows (Windows Photos style).
+    //
+    // Their own visibility state, deliberately NOT wired to the command
+    // bar's: the bar only reveals inside the top hot zone, so an arrow
+    // reachable only while the bar is up would be useless in practice.
+    // Arrows follow plain mouse activity (any pointer move / press in the
+    // viewer) and fade after the same idle delay the chrome uses; each
+    // arrow additionally requires its command to be executable, so the
+    // first item offers no "previous" and the last none "next".
+    // ----------------------------------------------------------------
+    private bool _isEdgeNavVisible;
+    private DispatcherQueueTimer? _edgeNavHideTimer;
+
+    public Visibility EdgePrevVisibility =>
+        _isEdgeNavVisible && ViewModel?.NavigatePreviousCommand.CanExecute(null) == true
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    public Visibility EdgeNextVisibility =>
+        _isEdgeNavVisible && ViewModel?.NavigateNextCommand.CanExecute(null) == true
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    /// <summary>Reveals the arrows and restarts their idle countdown.</summary>
+    private void ShowEdgeNav()
+    {
+        if (!_isEdgeNavVisible)
+        {
+            _isEdgeNavVisible = true;
+            OnPropertyChanged(nameof(EdgePrevVisibility));
+            OnPropertyChanged(nameof(EdgeNextVisibility));
+        }
+
+        if (_edgeNavHideTimer is null)
+        {
+            var t = DispatcherQueue.CreateTimer();
+            t.IsRepeating = false;
+            t.Interval = TimeSpan.FromMilliseconds(ChromeHideDelayMs);
+            t.Tick += OnEdgeNavHideTick;
+            _edgeNavHideTimer = t;
+        }
+        // Stop + Start restarts the countdown; a pending tick is discarded.
+        _edgeNavHideTimer.Stop();
+        _edgeNavHideTimer.Start();
+    }
+
+    private void OnEdgeNavHideTick(DispatcherQueueTimer sender, object args)
+    {
+        StopEdgeNavHideTimer();
+        if (!_isEdgeNavVisible) return;
+        _isEdgeNavVisible = false;
+        OnPropertyChanged(nameof(EdgePrevVisibility));
+        OnPropertyChanged(nameof(EdgeNextVisibility));
+    }
+
+    private void StopEdgeNavHideTimer()
+    {
+        _edgeNavHideTimer?.Stop();
+        _edgeNavHideTimer = null;
+    }
+
+    /// <summary>
+    /// CanExecuteChanged for either navigation command: re-evaluate both
+    /// arrows (the boundary moved, so "previous at the first item" and
+    /// "next at the last item" have to disappear/appear immediately).
+    /// </summary>
+    private void OnEdgeNavCommandStateChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(EdgePrevVisibility));
+        OnPropertyChanged(nameof(EdgeNextVisibility));
+    }
+
+    /// <summary>
+    /// Pointer activity that must reveal the arrows even when a child control
+    /// marks the move as handled — the 1:1 image ScrollViewer does exactly that,
+    /// and without this hook the arrows would never return while the pointer is
+    /// over the scrolled image. Registered with handledEventsToo in the ctor.
+    /// </summary>
+    private void OnGlobalPointerActivity(object sender, PointerRoutedEventArgs e) => ShowEdgeNav();
+
     private double ComputeTopHotZoneHeight(double viewportHeight)
     {
         // Hidden: large edge strip so "nudge to top" works (Photos / players).
@@ -184,6 +265,9 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
 
     private void HandleChromePointer(PointerRoutedEventArgs e)
     {
+        // Arrows answer to any activity, the bar only near the top edge.
+        ShowEdgeNav();
+
         var y = e.GetCurrentPoint(MainContentGrid).Position.Y;
         var h = MainContentGrid.ActualHeight;
         if (h <= 0) return;
@@ -384,6 +468,19 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         // navigate away" path (PlayerHost stops rendering and
         // StopAndDisposePlayer in the VM closes the native handle).
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+        // Edge arrows: any pointer activity reveals them — including moves a
+        // child control marks as handled (the 1:1 ScrollViewer does), hence
+        // handledEventsToo. The command subscriptions live in OnLoaded/OnUnloaded
+        // with the same re-subscribe symmetry the image subscription uses.
+        MainContentGrid.AddHandler(
+            UIElement.PointerMovedEvent,
+            new PointerEventHandler(OnGlobalPointerActivity),
+            handledEventsToo: true);
+        MainContentGrid.AddHandler(
+            UIElement.PointerPressedEvent,
+            new PointerEventHandler(OnGlobalPointerActivity),
+            handledEventsToo: true);
 
         // Wire the fullscreen button to the MainWindow's
         // PropertyChanged so F11 (which routes through the WH_KEYBOARD
@@ -775,6 +872,11 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         ViewModel.NavigatePreviousCommand.NotifyCanExecuteChanged();
         ViewModel.NavigateNextCommand.NotifyCanExecuteChanged();
 
+        // Edge arrows: visibility follows the commands' executability (dropped
+        // again in OnUnloaded with the same symmetry as DisplayImageChanged).
+        ViewModel.NavigatePreviousCommand.CanExecuteChanged += OnEdgeNavCommandStateChanged;
+        ViewModel.NavigateNextCommand.CanExecuteChanged += OnEdgeNavCommandStateChanged;
+
         // Apply Fit/1:1 state after the visual tree is fully constructed and Loaded.
         ApplyImageFitMode(ViewModel.IsFitMode);
 
@@ -787,6 +889,10 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         {
             UpdateMinimapDeferred();
         }
+
+        // First paint: show the arrows once (then they fade like the chrome),
+        // so their existence is discoverable without hunting for the edge.
+        ShowEdgeNav();
 
         // 键盘处理统一在 MainWindow.RootGrid_KeyDown,见 MainWindow.xaml.cs。
     }
@@ -822,6 +928,12 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         // only: a tick firing after teardown would flip visibility on a
         // defunct page and keep it alive through the timer's delegate.
         StopChromeHideTimer();
+
+        // Edge arrows: same teardown reasoning (drop the command subscriptions
+        // and stop the idle timer before the page goes away).
+        ViewModel.NavigatePreviousCommand.CanExecuteChanged -= OnEdgeNavCommandStateChanged;
+        ViewModel.NavigateNextCommand.CanExecuteChanged -= OnEdgeNavCommandStateChanged;
+        StopEdgeNavHideTimer();
     }
 
     private void OnDisplayImageChanged(object? sender, EventArgs e)

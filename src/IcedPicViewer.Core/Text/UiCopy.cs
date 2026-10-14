@@ -46,6 +46,8 @@ public static class UiCopy
     public const string SecondsSuffix = "秒";
     public const string Location = "位置";
     public const string Volume = "音量";
+    public const string Mute = "静音";
+    public const string Unmute = "取消静音";
     public const string Play = "播放";
     public const string Pause = "暂停";
     public const string StopSlideshow = "停止幻灯片";

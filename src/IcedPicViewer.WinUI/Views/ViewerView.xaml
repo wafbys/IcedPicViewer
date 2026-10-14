@@ -421,9 +421,22 @@
                             VerticalAlignment="Center"
                             Spacing="6"
                             MinWidth="180">
-                    <FontIcon Glyph="&#xE767;"
-                              FontSize="14"
-                              VerticalAlignment="Center"/>
+                    <!--
+                        Mute toggle. Lives here (not only in the player's own
+                        transport controls) because those only exist after playback
+                        starts — "set it up, then press play" needs a mute before
+                        that, and the icon doubles as the mute state readout.
+                    -->
+                    <Button x:Name="PrePlayMuteButton"
+                            Command="{x:Bind ViewModel.ToggleMuteCommand}"
+                            VerticalAlignment="Center"
+                            Padding="6"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            ToolTipService.ToolTip="{x:Bind ViewModel.MuteTooltip, Mode=OneWay}">
+                        <FontIcon Glyph="{x:Bind ViewModel.MuteGlyph, Mode=OneWay}"
+                                  FontSize="14"/>
+                    </Button>
                     <Slider x:Name="PrePlayVolumeSlider"
                             Value="{x:Bind ViewModel.Volume, Mode=TwoWay}"
                             Minimum="0"
@@ -546,6 +559,52 @@
                 </Grid>
             </Grid>
         </Grid>
+
+        <!--
+            Edge navigation buttons (Windows Photos style). Pinned to the
+            vertical centre of each side so the whole left/right edge is a
+            "previous / next" affordance reachable without the keyboard.
+
+            Visibility is its own state (EdgePrevVisibility / EdgeNextVisibility):
+            arrows appear on any mouse movement in the viewer and fade after the
+            same idle delay the chrome uses, then also require the matching
+            command to be executable — so no arrow is ever shown with nothing to
+            go to. They deliberately do NOT follow the command bar's visibility:
+            the bar only reveals near the top edge, and an arrow you cannot bring
+            up by moving toward it would be useless.
+
+            Scrim #CC000000 mirrors the play overlay: it must read against any
+            frame, and the page is forced to the dark theme anyway. The right
+            arrow is inset 16 px so it never covers the 1:1 mode scrollbar.
+        -->
+        <Button x:Name="EdgePrevButton"
+                Grid.Row="1"
+                Command="{x:Bind ViewModel.NavigatePreviousCommand}"
+                HorizontalAlignment="Left" VerticalAlignment="Center"
+                Margin="16,0,0,0"
+                Width="48" Height="48" CornerRadius="24" Padding="0"
+                Background="#CC000000" BorderThickness="0"
+                Canvas.ZIndex="50"
+                IsTabStop="False"
+                Visibility="{x:Bind EdgePrevVisibility, Mode=OneWay}"
+                ToolTipService.ToolTip="{x:Bind core:UiCopy.Previous}"
+                AutomationProperties.Name="{x:Bind core:UiCopy.Previous}">
+            <FontIcon Glyph="&#xE76B;" FontSize="20" Foreground="White"/>
+        </Button>
+        <Button x:Name="EdgeNextButton"
+                Grid.Row="1"
+                Command="{x:Bind ViewModel.NavigateNextCommand}"
+                HorizontalAlignment="Right" VerticalAlignment="Center"
+                Margin="0,0,16,0"
+                Width="48" Height="48" CornerRadius="24" Padding="0"
+                Background="#CC000000" BorderThickness="0"
+                Canvas.ZIndex="50"
+                IsTabStop="False"
+                Visibility="{x:Bind EdgeNextVisibility, Mode=OneWay}"
+                ToolTipService.ToolTip="{x:Bind core:UiCopy.Next}"
+                AutomationProperties.Name="{x:Bind core:UiCopy.Next}">
+            <FontIcon Glyph="&#xE76C;" FontSize="20" Foreground="White"/>
+        </Button>
 
         <ProgressRing Grid.Row="1"
                       IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"

@@ -724,35 +724,177 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     /// </summary>
     public string VolumePercent => $"{(int)Math.Round(Volume * 100.0)}%";
 
+    /// <summary>
+    /// True while playback is muted. Mute is deliberately NOT persisted: what the
+    /// user expects to survive a restart is the level they chose, not a session
+    /// state that would greet them with silence. Muting leaves
+    /// <see cref="Volume"/> untouched, so unmuting — or playing next launch —
+    /// returns the remembered level.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(MuteGlyph))]
+    [NotifyPropertyChangedFor(nameof(MuteTooltip))]
+    public partial bool IsMuted { get; set; }
+
+    /// <summary>Speaker / muted-speaker glyph (Segoe MDL2) for the mute toggle.</summary>
+    public string MuteGlyph => IsMuted ? "\uE74F" : "\uE767";
+
+    public string MuteTooltip => IsMuted ? UiCopy.Unmute : UiCopy.Mute;
+
+    /// <summary>
+    /// The volume actually pushed into a player: 0 while muted, otherwise
+    /// <see cref="Volume"/>. Single definition so MediaPlayer, LibVLC and the
+    /// start-playback path can never disagree about what "muted" means.
+    /// </summary>
+    public double EffectiveVolume => IsMuted ? 0.0 : Math.Clamp(Volume, 0.0, 1.0);
+
+    [RelayCommand]
+    private void ToggleMute() => IsMuted = !IsMuted;
+
+    partial void OnIsMutedChanged(bool value) => ApplyVolumeToPlayers();
+
     partial void OnVolumeChanged(double value)
     {
-        // Live-update an active player so the user hears the change
-        // immediately when adjusting the slider mid-playback. The
-        // pre-play strip hides once playback starts, but this still
-        // fires if Volume is changed from anywhere else (settings
-        // load, programmatic reset). The null check is critical —
-        // setting Volume on a disposed player throws.
+        // Dragging the slider up is an explicit "make it audible" — clear mute so
+        // the value shown is the value heard. Muting again is one click.
+        if (value > 0.0 && IsMuted) IsMuted = false; // applies via OnIsMutedChanged
+
+        ApplyVolumeToPlayers();
+
+        // Persist the level, never the mute flag. Fires from our slider, from the
+        // settings load in the constructor (same value — harmless), and from the
+        // built-in transport controls via SyncVolumeFromPlayer.
+        _settingsService.Current.VideoVolume = Math.Clamp(value, 0.0, 1.0);
+        _settingsService.ScheduleSave();
+    }
+
+    /// <summary>
+    /// Pushes <see cref="EffectiveVolume"/> + <see cref="IsMuted"/> into whichever
+    /// player is live (none, MediaPlayer, or LibVLC). Must never throw: a player
+    /// disposed mid-flight must not break the mute button or the slider.
+    ///
+    /// <para>
+    /// MediaPlayer.IsMuted is set as well, not just Volume = 0: the built-in
+    /// transport controls own their own mute flag, and leaving it true after the
+    /// user raised the volume here would look exactly like "volume is broken".
+    /// </para>
+    /// </summary>
+    private void ApplyVolumeToPlayers()
+    {
+        var volume = EffectiveVolume;
+
         if (_mediaPlayer is not null)
         {
+            _syncingVolumeState = true;
             try
             {
-                _mediaPlayer.Volume = Math.Clamp(value, 0.0, 1.0);
+                _mediaPlayer.IsMuted = IsMuted;
+                _mediaPlayer.Volume = volume;
             }
             catch (Exception ex)
             {
-                Trace.TraceWarning($"ViewerViewModel.OnVolumeChanged: failed to push to MediaPlayer: {ex.GetType().Name}: {ex.Message}");
+                Trace.TraceWarning($"ViewerViewModel.ApplyVolumeToPlayers: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                _syncingVolumeState = false;
             }
         }
+
         if (IsUsingVlc)
         {
-            try { _vlc.Volume = value; }
+            try { _vlc.Volume = volume; }
             catch (Exception ex)
             {
-                Trace.TraceWarning($"ViewerViewModel.OnVolumeChanged VLC: {ex.Message}");
+                Trace.TraceWarning($"ViewerViewModel.ApplyVolumeToPlayers VLC: {ex.Message}");
             }
         }
-        _settingsService.Current.VideoVolume = value;
-        _settingsService.ScheduleSave();
+    }
+
+    // Re-entrancy guard for both directions of the volume/mute sync: a push into
+    // the player re-raises its change events, which would otherwise bounce
+    // straight back in here.
+    private bool _syncingVolumeState;
+
+    /// <summary>
+    /// MediaPlayerElement's built-in transport controls (Fit mode, during
+    /// playback) change <see cref="MediaPlayer.Volume"/> directly — its speaker
+    /// flyout works on the player, not on this VM. Without this handler those
+    /// changes were invisible to the VM and therefore never persisted: the exact
+    /// "volume is not remembered" path. Fires on a background thread, so the
+    /// state update is marshalled.
+    /// </summary>
+    private void OnMediaPlayerVolumeChanged(MediaPlayer sender, object args)
+    {
+        var player = sender;
+        if (!_dispatcher.TryEnqueue(() => SyncVolumeFromPlayer(player)))
+        {
+            Trace.TraceWarning("ViewerViewModel: VolumeChanged dropped (dispatcher unavailable)");
+        }
+    }
+
+    /// <summary>Same as <see cref="OnMediaPlayerVolumeChanged"/>, for the player's own mute flag.</summary>
+    private void OnMediaPlayerIsMutedChanged(MediaPlayer sender, object args)
+    {
+        var player = sender;
+        if (!_dispatcher.TryEnqueue(() => SyncMuteFromPlayer(player)))
+        {
+            Trace.TraceWarning("ViewerViewModel: IsMutedChanged dropped (dispatcher unavailable)");
+        }
+    }
+
+    private void SyncVolumeFromPlayer(MediaPlayer player)
+    {
+        if (!ReferenceEquals(player, _mediaPlayer) || _syncingVolumeState) return;
+
+        double value;
+        try { value = Math.Clamp(player.Volume, 0.0, 1.0); }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"ViewerViewModel.SyncVolumeFromPlayer: {ex.GetType().Name}: {ex.Message}");
+            return;
+        }
+
+        _syncingVolumeState = true;
+        try
+        {
+            if (value <= 0.0 && Volume > 0.0)
+            {
+                // "0" is ambiguous coming from the transport controls: dragged to
+                // zero or muted. Treat it as mute so the remembered level survives
+                // (a restart stays audible) — the mute button restores it in one
+                // click, and an explicit 0 via our own slider still persists 0.
+                IsMuted = true;
+            }
+            else
+            {
+                if (IsMuted) IsMuted = false;
+                Volume = value;
+            }
+        }
+        finally
+        {
+            _syncingVolumeState = false;
+        }
+    }
+
+    private void SyncMuteFromPlayer(MediaPlayer player)
+    {
+        if (!ReferenceEquals(player, _mediaPlayer) || _syncingVolumeState) return;
+
+        bool muted;
+        try { muted = player.IsMuted; }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"ViewerViewModel.SyncMuteFromPlayer: {ex.GetType().Name}: {ex.Message}");
+            return;
+        }
+
+        if (muted == IsMuted) return;
+
+        _syncingVolumeState = true;
+        try { IsMuted = muted; } // Volume (the remembered level) is untouched
+        finally { _syncingVolumeState = false; }
     }
 
     /// <summary>
@@ -862,7 +1004,10 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             var source = MediaSource.CreateFromStorageFile(file);
 
             var player = new MediaPlayer();
-            player.Volume = Math.Clamp(Volume, 0.0, 1.0);
+            player.Volume = EffectiveVolume;
+            player.IsMuted = IsMuted;
+            player.VolumeChanged += OnMediaPlayerVolumeChanged;
+            player.IsMutedChanged += OnMediaPlayerIsMutedChanged;
             player.Source = source;
             player.MediaOpened += OnMediaPlayerOpened;
             player.MediaFailed += OnMediaPlayerFailed;
@@ -968,7 +1113,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             throw new InvalidOperationException(UiCopy.LibVlcOpenFailed(path));
         }
 
-        _vlc.Volume = Volume;
+        _vlc.Volume = EffectiveVolume;
         VlcPlayer = _vlc.Player;
         _currentPlaybackPath = path;
         IsUsingVlc = true;
@@ -1058,7 +1203,13 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
 
             if (failedPlayer is not null)
             {
-                try { failedPlayer.Source = null; failedPlayer.Dispose(); }
+                try
+                {
+                    failedPlayer.VolumeChanged -= OnMediaPlayerVolumeChanged;
+                    failedPlayer.IsMutedChanged -= OnMediaPlayerIsMutedChanged;
+                    failedPlayer.Source = null;
+                    failedPlayer.Dispose();
+                }
                 catch (Exception ex) { Trace.TraceWarning($"ViewerViewModel: failed player dispose threw: {ex.GetType().Name}: {ex.Message}"); }
             }
             if (failedPath is not null)
@@ -1171,6 +1322,8 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             {
                 oldPlayer.MediaOpened -= OnMediaPlayerOpened;
                 oldPlayer.MediaFailed -= OnMediaPlayerFailed;
+                oldPlayer.VolumeChanged -= OnMediaPlayerVolumeChanged;
+                oldPlayer.IsMutedChanged -= OnMediaPlayerIsMutedChanged;
                 oldPlayer.Pause();
                 oldPlayer.Source = null;
                 oldPlayer.Dispose();
