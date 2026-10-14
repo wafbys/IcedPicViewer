@@ -64,15 +64,8 @@ public static class UiCopy
         => $"LibVLC 无法打开：{path}";
 
     // ── Empty states (gallery center panel) ──────────────────────────
+    // Buttons only — the empty state draws no title / hint text.
     public const string ClearFiltersButton = "清除筛选";
-    public const string EmptyNoFolderTitle = "还没有打开文件夹";
-    public const string EmptyNoFolderHint = "用「打开文件夹」浏览本机的图片与视频。";
-    public const string EmptyFolderTitle = "没有可显示的媒体";
-    public const string EmptyFolderHint = "这个文件夹里没有可浏览的图片或视频。";
-    public const string EmptyNoMatchTitle = "没有匹配项";
-
-    public static string EmptyNoMatchHint(string queryLabel)
-        => $"当前筛选：{queryLabel}";
 
     // ── Viewer chrome / shortcuts ────────────────────────────────────
     public const string Previous = "上一张";
