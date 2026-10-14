@@ -892,6 +892,35 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     /// intentionally not handled here — that would have to tear the viewer
     /// down first; the gallery's own drop covers them.
     /// </summary>
+    /// <summary>
+    /// Wheel steps through items — the universal image-viewer convention.
+    /// Fit mode only: in 1:1 the wheel belongs to the scroll viewer, and
+    /// videos keep it inert (wheel-volume surprises more than it serves).
+    /// One navigable step per event, matching how rapid wheel ticks feel
+    /// in other viewers.
+    /// </summary>
+    private void MainContentGrid_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        if (ViewModel is null || ViewModel.IsVideo || !ViewModel.IsFitMode) return;
+
+        var delta = e.GetCurrentPoint(MainContentGrid).Properties.MouseWheelDelta;
+        if (delta > 0)
+        {
+            if (ViewModel.NavigatePreviousCommand.CanExecute(null))
+            {
+                ViewModel.NavigatePreviousCommand.Execute(null);
+            }
+        }
+        else if (delta < 0)
+        {
+            if (ViewModel.NavigateNextCommand.CanExecute(null))
+            {
+                ViewModel.NavigateNextCommand.Execute(null);
+            }
+        }
+        e.Handled = true;
+    }
+
     private void MainContentGrid_DragOver(object sender, DragEventArgs e)
     {
         if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
