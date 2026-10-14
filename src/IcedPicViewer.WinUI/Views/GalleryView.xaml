@@ -30,6 +30,51 @@
           PointerMoved="RootGrid_PointerMoved"
           PointerPressed="RootGrid_PointerPressed"
           KeyDown="RootGrid_KeyDown">
+        <!--
+            窄窗自适应。实测（2026-10 截图）：<~1100 DIP 时右组（筛选/排序/
+            搜索）被裁切压扁，600 DIP 时完全不可达。三档：
+            ≥1120 全标签；840–1119 左侧按钮收成图标（ToolTip 保留）；
+            <840 再收紧筛选/排序/搜索尺寸。窗口最小宽度 680 兜底
+            （MainWindow 的 OverlappedPresenter.PreferredMinimumWidth）。
+        -->
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="HeaderWidthStates">
+                <VisualState x:Name="HeaderWide">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="1120"/>
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <VisualState x:Name="HeaderCompact">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="840"/>
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="OpenFolderLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="OpenFileLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="CloseFolderLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="RefreshLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="SlideshowLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="AboutLabel.Visibility" Value="Collapsed"/>
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="HeaderNarrow">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0"/>
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="OpenFolderLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="OpenFileLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="CloseFolderLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="RefreshLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="SlideshowLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="AboutLabel.Visibility" Value="Collapsed"/>
+                        <Setter Target="FilterCombo.MinWidth" Value="80"/>
+                        <Setter Target="SortCombo.MinWidth" Value="88"/>
+                        <Setter Target="SearchBox.Width" Value="120"/>
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions>
             <RowDefinition Height="0"/>
             <RowDefinition Height="*"/>
@@ -206,7 +251,7 @@
                         ToolTipService.ToolTip="打开文件夹">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE8DA;" FontSize="16"/>
-                        <TextBlock Text="打开文件夹" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="OpenFolderLabel" Text="打开文件夹" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
                 <Button Click="OpenFileBtn_Click"
@@ -217,7 +262,7 @@
                         ToolTipService.ToolTip="打开文件">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE8E5;" FontSize="16"/>
-                        <TextBlock Text="打开文件" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="OpenFileLabel" Text="打开文件" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
                 <Button Command="{x:Bind ViewModel.CloseFolderCommand}"
@@ -228,7 +273,7 @@
                         ToolTipService.ToolTip="关闭目录">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE8BB;" FontSize="16"/>
-                        <TextBlock Text="关闭目录" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="CloseFolderLabel" Text="关闭目录" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
                 <Button Command="{x:Bind ViewModel.RefreshCommand}"
@@ -239,7 +284,7 @@
                         ToolTipService.ToolTip="刷新 (F5)">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE72C;" FontSize="16"/>
-                        <TextBlock Text="刷新" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="RefreshLabel" Text="刷新" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
                 <!--
@@ -263,7 +308,7 @@
                         ToolTipService.ToolTip="幻灯片">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE768;" FontSize="16"/>
-                        <TextBlock Text="幻灯片" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="SlideshowLabel" Text="幻灯片" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
             </StackPanel>
@@ -314,7 +359,7 @@
                     ToolTipService.ToolTip="关于">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon Glyph="&#xE946;" FontSize="16"/>
-                    <TextBlock Text="关于" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="AboutLabel" Text="关于" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
         </Grid>
