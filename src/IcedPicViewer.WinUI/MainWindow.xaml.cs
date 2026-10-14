@@ -276,6 +276,19 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             return;
         }
 
+        // F5: refresh the gallery (the header button's tooltip has
+        // advertised "刷新 (F5)" all along — this makes the hint real).
+        // The viewer page ignores it; there is nothing to re-scan there.
+        if (key == Windows.System.VirtualKey.F5)
+        {
+            if (RootFrame.Content is GalleryView gallery &&
+                gallery.ViewModel.RefreshCommand.CanExecute(null))
+            {
+                gallery.ViewModel.RefreshCommand.Execute(null);
+            }
+            return;
+        }
+
         // PageUp / PageDown: scroll the masonry gallery by ~one viewport
         // (not prev/next image — those stay on ← → only).
         if (key is Windows.System.VirtualKey.PageUp or Windows.System.VirtualKey.PageDown)

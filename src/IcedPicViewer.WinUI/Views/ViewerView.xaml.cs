@@ -863,11 +863,16 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         MinimapImage.Height = _minimapHeight;
 
         MinimapViewport.Children.Clear();
+        // Stroke/fill derive from the system accent color, so the viewport
+        // indicator follows the user's accent (and the High Contrast
+        // system highlight) instead of a hardcoded blue. The translucent
+        // fill keeps the minimap thumbnail readable underneath.
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
         _viewportRect = new Rectangle
         {
-            Stroke = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue),
+            Stroke = new SolidColorBrush(accent),
             StrokeThickness = 1,
-            Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 0, 120, 215))
+            Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(30, accent.R, accent.G, accent.B))
         };
         Canvas.SetLeft(_viewportRect, 0);
         Canvas.SetTop(_viewportRect, 0);
