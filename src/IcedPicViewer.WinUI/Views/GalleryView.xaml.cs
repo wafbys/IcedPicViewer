@@ -83,6 +83,13 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         _navigationService = App.GetService<INavigationService>();
         DataContext = ViewModel;
 
+        // The status bar flashes on every StatusText change (scan
+        // progress, delete feedback, …). StatusText is a VM property, so
+        // the subscription must be torn down in OnGalleryViewUnloaded —
+        // the VM is a singleton and would otherwise keep dead pages alive
+        // across navigations.
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+
         // 滚动到底部自动触发 LoadMore（带 debounce）。保留原“Load More”按钮作为手动后备。
         MainScrollViewer.ViewChanged += OnMainScrollViewerViewChanged;
 
@@ -149,10 +156,12 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     // open, suggestions open, keyboard focus inside — see
     // IsChromeInteractionActive).
     //
-    // Status bar: pinned visible in windowed mode (it carries scan /
-    // backfill progress and delete feedback); it auto-hides together
-    // with the header only in fullscreen, where the bottom hot-zone
-    // reveals it.
+    // Status bar: windowed mode shows it only as a short "flash" after
+    // the status text changes (StatusFlashDwellMs) — live progress
+    // re-arms the flash on every update, so it stays up while a scan /
+    // backfill is actually running, and delete feedback stays readable.
+    // Fullscreen keeps the bottom hot-zone behaviour (reveal near the
+    // bottom edge, hide with the rest of the chrome).
     // ----------------------------------------------------------------
 
     /// <summary>
@@ -163,10 +172,14 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     public Visibility HeaderVisibility =>
         IsHeaderVisible ? Visibility.Visible : Visibility.Collapsed;
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "x:Bind requires instance member; the body reads only static-friendly inputs but the binding surface is the instance form.")]
-    public Visibility StatusVisibility => IsFullscreenStatic()
-        ? (IsStatusVisible ? Visibility.Visible : Visibility.Collapsed)
-        : Visibility.Visible;
+    /// <summary>
+    /// Bound by the status bar's Visibility. Visibility is driven by the
+    /// flash timer in windowed mode and by the bottom hot-zone in
+    /// fullscreen; the value is always the raw <see cref="IsStatusVisible"/>
+    /// flag either way.
+    /// </summary>
+    public Visibility StatusVisibility =>
+        IsStatusVisible ? Visibility.Visible : Visibility.Collapsed;
 
     private bool _isHeaderVisible = true;
     public bool IsHeaderVisible
@@ -224,9 +237,18 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         return InitialChromeDwellMs;
     }
 
+    /// <summary>
+    /// How long the status bar stays visible after its text changed.
+    /// Windowed mode is collapsed otherwise; fullscreen uses the same
+    /// dwell after a reveal-by-change. Long enough to read a delete
+    /// confirmation, short enough to stay out of the way.
+    /// </summary>
+    private const int StatusFlashDwellMs = 4000;
+
     private bool _pointerInTopHotZone;
     private bool _pointerInBottomHotZone;
     private DispatcherQueueTimer? _chromeHideTimer;
+    private DispatcherQueueTimer? _statusHideTimer;
 
     private static bool IsFullscreenStatic() => App.MainWindow?.IsFullscreen ?? false;
 
@@ -243,9 +265,22 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             _pointerInTopHotZone = false;
             _pointerInBottomHotZone = false;
             IsHeaderVisible = true;
-            IsStatusVisible = true;
             StopChromeHideTimer();
             ScheduleChromeHide(TakeInitialDwellDelay());
+
+            if (IsFullscreenStatic())
+            {
+                // Fullscreen: brief status cue on entry (same as before),
+                // then the flash timer hides it again.
+                FlashStatusBar();
+            }
+            else
+            {
+                // Windowed: the status bar is collapsed until its text
+                // next changes — no permanent bar at the bottom edge.
+                StopStatusHideTimer();
+                IsStatusVisible = false;
+            }
         }
     }
 
@@ -381,11 +416,11 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     }
 
     /// <summary>
-    /// True when any chrome bar that participates in the auto-hide for the
-    /// current presenter is visible. The status bar counts only in
-    /// fullscreen; in windowed mode it is pinned visible, so counting it
-    /// here would re-arm a do-nothing countdown on every mid-screen move
-    /// even after the header has already collapsed.
+    /// True when any chrome bar that participates in the *header*
+    /// countdown for the current presenter is visible. The status bar
+    /// counts only in fullscreen: in windowed mode its visibility is
+    /// owned by the flash timer, and counting it here would re-arm a
+    /// do-nothing header countdown on every mid-screen move.
     /// </summary>
     private bool IsAnyHideableChromeVisible()
         => IsHeaderVisible || (IsFullscreenStatic() && IsStatusVisible);
@@ -407,9 +442,10 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         if (_pointerInTopHotZone || _pointerInBottomHotZone) return;
         if (IsChromeInteractionActive()) return;
         IsHeaderVisible = false;
-        // The status bar only participates in the auto-hide in fullscreen;
-        // windowed mode keeps it pinned (progress + feedback).
-        if (IsFullscreenStatic()) IsStatusVisible = false;
+        // Fullscreen: the zone-driven hide also collapses the status bar —
+        // unless a flash is in flight, in which case the flash timer owns
+        // its visibility.
+        if (IsFullscreenStatic() && _statusHideTimer is null) IsStatusVisible = false;
     }
 
     /// <summary>
@@ -456,6 +492,50 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         _chromeHideTimer.Stop();
         _chromeHideTimer.Tick -= OnChromeHideTick;
         _chromeHideTimer = null;
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(GalleryViewModel.StatusText))
+        {
+            FlashStatusBar();
+        }
+    }
+
+    /// <summary>
+    /// Shows the status bar for <see cref="StatusFlashDwellMs"/> after its
+    /// text changed. Re-armed on every change, so continuous progress
+    /// (scan found-count, backfill percent) keeps it visible for as long
+    /// as something is actually happening; the flash then expires and the
+    /// bar collapses again.
+    /// </summary>
+    private void FlashStatusBar()
+    {
+        IsStatusVisible = true;
+        StopStatusHideTimer();
+        var t = DispatcherQueue.CreateTimer();
+        t.IsRepeating = false;
+        t.Interval = TimeSpan.FromMilliseconds(StatusFlashDwellMs);
+        t.Tick += OnStatusFlashTick;
+        _statusHideTimer = t;
+        t.Start();
+    }
+
+    private void OnStatusFlashTick(DispatcherQueueTimer sender, object args)
+    {
+        StopStatusHideTimer();
+        // Fullscreen: a pointer parked on the bottom edge keeps the bar
+        // up; the zone logic hides it once the pointer leaves again.
+        if (IsFullscreenStatic() && _pointerInBottomHotZone) return;
+        IsStatusVisible = false;
+    }
+
+    private void StopStatusHideTimer()
+    {
+        if (_statusHideTimer is null) return;
+        _statusHideTimer.Stop();
+        _statusHideTimer.Tick -= OnStatusFlashTick;
+        _statusHideTimer = null;
     }
 
     private void ApplyThumbnailCardWidth(double availableWidth)
@@ -671,6 +751,12 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         }
 
         StopChromeHideTimer();
+
+        // The status flash timer holds the page through its delegate and
+        // would tick against a torn-down tree after navigation.
+        StopStatusHideTimer();
+
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
 
         if (App.MainWindow is not null)
         {

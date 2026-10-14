@@ -302,15 +302,20 @@
 
         <!--
             Status chrome overlay. Same pattern as header: RowSpan 3 +
-            VerticalAlignment="Bottom". Mouse-near-bottom reveals it in
-            fullscreen; everywhere else it stays hidden. Outside
-            fullscreen it's pinned visible.
+            VerticalAlignment="Bottom". Background: the same acrylic brush
+            as the header / viewer bars so all chrome reads as one
+            material. Visibility: windowed mode shows it only as a short
+            "flash" after the status text changes (delete feedback, scan
+            progress — progress re-arms the flash on every update, so the
+            bar stays up while something is actually running); fullscreen
+            reveals it via the bottom hot-zone and hides it with the rest
+            of the chrome.
         -->
         <Grid x:Name="StatusChrome"
               Grid.Row="0" Grid.RowSpan="3"
               VerticalAlignment="Bottom"
               Height="32"
-              Background="{ThemeResource LayerFillColorDefaultBrush}"
+              Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
               Visibility="{x:Bind StatusVisibility, Mode=OneWay}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
                 <!-- Scan progress ring. Active while the directory scanner is
