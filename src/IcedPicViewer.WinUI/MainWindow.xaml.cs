@@ -25,6 +25,13 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
     // restore this exact instance instead of a fresh default presenter).
     private OverlappedPresenter? _overlappedPresenter;
 
+    // Deferred window-geometry state (see RestoreWindowState / OnFirstActivated):
+    // the ctor runs before the window is shown, and geometry applied there is
+    // overwritten while the presenter is applied.
+    private bool _pendingDefaultSize;
+    private Windows.Graphics.RectInt32? _pendingGeometry;
+    private bool _pendingMaximize;
+
     private static string GetSettingsPath()
     {
         // Window geometry lives in %LOCALAPPDATA%\IcedPicViewer (AppDataPaths).
@@ -183,6 +190,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         AppWindow.SetPresenter(_overlappedPresenter);
 
         RestoreWindowState();
+        Activated += OnFirstActivated;
 
         // Initialize navigation service with the root frame
         var navigationService = App.GetService<INavigationService>();
@@ -494,6 +502,23 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         _lastWindowedBounds = new Windows.Graphics.RectInt32(pos.X, pos.Y, size.Width, size.Height);
     }
 
+    /// <summary>
+    /// First-run default geometry: 1280x800 DIP (clamped to the work area),
+    /// centered on the primary display. Only used when no saved window
+    /// state exists — a normally closed session restores its own geometry.
+    /// </summary>
+    private void ApplyDefaultWindowSize()
+    {
+        var dpi = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        var scale = dpi > 0 ? dpi / 96.0 : 1.0;
+        var workArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+        var width = Math.Min((int)Math.Round(1280 * scale), workArea.Width);
+        var height = Math.Min((int)Math.Round(800 * scale), workArea.Height);
+        var x = workArea.X + (workArea.Width - width) / 2;
+        var y = workArea.Y + (workArea.Height - height) / 2;
+        AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, width, height));
+    }
+
     private void SaveWindowState()
     {
         try
@@ -539,7 +564,16 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             var file = GetSettingsPath();
             if (!File.Exists(file))
             {
-                Trace.TraceWarning("RestoreWindowState: file not found");
+                // No saved geometry (very first run, or a session that never
+                // closed normally). Apply a sensible default: a fresh launch
+                // otherwise comes up at whatever the freshly applied
+                // presenter defaults to (observed at the 680x480 minimum —
+                // postage-stamp sized for a media viewer). Deferred to first
+                // activation so the geometry is applied once the window is
+                // actually shown; the deferred restore path was verified to
+                // work (window matched the saved rect after activation).
+                _pendingDefaultSize = true;
+                Trace.TraceWarning("RestoreWindowState: file not found — default size will be applied on activation");
                 return;
             }
 
@@ -561,7 +595,9 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             }
 
             _lastWindowedBounds = new Windows.Graphics.RectInt32((int)x, (int)y, (int)width, (int)height);
-            AppWindow.MoveAndResize(_lastWindowedBounds);
+            // Geometry + maximize are deferred to first activation for the
+            // same reason as the default-size path above.
+            _pendingGeometry = _lastWindowedBounds;
 
             bool wasFullscreen = parts.Length >= 5 &&
                 int.TryParse(parts[4], out var fs) && fs != 0;
@@ -572,16 +608,50 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
             {
                 AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
             }
-            else if (wasMaximized && AppWindow.Presenter is OverlappedPresenter presenter)
+            else if (wasMaximized)
             {
-                presenter.Maximize();
+                _pendingMaximize = true;
             }
 
-            Trace.TraceInformation($"Restored window state: {content}");
+            Trace.TraceInformation($"Restored window state (deferred): {content}");
         }
         catch (Exception ex)
         {
             Trace.TraceError($"RestoreWindowState error: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// Applies the deferred window geometry on the first activation, i.e.
+    /// once the window is actually shown and the presenter has been applied.
+    /// </summary>
+    private void OnFirstActivated(object sender, WindowActivatedEventArgs args)
+    {
+        Activated -= OnFirstActivated;
+
+        try
+        {
+            if (_pendingDefaultSize)
+            {
+                ApplyDefaultWindowSize();
+                _pendingDefaultSize = false;
+            }
+
+            if (_pendingGeometry is { } rect)
+            {
+                AppWindow.MoveAndResize(rect);
+                _pendingGeometry = null;
+            }
+
+            if (_pendingMaximize && AppWindow.Presenter is OverlappedPresenter presenter)
+            {
+                presenter.Maximize();
+            }
+            _pendingMaximize = false;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"OnFirstActivated error: {ex}");
         }
     }
 }

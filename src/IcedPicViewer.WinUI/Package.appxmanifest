@@ -5,7 +5,8 @@
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  IgnorableNamespaces="uap rescap desktop6">
 
   <Identity
     Name="BE1B75C2-BBA1-4C9E-9746-EA268E694F3D"
@@ -18,6 +19,18 @@
     <DisplayName>IcedPicViewer</DisplayName>
     <PublisherDisplayName>AppPublisher</PublisherDisplayName>
     <Logo>Assets\StoreLogo.scale-200.png</Logo>
+    <!--
+      MSIX 默认把打包应用对 %LOCALAPPDATA% 的写入重定向进包容器
+      （...\Packages\<PFN>\LocalCache\Local\...）。本应用的全部可变状态
+      按设计就应落在真实的 %LOCALAPPDATA%\IcedPicViewer（见 Core
+      AppDataPaths；crash.log / settings.json 都是给用户直接查看的），
+      因此关闭文件系统写虚拟化。需要上一节的 unvirtualizedResources
+      受限能力（dev 场景经 dotnet run 注册不受影响；AppInstaller 分发
+      会拒绝含此能力的包，本项目不分发）。
+      2026-10 实测：关闭前 window_settings.txt 实际写入包容器，导致
+      "状态找不到/几何陈旧"一类问题。
+    -->
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
   </Properties>
 
   <!--
@@ -60,5 +73,11 @@
       必须显式声明 runFullTrust 才能跳出沙箱。
     -->
     <rescap:Capability Name="runFullTrust" />
+    <!--
+      unvirtualizedResources: 允许上方的 FileSystemWriteVirtualization
+      声明生效（MSIX flexible virtualization）。本应用是纯查看器，
+      唯一写入目标是自己的 %LOCALAPPDATA%\IcedPicViewer。
+    -->
+    <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
 </Package>
