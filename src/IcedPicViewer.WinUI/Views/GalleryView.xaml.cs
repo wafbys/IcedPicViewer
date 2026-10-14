@@ -604,7 +604,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         return null;
     }
 
-    private void ImageItem_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    private void ImageItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement element && element.DataContext is MediaItem item)
         {
@@ -628,7 +628,13 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
 
     private static void SetCardHover(object sender, bool visible)
     {
-        if (sender is not Border card || card.Child is not Grid grid) return;
+        var grid = sender switch
+        {
+            Border border => border.Child as Grid,
+            Button button => button.Content as Grid,
+            _ => null
+        };
+        if (grid is null) return;
         var opacity = visible ? 1.0 : 0.0;
         foreach (var child in grid.Children)
         {
