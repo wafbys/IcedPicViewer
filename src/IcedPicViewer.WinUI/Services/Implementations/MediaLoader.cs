@@ -155,6 +155,19 @@ public class MediaLoader : IMediaLoader
         try
         {
             ct.ThrowIfCancellationRequested();
+
+            // Animated GIF: feed the original payload to BitmapImage so its
+            // native GIF animator drives it. The PNG re-encode path below
+            // decodes a single frame and would silently flatten every animated
+            // GIF to a still. targetMaxSize is ignored here on purpose: the
+            // animator needs the original stream, and the viewer stretch-fits
+            // the result inside its host anyway. Single-frame GIFs take the
+            // same path and simply display.
+            if (IsGif(media))
+            {
+                return await LoadGifAsync(media, ct);
+            }
+
             byte[]? pngBytes;
             if (media.IsInArchive)
             {
@@ -207,6 +220,52 @@ public class MediaLoader : IMediaLoader
             Trace.TraceError($"LoadFullAsync error for {media}: {ex.Message}");
             return null;
         }
+    }
+
+    private static bool IsGif(MediaRef media)
+    {
+        var name = media.ArchiveEntry ?? media.Path;
+        return name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Loads a GIF without re-encoding. <see cref="BitmapImage"/> plays animated
+    /// GIFs natively once its source stream holds the original payload, so the
+    /// bytes are copied into an in-memory stream: the animator keeps reading
+    /// frames for as long as the image is displayed, which rules out borrowing
+    /// the file/entry stream (that would also keep the file locked on disk).
+    /// </summary>
+    private static async Task<WinImageSource?> LoadGifAsync(MediaRef media, CancellationToken ct)
+    {
+        var bytes = await Task.Run(
+            async () =>
+            {
+                if (media.IsInArchive)
+                {
+                    using var entryStream = ArchiveHelper.OpenEntryStream(media.Path, media.ArchiveEntry!);
+                    using var buffer = new MemoryStream();
+                    await entryStream.CopyToAsync(buffer, ct);
+                    return buffer.ToArray();
+                }
+                if (!File.Exists(media.Path)) return null;
+                return await File.ReadAllBytesAsync(media.Path, ct);
+            },
+            ct);
+        if (bytes is null) return null;
+        ct.ThrowIfCancellationRequested();
+
+        var stream = new InMemoryRandomAccessStream();
+        using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
+        {
+            writer.WriteBytes(bytes);
+            await writer.StoreAsync();
+            writer.DetachStream();
+        }
+        stream.Seek(0);
+
+        var bitmapImage = new BitmapImage();
+        await bitmapImage.SetSourceAsync(stream);
+        return bitmapImage;
     }
 
     private static async Task<byte[]?> EncodeToPngBytesAsync(
