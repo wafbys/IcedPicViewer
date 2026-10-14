@@ -9,35 +9,14 @@
     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
 
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="48"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-
-        <!-- Top bar: back button + title. Mirrors the gallery's top bar
-             style so navigation between pages feels consistent. -->
-        <Grid Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <StackPanel Orientation="Horizontal">
-                <Button x:Name="BackButton"
-                        Click="BackButton_Click"
-                        VerticalAlignment="Stretch"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Padding="12,0"
-                        ToolTipService.ToolTip="返回图库">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE72B;" FontSize="16"/>
-                        <TextBlock Text="返回" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-                <TextBlock Text="关于"
-                           VerticalAlignment="Center"
-                           Margin="12,0,0,0"
-                           FontWeight="SemiBold"/>
-            </StackPanel>
-        </Grid>
-
-        <ScrollViewer Grid.Row="1"
+        <!--
+            Back navigation lives in the window's TitleBar control now
+            (IsBackButtonVisible / BackRequested, wired in MainWindow), so
+            this page no longer draws its own top bar; the title bar's
+            Subtitle shows 「关于」. Esc also goes back via the keyboard
+            hook in MainWindow.
+        -->
+        <ScrollViewer
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Padding="32,24,32,24">

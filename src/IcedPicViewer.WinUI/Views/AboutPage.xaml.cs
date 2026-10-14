@@ -102,18 +102,6 @@ public sealed partial class AboutPage : Page
     }
 
     /// <summary>
-    /// Back to the gallery. Uses the shared INavigationService so the
-    /// navigation history is consistent with the rest of the app
-    /// (the WH_KEYBOARD hook in MainWindow also depends on Frame
-    /// state being correct).
-    /// </summary>
-    private void BackButton_Click(object sender, RoutedEventArgs e)
-    {
-        var navigationService = App.GetService<INavigationService>();
-        navigationService.GoBack();
-    }
-
-    /// <summary>
     /// Open the bundled LGPL 2.1 license text in the user's default
     /// text editor. We resolve the file via <c>ms-appx:///</c> so the
     /// path is correct regardless of where the AppX package was

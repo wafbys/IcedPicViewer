@@ -157,6 +157,30 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         var navigationService = App.GetService<INavigationService>();
         navigationService.Initialize(RootFrame);
 
+        // Title-bar back button: shown whenever the frame can go back
+        // (the About page; the viewer keeps its own Close button as
+        // well). The About page no longer draws its own back bar — Esc
+        // also goes back via the keyboard hook (HandleViewerKey).
+        AppTitleBar.BackRequested += (_, _) =>
+        {
+            if (RootFrame.CanGoBack)
+            {
+                RootFrame.GoBack();
+            }
+        };
+        RootFrame.Navigated += (_, args) =>
+        {
+            AppTitleBar.IsBackButtonVisible = RootFrame.CanGoBack;
+            AppTitleBar.Subtitle = args.SourcePageType == typeof(AboutPage) ? "关于" : "";
+            // The About page is document-style chrome: opening it from the
+            // fullscreen gallery would hide the title bar (and with it the
+            // only pointer path back), so leave fullscreen first.
+            if (args.SourcePageType == typeof(AboutPage) && IsFullscreen)
+            {
+                ToggleFullscreen();
+            }
+        };
+
         RootFrame.Navigate(typeof(GalleryView));
 
         AppWindow.Closing += AppWindow_Closing;
@@ -296,6 +320,20 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
                 gallery.ViewModel.RefreshCommand.CanExecute(null))
             {
                 gallery.ViewModel.RefreshCommand.Execute(null);
+            }
+            return;
+        }
+
+        // Esc on the About page goes back. That page no longer draws its
+        // own back bar — the title-bar back button is the pointer path
+        // and this is the keyboard path; the viewer branch below keeps
+        // owning Esc for Close.
+        if (key == Windows.System.VirtualKey.Escape &&
+            RootFrame.Content is AboutPage)
+        {
+            if (RootFrame.CanGoBack)
+            {
+                RootFrame.GoBack();
             }
             return;
         }
