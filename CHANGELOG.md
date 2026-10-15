@@ -1,5 +1,14 @@
 # 更新日志
 
+## v0.20.0 (2026-10-15)
+
+**主题：查看器边缘翻页按钮对齐 Microsoft Photos（外观 + 显隐行为）**
+
+- **外观**（结构参照 Photos 的 Lightbox `NavigationControl.xbf`）：圆角方形（CornerRadius 8）+ 1px 细描边 + E76B/E76C 细箭头（与 Photos 自带图标字体同族字形），替换原圆形底。底色经白底实测回退为深色遮罩 `#CC000000` + 纯白箭头：Photos 原版的 acrylic 底在白色图片上几乎不可见，深色遮罩保证任意内容上可读。hover / pressed 态同样覆盖为深色遮罩（默认按钮状态色是近透明浅色罩层，会在浅色内容上把按钮"洗掉"）。
+- **显隐行为**（对齐 Photos）：鼠标在查看器内时不自动隐藏——原「闲置 2 秒淡出」会在伸手去点时把箭头抢走；鼠标离开查看器约 0.6 秒后隐藏。触摸 / 笔无 hover，保留闲置倒计时；首次绘制同样按倒计时淡出（保持可发现性）。
+- **未做**：Photos 的按压缩放动效（`NavigationButtonScalePressed` 的具体数值在编译资源中不可读，不臆测数值）。
+- **依据**：本机 Microsoft Photos 2026.11090 的 Lightbox 资源（`NavigationControl.xbf` 字符串表 + `Photos Fluent Icons` 字形表）+ MS Learn 路由事件文档（子元素 `PointerExited` 不冒泡给父元素，故父网格的 Exited 即"鼠标真正离开窗口"）。
+
 ## v0.19.0 (2026-10-14)
 
 **主题：视频封面修复（FFmpeg 声明与实际一致）+ 查看器音量 / 静音与边缘翻页**
