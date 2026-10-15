@@ -561,34 +561,61 @@
         </Grid>
 
         <!--
-            Edge navigation buttons (Windows Photos style). Pinned to the
-            vertical centre of each side so the whole left/right edge is a
-            "previous / next" affordance reachable without the keyboard.
+            Edge navigation buttons (Microsoft Photos' Lightbox design).
+            Pinned to the vertical centre of each side so the whole
+            left/right edge is a "previous / next" affordance reachable
+            without the keyboard.
+
+            Structure follows Photos' NavigationControl (Lightbox\
+            NavigationControl.xbf): rounded square with a thin control
+            stroke and the same chevrons Photos uses (E76B/E76C from its
+            icon font, which is a Segoe-lineage subset). The fill is the
+            dark scrim (#CC000000 + white arrow) instead of Photos' acrylic
+            tint: measured on this machine the acrylic variant all but
+            vanished on white photos, and the scrim reads on any content.
+            The pressed-scale animation Photos also has is intentionally not
+            copied yet.
+
+            State brushes are overridden per button: the stock Button
+            hover/pressed brushes are near-transparent light veils that
+            *replace* the background (that is how the template applies
+            them), so leave the scrim dark through every state — otherwise
+            the button washes out over light photos exactly when the user
+            reaches for it.
 
             Visibility is its own state (EdgePrevVisibility / EdgeNextVisibility):
-            arrows appear on any mouse movement in the viewer and fade after the
-            same idle delay the chrome uses, then also require the matching
-            command to be executable — so no arrow is ever shown with nothing to
-            go to. They deliberately do NOT follow the command bar's visibility:
-            the bar only reveals near the top edge, and an arrow you cannot bring
-            up by moving toward it would be useless.
+            arrows appear on any pointer activity in the viewer and require the
+            matching command to be executable — so no arrow is ever shown with
+            nothing to go to. Show/hide timing mirrors Microsoft Photos: they
+            stay while the mouse is inside the viewer and hide a short time after
+            it leaves (touch / pen reveals use a plain idle countdown). They
+            deliberately do NOT follow the command bar's visibility: the bar
+            only reveals near the top edge, and an arrow you cannot bring up by
+            moving toward it would be useless.
 
-            Scrim #CC000000 mirrors the play overlay: it must read against any
-            frame, and the page is forced to the dark theme anyway. The right
-            arrow is inset 16 px so it never covers the 1:1 mode scrollbar.
+            The right arrow is inset 16 px so it never covers the 1:1 mode
+            scrollbar.
         -->
         <Button x:Name="EdgePrevButton"
                 Grid.Row="1"
                 Command="{x:Bind ViewModel.NavigatePreviousCommand}"
                 HorizontalAlignment="Left" VerticalAlignment="Center"
                 Margin="16,0,0,0"
-                Width="48" Height="48" CornerRadius="24" Padding="0"
-                Background="#CC000000" BorderThickness="0"
+                Width="48" Height="48" CornerRadius="8" Padding="0"
+                Background="#CC000000"
+                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                BorderThickness="1"
                 Canvas.ZIndex="50"
                 IsTabStop="False"
                 Visibility="{x:Bind EdgePrevVisibility, Mode=OneWay}"
                 ToolTipService.ToolTip="{x:Bind core:UiCopy.Previous}"
                 AutomationProperties.Name="{x:Bind core:UiCopy.Previous}">
+            <Button.Resources>
+                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#E6000000"/>
+                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#F2000000"/>
+                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#33FFFFFF"/>
+                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#33FFFFFF"/>
+            </Button.Resources>
             <FontIcon Glyph="&#xE76B;" FontSize="20" Foreground="White"/>
         </Button>
         <Button x:Name="EdgeNextButton"
@@ -596,13 +623,21 @@
                 Command="{x:Bind ViewModel.NavigateNextCommand}"
                 HorizontalAlignment="Right" VerticalAlignment="Center"
                 Margin="0,0,16,0"
-                Width="48" Height="48" CornerRadius="24" Padding="0"
-                Background="#CC000000" BorderThickness="0"
+                Width="48" Height="48" CornerRadius="8" Padding="0"
+                Background="#CC000000"
+                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                BorderThickness="1"
                 Canvas.ZIndex="50"
                 IsTabStop="False"
                 Visibility="{x:Bind EdgeNextVisibility, Mode=OneWay}"
                 ToolTipService.ToolTip="{x:Bind core:UiCopy.Next}"
                 AutomationProperties.Name="{x:Bind core:UiCopy.Next}">
+            <Button.Resources>
+                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#E6000000"/>
+                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#F2000000"/>
+                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#33FFFFFF"/>
+                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#33FFFFFF"/>
+            </Button.Resources>
             <FontIcon Glyph="&#xE76C;" FontSize="20" Foreground="White"/>
         </Button>
 

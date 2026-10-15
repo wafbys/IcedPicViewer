@@ -153,13 +153,28 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     // Their own visibility state, deliberately NOT wired to the command
     // bar's: the bar only reveals inside the top hot zone, so an arrow
     // reachable only while the bar is up would be useless in practice.
-    // Arrows follow plain mouse activity (any pointer move / press in the
-    // viewer) and fade after the same idle delay the chrome uses; each
-    // arrow additionally requires its command to be executable, so the
-    // first item offers no "previous" and the last none "next".
+    // Each arrow additionally requires its command to be executable, so
+    // the first item offers no "previous" and the last none "next".
+    //
+    // Show / hide model mirrors Microsoft Photos:
+    //   - any pointer activity in the viewer reveals them;
+    //   - while the MOUSE pointer is inside the viewer they stay — no idle
+    //     fade (Photos does not hide its arrows while the mouse has not
+    //     left the window; the old fixed 2 s fade stole them mid-reach);
+    //   - a short grace after the mouse leaves the viewer they hide again;
+    //   - touch / pen have no hover, so those reveals keep a plain idle
+    //     countdown (a tap must leave the arrow on screen long enough to
+    //     tap it again), and first paint uses the same countdown so the
+    //     arrows read as "there, and fading" without a move.
     // ----------------------------------------------------------------
     private bool _isEdgeNavVisible;
     private DispatcherQueueTimer? _edgeNavHideTimer;
+
+    /// <summary>Idle fade for reveals without a hovering mouse (touch / pen / first paint).</summary>
+    private const int EdgeNavIdleHideMs = 2000;
+
+    /// <summary>Grace after the mouse leaves the viewer before the arrows hide.</summary>
+    private const int EdgeNavExitHideMs = 600;
 
     public Visibility EdgePrevVisibility =>
         _isEdgeNavVisible && ViewModel?.NavigatePreviousCommand.CanExecute(null) == true
@@ -171,8 +186,13 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
             ? Visibility.Visible
             : Visibility.Collapsed;
 
-    /// <summary>Reveals the arrows and restarts their idle countdown.</summary>
-    private void ShowEdgeNav()
+    /// <summary>
+    /// Reveals the arrows. With <paramref name="mouseHovering"/> the hide
+    /// countdown is cancelled entirely — the arrows then stay until the
+    /// pointer leaves the viewer (OnGlobalPointerExited re-arms the
+    /// countdown). Otherwise the idle countdown runs.
+    /// </summary>
+    private void ShowEdgeNav(bool mouseHovering)
     {
         if (!_isEdgeNavVisible)
         {
@@ -181,16 +201,32 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
             OnPropertyChanged(nameof(EdgeNextVisibility));
         }
 
+        if (mouseHovering)
+        {
+            StopEdgeNavHideTimer();
+        }
+        else
+        {
+            ArmEdgeNavHideTimer(EdgeNavIdleHideMs);
+        }
+    }
+
+    /// <summary>
+    /// (Re)starts the hide countdown. Stop + Start restarts it; a pending
+    /// tick is discarded. The interval is assigned per arm because callers
+    /// use different fuses (idle vs. pointer-left).
+    /// </summary>
+    private void ArmEdgeNavHideTimer(int delayMs)
+    {
         if (_edgeNavHideTimer is null)
         {
             var t = DispatcherQueue.CreateTimer();
             t.IsRepeating = false;
-            t.Interval = TimeSpan.FromMilliseconds(ChromeHideDelayMs);
             t.Tick += OnEdgeNavHideTick;
             _edgeNavHideTimer = t;
         }
-        // Stop + Start restarts the countdown; a pending tick is discarded.
         _edgeNavHideTimer.Stop();
+        _edgeNavHideTimer.Interval = TimeSpan.FromMilliseconds(delayMs);
         _edgeNavHideTimer.Start();
     }
 
@@ -225,8 +261,29 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     /// marks the move as handled — the 1:1 image ScrollViewer does exactly that,
     /// and without this hook the arrows would never return while the pointer is
     /// over the scrolled image. Registered with handledEventsToo in the ctor.
+    /// Mouse activity cancels the countdown (arrows then stay until the
+    /// pointer leaves); touch / pen keep the idle countdown.
     /// </summary>
-    private void OnGlobalPointerActivity(object sender, PointerRoutedEventArgs e) => ShowEdgeNav();
+    private void OnGlobalPointerActivity(object sender, PointerRoutedEventArgs e)
+        => ShowEdgeNav(e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Mouse);
+
+    /// <summary>
+    /// Mouse left the viewer → arm the exit countdown (Photos hides its
+    /// arrows a short time after the pointer leaves the window).
+    ///
+    /// Per the XAML routed-event rules a child element's PointerExited does
+    /// NOT bubble to its parent, so MainContentGrid raises its own Exited
+    /// only when the pointer leaves the grid bounds entirely — i.e. the
+    /// window. Hit-test moves onto children therefore never reach this
+    /// handler, which is why no extra filtering is needed (WinUI 3 has no
+    /// IsPointerOver). Touch / pen "exits" (finger lift) are not leaves and
+    /// are ignored; their reveals use the idle countdown in ShowEdgeNav.
+    /// </summary>
+    private void OnGlobalPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.Pointer.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Mouse) return;
+        ArmEdgeNavHideTimer(EdgeNavExitHideMs);
+    }
 
     private double ComputeTopHotZoneHeight(double viewportHeight)
     {
@@ -266,7 +323,7 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     private void HandleChromePointer(PointerRoutedEventArgs e)
     {
         // Arrows answer to any activity, the bar only near the top edge.
-        ShowEdgeNav();
+        ShowEdgeNav(e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Mouse);
 
         var y = e.GetCurrentPoint(MainContentGrid).Position.Y;
         var h = MainContentGrid.ActualHeight;
@@ -471,8 +528,10 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
 
         // Edge arrows: any pointer activity reveals them — including moves a
         // child control marks as handled (the 1:1 ScrollViewer does), hence
-        // handledEventsToo. The command subscriptions live in OnLoaded/OnUnloaded
-        // with the same re-subscribe symmetry the image subscription uses.
+        // handledEventsToo. Pointer exits arm the Photos-style hide
+        // countdown once the mouse has actually left the viewer. The
+        // command subscriptions live in OnLoaded/OnUnloaded with the same
+        // re-subscribe symmetry the image subscription uses.
         MainContentGrid.AddHandler(
             UIElement.PointerMovedEvent,
             new PointerEventHandler(OnGlobalPointerActivity),
@@ -480,6 +539,10 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         MainContentGrid.AddHandler(
             UIElement.PointerPressedEvent,
             new PointerEventHandler(OnGlobalPointerActivity),
+            handledEventsToo: true);
+        MainContentGrid.AddHandler(
+            UIElement.PointerExitedEvent,
+            new PointerEventHandler(OnGlobalPointerExited),
             handledEventsToo: true);
 
         // Wire the fullscreen button to the MainWindow's
@@ -890,9 +953,10 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
             UpdateMinimapDeferred();
         }
 
-        // First paint: show the arrows once (then they fade like the chrome),
-        // so their existence is discoverable without hunting for the edge.
-        ShowEdgeNav();
+        // First paint: show the arrows once with an idle countdown (a real
+        // mouse move cancels the countdown — see ShowEdgeNav), so their
+        // existence is discoverable without hunting for the edge.
+        ShowEdgeNav(mouseHovering: false);
 
         // 键盘处理统一在 MainWindow.RootGrid_KeyDown,见 MainWindow.xaml.cs。
     }
