@@ -805,6 +805,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     {
         if (System.Threading.Interlocked.CompareExchange(ref _isNavigatingToViewer, 1, 0) != 0) return;
 
+        var handedOff = false;
         try
         {
             var index = ViewModel.Items.IndexOf(item);
@@ -823,10 +824,22 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             await App.GetService<ViewerViewModel>().OpenItem(item);
 
             _navigationService.NavigateTo<ViewerView>();
+            handedOff = true;
         }
         finally
         {
-            System.Threading.Interlocked.Exchange(ref _isNavigatingToViewer, 0);
+            // On a successful hand-off the guard deliberately STAYS set:
+            // this gallery instance is about to be discarded (the frame
+            // doesn't cache pages, so going back builds a fresh gallery
+            // with a fresh guard), and keeping the guard set makes the
+            // second click of a card double-click a no-op. Clearing it let
+            // a double-click push ViewerView twice back-to-back; the first
+            // back click then popped to the other viewer instance — which
+            // looks exactly like "the back arrow needs two clicks".
+            if (!handedOff)
+            {
+                System.Threading.Interlocked.Exchange(ref _isNavigatingToViewer, 0);
+            }
         }
     }
 
