@@ -1,5 +1,14 @@
 # 更新日志
 
+## 未发布
+
+**主题：架构定位收敛——专注 Windows，去除跨平台残留（Core + Shell 结构不变）**
+
+- 文档措辞：AGENTS / README 不再称 Core 为「平台无关库」，改为「共享逻辑库（不引用 WinUI）」——架构不变（Core 零 WinUI 依赖、照常单测），只是不再宣称跨平台支持。
+- `FFmpegBootstrap`：原生库解析收敛为 Windows 打包布局四级（`IPV_FFMPEG_ROOT` → 输出根 → `runtimes\win-x64\native` → `native`）；移除 linux / macOS / win-arm64 探测分支与系统库目录。
+- `Fetch-FFmpegNatives.ps1`：`-Rid` 仅接受 `win-x64`（移除 win-arm64 / linux / tar.xz 分支与 Homebrew 注记）；soname 守卫仍读 csproj 的 `<FFmpegExpectedSonames>` 单一来源。
+- Core 测试：移除 `OperatingSystem.IsWindows()` 早退（Windows 专用行为恒可断言）。
+
 ## v0.21.0 (2026-10-16)
 
 **主题：向 2026 版 Microsoft Photos 借鉴（SVG 查看 + 小图/像素画锐利放大）**

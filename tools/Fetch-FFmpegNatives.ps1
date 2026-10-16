@@ -1,17 +1,17 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Download FFmpeg LGPL shared libraries into src/native/ffmpeg/{rid}/
+  Download FFmpeg LGPL shared libraries into src/native/ffmpeg/win-x64/
 
 .PARAMETER Rid
-  win-x64 | win-arm64 | linux-x64 | linux-arm64
+  win-x64 (the only target this Windows-only product consumes)
 
 .NOTES
-  Sources: BtbN/FFmpeg-Builds (Linux/Windows). macOS: use Homebrew or set IPV_FFMPEG_ROOT.
+  Sources: BtbN/FFmpeg-Builds (Windows x64 LGPL-shared builds).
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('win-x64', 'win-arm64', 'linux-x64', 'linux-arm64')]
+    [ValidateSet('win-x64')]
     [string] $Rid,
 
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -21,36 +21,30 @@ $ErrorActionPreference = 'Stop'
 $dest = Join-Path $RepoRoot "src/native/ffmpeg/$Rid"
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
-# Map RID → BtbN asset selector, pinned to the FFmpeg 9.0 branch (LGPL shared).
-# BtbN names branch assets either after the branch tip or with the commit, e.g.
+# Pinned to the FFmpeg 9.0 branch, Windows x64 LGPL-shared build. BtbN names
+# branch assets either after the branch tip or with the commit, e.g.
 #   ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip
 #   ffmpeg-n9.0.1-52-g5a03dfa0f6-win64-lgpl-shared-9.0.zip
 # so the glob must stay loose around the version. Do NOT tighten this into a
 # `-latest-` name: the fallback then picks a master nightly, and master carries
 # next-major sonames that FFmpeg.AutoGen 9.0.1.1 cannot bind to.
-$map = @{
-    'win-x64'      = @{ urlPart = 'win64';      ext = 'zip';    glob = 'ffmpeg-n9.0*win64-lgpl-shared*.zip' }
-    'win-arm64'    = @{ urlPart = 'winarm64';   ext = 'zip';    glob = 'ffmpeg-n9.0*winarm64-lgpl-shared*.zip' }
-    'linux-x64'    = @{ urlPart = 'linux64';    ext = 'tar.xz'; glob = 'ffmpeg-n9.0*linux64-lgpl-shared*.tar.xz' }
-    'linux-arm64'  = @{ urlPart = 'linuxarm64'; ext = 'tar.xz'; glob = 'ffmpeg-n9.0*linuxarm64-lgpl-shared*.tar.xz' }
-}
+$assetGlob = 'ffmpeg-n9.0*win64-lgpl-shared*.zip'
 
-$meta = $map[$Rid]
 $api = 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest'
 Write-Host "Querying $api ..."
 $rel = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'IcedPicViewer-FetchFFmpeg' }
 # Master nightlies are excluded everywhere: they are FFmpeg master (next major
 # sonames) and would break the AutoGen binding at runtime, silently.
 $candidates = @($rel.assets | Where-Object { $_.name -notlike 'ffmpeg-N-*' })
-$asset = $candidates | Where-Object { $_.name -like $meta.glob } | Select-Object -First 1
+$asset = $candidates | Where-Object { $_.name -like $assetGlob } | Select-Object -First 1
 if (-not $asset) {
-    # Fallback: any *lgpl-shared* for this arch, still no master nightlies.
+    # Fallback: any win64 *lgpl-shared* zip, still no master nightlies.
     $asset = $candidates | Where-Object {
-        $_.name -match [regex]::Escape($meta.urlPart) -and $_.name -match 'lgpl-shared'
+        $_.name -match 'win64' -and $_.name -match 'lgpl-shared' -and $_.name -like '*.zip'
     } | Select-Object -First 1
 }
 if (-not $asset) {
-    throw "No BtbN LGPL shared asset found for $Rid. Check https://github.com/BtbN/FFmpeg-Builds/releases"
+    throw "No BtbN LGPL shared (win64) asset found. Check https://github.com/BtbN/FFmpeg-Builds/releases"
 }
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("ffmpeg-" + [Guid]::NewGuid().ToString('n'))
@@ -61,16 +55,12 @@ Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -UseBasicPa
 
 $extract = Join-Path $tmp 'extract'
 New-Item -ItemType Directory -Force -Path $extract | Out-Null
-if ($meta.ext -eq 'zip') {
-    Expand-Archive -Path $archive -DestinationPath $extract -Force
-} else {
-    # tar.xz
-    tar -xJf $archive -C $extract
-}
+Expand-Archive -Path $archive -DestinationPath $extract -Force
 
-# Find bin/ or lib/ with shared libs
+# Find bin/ with the shared libs (BtbN Windows zips ship everything in bin/,
+# ffmpeg.exe included — the tests use it for clip synthesis).
 $libDir = Get-ChildItem -Path $extract -Recurse -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -in @('bin', 'lib') } |
+    Where-Object { $_.Name -eq 'bin' } |
     Where-Object {
         (Get-ChildItem $_.FullName -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -match 'avutil' }).Count -gt 0

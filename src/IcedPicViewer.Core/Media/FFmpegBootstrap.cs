@@ -1,16 +1,16 @@
 // Copyright (c) IcedPicViewer. All rights reserved.
 
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
 
 namespace IcedPicViewer.Core.Media;
 
 /// <summary>
-/// Locates FFmpeg shared libraries and points <see cref="ffmpeg.RootPath"/>
-/// at that folder once per process.
-/// Search order: <c>IPV_FFMPEG_ROOT</c> → app <c>runtimes/{rid}/native</c> →
-/// common system lib dirs (Homebrew / distro packages).
+/// Locates the FFmpeg shared libraries shipped with the app and points
+/// <see cref="ffmpeg.RootPath"/> at that folder once per process. The
+/// product is Windows-only (x64): the search is limited to the packaged
+/// layout — <c>IPV_FFMPEG_ROOT</c> → the app output root (= MSIX install
+/// root) → <c>runtimes\win-x64\native</c> → <c>native</c>.
 /// </summary>
 public static class FFmpegBootstrap
 {
@@ -78,43 +78,13 @@ public static class FFmpegBootstrap
             candidates.Add(env.Trim());
 
         var baseDir = AppContext.BaseDirectory;
-        var rid = RuntimeInformation.RuntimeIdentifier;
 
-        candidates.Add(Path.Combine(baseDir, "runtimes", rid, "native"));
-
-        // Coarse RID fallbacks (e.g. win10-x64 → win-x64 layout).
-        if (rid.Contains("win", StringComparison.OrdinalIgnoreCase) && rid.Contains("x64", StringComparison.OrdinalIgnoreCase))
-            candidates.Add(Path.Combine(baseDir, "runtimes", "win-x64", "native"));
-        if (rid.Contains("win", StringComparison.OrdinalIgnoreCase) && rid.Contains("arm64", StringComparison.OrdinalIgnoreCase))
-            candidates.Add(Path.Combine(baseDir, "runtimes", "win-arm64", "native"));
-        if (rid.Contains("linux", StringComparison.OrdinalIgnoreCase) && rid.Contains("x64", StringComparison.OrdinalIgnoreCase))
-            candidates.Add(Path.Combine(baseDir, "runtimes", "linux-x64", "native"));
-        if (rid.Contains("linux", StringComparison.OrdinalIgnoreCase) && rid.Contains("arm64", StringComparison.OrdinalIgnoreCase))
-            candidates.Add(Path.Combine(baseDir, "runtimes", "linux-arm64", "native"));
-        if (rid.Contains("osx", StringComparison.OrdinalIgnoreCase) || rid.Contains("macos", StringComparison.OrdinalIgnoreCase))
-        {
-            candidates.Add(Path.Combine(baseDir, "runtimes", "osx-arm64", "native"));
-            candidates.Add(Path.Combine(baseDir, "runtimes", "osx-x64", "native"));
-        }
-
-        candidates.Add(Path.Combine(baseDir, "native"));
+        // The packaged/loose layouts put the DLLs flat in the output root
+        // (which is also the MSIX install root). The runtimes\win-x64\native
+        // convention stays as a fallback for framework-style layouts.
         candidates.Add(baseDir);
-
-        // System / package-manager installs (shared libs next to each other).
-        if (OperatingSystem.IsLinux())
-        {
-            candidates.Add("/usr/lib/x86_64-linux-gnu");
-            candidates.Add("/usr/lib/aarch64-linux-gnu");
-            candidates.Add("/usr/lib64");
-            candidates.Add("/usr/lib");
-            candidates.Add("/usr/local/lib");
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            candidates.Add("/opt/homebrew/lib");
-            candidates.Add("/usr/local/lib");
-            candidates.Add("/opt/local/lib");
-        }
+        candidates.Add(Path.Combine(baseDir, "runtimes", "win-x64", "native"));
+        candidates.Add(Path.Combine(baseDir, "native"));
 
         foreach (var dir in candidates)
         {
@@ -131,7 +101,7 @@ public static class FFmpegBootstrap
     {
         try
         {
-            // Windows: avutil-61.dll; Linux: libavutil.so*; macOS: libavutil*.dylib
+            // Windows shared library naming, e.g. avutil-61.dll.
             return Directory.EnumerateFiles(dir, "*avutil*", SearchOption.TopDirectoryOnly).Any();
         }
         catch (Exception ex)

@@ -1,10 +1,10 @@
 # IcedPicViewer
 
-本地图片 / 视频查看器。**Core（平台无关库）+ WinUI（Windows 原生壳）双工程**：
+本地图片 / 视频查看器（Windows）。**Core（共享逻辑库）+ WinUI（Windows 原生壳）双工程**：
 
 | 路径 | 说明 |
 |------|------|
-| `src/IcedPicViewer.Core` | 平台无关库：扫描、归档、设置、FFmpeg 抽帧等（`net11.0`） |
+| `src/IcedPicViewer.Core` | 共享逻辑库（不引用 WinUI）：扫描、归档、设置、FFmpeg 抽帧等（`net11.0`） |
 | `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.5，.NET 11，MSIX，**x64 only**） |
 | `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit；已进 solution） |
 
@@ -138,7 +138,7 @@ $env:IPV_FIRSTCHANCE_LOG='1'
 - `IPV_FIRSTCHANCE_LOG` — `1` 时把 first-chance 异常写入 `<app data>\firstchance.log`（开发用）
 - 所有可变状态固定在 **`%LocalApplicationData%\IcedPicViewer\`**（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\`），统一由 Core `AppDataPaths` 解析
 
-FFmpeg 拉取产物在 `src/native/ffmpeg/{rid}/`（**不进 git**）。
+FFmpeg 拉取产物在 `src/native/ffmpeg/win-x64/`（**不进 git**）。
 
 ## 版本
 

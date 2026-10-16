@@ -25,10 +25,7 @@ public sealed class DirectoryScannerTests : IDisposable
     [Fact]
     public void IsRecycleBin_ShouldDetectWindowsRecycleBin()
     {
-        // Windows-style recycle bin paths — only meaningful on Windows.
-        if (!OperatingSystem.IsWindows())
-            return;
-
+        // Windows-only product: these paths are always meaningful.
         Assert.True(DirectoryScanner.IsRecycleBin(@"C:\$RECYCLE.BIN\file.txt"));
         Assert.True(DirectoryScanner.IsRecycleBin(@"C:\Recycler\file.txt"));
         Assert.True(DirectoryScanner.IsRecycleBin(@"C:\RECYCLED\file.txt"));

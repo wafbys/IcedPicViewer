@@ -17,9 +17,8 @@ src/native/ffmpeg/
   win-x64/       avutil-*.dll, avcodec-*.dll, ...
 ```
 
-`win-x64` is the only RID this repo builds for. The script still accepts
-`win-arm64` / `linux-x64` / `linux-arm64` for anyone cross-fetching, but nothing
-in the tree consumes them.
+`win-x64` is the only RID this repo builds or fetches for — the product is
+Windows-only (x64).
 
 ## How the DLLs reach the app
 
@@ -34,8 +33,11 @@ silently disable video thumbs/probe at runtime.
 | Order | Location |
 |-------|----------|
 | 1 | Env `IPV_FFMPEG_ROOT` = directory containing avutil |
-| 2 | App output directory (populated by the build target above) |
-| 3 | System PATH |
+| 2 | App output root (populated by the build target above; = MSIX install root) |
+| 3 | `runtimes\win-x64\native` (framework-style layout) |
+| 4 | `native\` subfolder |
+
+(Windows-only product: the resolver probes no other RID layouts.)
 
 **DLL 不提交到 Git。**
 

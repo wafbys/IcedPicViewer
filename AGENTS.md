@@ -6,14 +6,14 @@
 
 本地媒体浏览器（图片 + 视频 + 压缩包展平）。
 
-**Core（平台无关库）+ WinUI（Windows 原生壳）双工程**：Core 承载全部共享逻辑，WinUI 是唯一产品入口。Core 与 WinUI 同级维护——不存在「谁只是附属」的说法。
+**Core（共享逻辑库）+ WinUI（Windows 原生壳）双工程**：本项目专注 Windows；Core 承载全部共享逻辑（不引用 WinUI / 平台图形），WinUI 是唯一产品入口。Core 与 WinUI 同级维护——不存在「谁只是附属」的说法。
 
 | 路径 | 角色 |
 |------|------|
-| `src/IcedPicViewer.Core` | 平台无关库（`net11.0`）：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。**禁止**引用 WinUI。被 WinUI 引用 |
+| `src/IcedPicViewer.Core` | 共享逻辑库（`net11.0`，不引用 WinUI）：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。被 WinUI 引用 |
 | `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.5，.NET 11，MSIX，**x64 only**）：图库/查看器、`MediaPlayerElement` 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘、DI Hosting |
 | `tests/IcedPicViewer.Core.Tests` | Core 的 xUnit 测试（只引 Core）。已进 `IcedPicViewer.slnx` |
-| FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` → `src/native/ffmpeg/win-x64/`；构建时 `CopyFFmpegDllsToOutDir` 拷到输出根（即包安装根，`LoadLibrary` 不搜子目录）。运行时：`IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`。**声明的 soname 单一来源** = WinUI csproj 的 `<FFmpegExpectedSonames>`（`avutil-61` 那一串）：升级 FFmpeg 时 Core/WinUI **两处 `FFmpeg.AutoGen` 必须同版本**，再同步该属性并重跑 fetch 脚本（脚本解析同一属性做自己的守卫）。构建期比对实际 DLL：整套缺失报 `IPV001`，**版本不符/缺项报 `IPV002`（按项点名 + 给命令）**——旧版本 DLL 留在目录里不会报错，只会让视频封面静默消失 |
+| FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` → `src/native/ffmpeg/win-x64/`；构建时 `CopyFFmpegDllsToOutDir` 拷到输出根（即包安装根，`LoadLibrary` 不搜子目录）。运行时：`IPV_FFMPEG_ROOT` → 输出根 → `runtimes\win-x64\native` → `native`（Windows 专用；无跨平台分支）。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`。**声明的 soname 单一来源** = WinUI csproj 的 `<FFmpegExpectedSonames>`（`avutil-61` 那一串）：升级 FFmpeg 时 Core/WinUI **两处 `FFmpeg.AutoGen` 必须同版本**，再同步该属性并重跑 fetch 脚本（脚本解析同一属性做自己的守卫）。构建期比对实际 DLL：整套缺失报 `IPV001`，**版本不符/缺项报 `IPV002`（按项点名 + 给命令）**——旧版本 DLL 留在目录里不会报错，只会让视频封面静默消失 |
 | 视频播放 | `MediaPlayerElement` + 系统编解码；部分容器 FFmpeg remux（`VideoMetadataService`）；LibVLC 软渲染回退（`VlcImageSurface`，无 HWND VideoView） |
 
 - tag `winui-baseline`：历史快照，仅供 diff，**不是**「WinUI 已冻结」。
