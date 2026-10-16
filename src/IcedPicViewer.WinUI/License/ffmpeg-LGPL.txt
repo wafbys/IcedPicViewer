@@ -21,6 +21,11 @@ LGPL 2.1+ 要求:
 3. **许可证显著性**: 应用程序的 AboutPage 必须署名 FFmpeg + LGPL。
    已在 IcedPicViewer 顶 bar 的 "About" 页面中体现。
 
+本文件同时是 LibVLC / LibVLCSharp（播放回退路径）所依据的同一份 LGPL 2.1+
+许可证全文；两者同样以动态链接方式随包分发，可在包安装路径下原地替换。
+
+本应用自身的代码以 MIT 许可证发布（见仓库根 LICENSE）。
+
 FFmpeg 9.0 (LGPL 2.1+ shared build) 包含的库:
   - avcodec-63.dll   - 编码 + 解码 (~87 MB)
   - avformat-63.dll  - 容器 mux + demux

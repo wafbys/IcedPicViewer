@@ -33,6 +33,21 @@
                            TextWrapping="Wrap"
                            Style="{StaticResource AppBodyTextBlockStyle}"/>
 
+                <!-- Project + app license. The app is MIT (repo LICENSE); the
+                     link goes to the hosted text so no extra copy ships. -->
+                <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,4,0,0">
+                    <HyperlinkButton Content="{x:Bind core:AboutCopy.ProjectLinkText}"
+                                     NavigateUri="https://github.com/wafbys/IcedPicViewer"
+                                     Padding="0,4,0,4"/>
+                    <HyperlinkButton Content="{x:Bind core:AboutCopy.AppLicenseLinkText}"
+                                     NavigateUri="https://github.com/wafbys/IcedPicViewer/blob/master/LICENSE"
+                                     Padding="0,4,0,4"/>
+                </StackPanel>
+                <TextBlock x:Name="AppLicenseTextBlock"
+                           TextWrapping="Wrap"
+                           Style="{StaticResource AppCaptionTextBlockStyle}"
+                           Opacity="0.7"/>
+
                 <!-- Thumbnail cache: on-disk usage + clear. Labels come from
                      AboutCopy/UiCopy (Chinese copy lives in Core); the numbers
                      are filled in from IThumbnailDiskCache when the page loads. -->
@@ -124,6 +139,48 @@
                 </Border>
 
                 <!-- Future: more third-party cards go here (SharpCompress, etc.). -->
+
+                <!-- LibVLC card: the playback fallback path ships LGPL natives
+                     too, so it needs the same attribution + replaceability note
+                     as FFmpeg. The license link reuses the bundled LGPL text
+                     (the same 2.1+ license covers both). -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="20">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="{x:Bind core:AboutCopy.LibVlcSectionTitle}"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock x:Name="LibVlcDescTextBlock"
+                                   TextWrapping="Wrap"
+                                   Style="{StaticResource AppBodyTextBlockStyle}"/>
+                        <HyperlinkButton Content="VideoLAN / LibVLC (videolan.org)"
+                                         NavigateUri="https://www.videolan.org/vlc/libvlc.html"
+                                         Padding="0,4,0,4"/>
+                        <HyperlinkButton Content="{x:Bind core:AboutCopy.LicenseFullTextLink}"
+                                         Click="LicenseLink_Click"
+                                         Padding="0,4,0,4"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Other components: MIT / LGPL libraries that ship with or
+                     into the app. Listed for attribution completeness. -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="20">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="{x:Bind core:AboutCopy.OtherComponentsTitle}"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock x:Name="OtherComponentsTextBlock"
+                                   TextWrapping="Wrap"
+                                   Style="{StaticResource AppBodyTextBlockStyle}"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
     </Grid>

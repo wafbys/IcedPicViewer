@@ -37,6 +37,22 @@ public static class AboutCopy
         return $"运行状态：已加载{versionPart}{dirPart}";
     }
 
+    public const string ProjectLinkText = "项目源码 (GitHub)";
+    public const string AppLicenseLinkText = "MIT 许可证 (GitHub)";
+
+    public static string AppLicenseZh()
+        => "应用代码以 MIT 许可证发布（见仓库根 LICENSE）——捆绑依赖均为宽松 / 弱 copyleft 且动态链接，不改变应用许可。";
+
+    public const string LibVlcSectionTitle = "LibVLC";
+
+    public static string LibVlcDescriptionZh()
+        => "版本 3.0.24（VideoLAN 原生库，LGPL 2.1+ shared）。用于媒体播放回退：Media Foundation 无法 remux / 解码的容器与编码（VP8/WebM、ProRes 等）经 LibVLC 软渲染播放；原生库随包安装，可在原地替换。";
+
+    public const string OtherComponentsTitle = "其他组件";
+
+    public static string OtherComponentsZh()
+        => "SharpCompress（MIT，压缩包读取）、CommunityToolkit.Mvvm（MIT，MVVM 基元）、FFmpeg.AutoGen（MIT，FFmpeg 绑定）、LibVLCSharp（LGPL 2.1+，LibVLC 托管绑定）。";
+
     public const string CacheSectionTitle = "缩略图缓存";
 
     public static string CacheDescriptionZh()

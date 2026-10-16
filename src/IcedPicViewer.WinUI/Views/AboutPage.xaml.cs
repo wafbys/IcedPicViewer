@@ -24,7 +24,10 @@ public sealed partial class AboutPage : Page
         // to identify an exact binary, so it includes the commit.
         VersionTextBlock.Text = $"版本：{BuildInfo.FullLabel}";
         IntroTextBlock.Text = AboutCopy.WinUiIntro();
+        AppLicenseTextBlock.Text = AboutCopy.AppLicenseZh();
         FfmpegDescTextBlock.Text = AboutCopy.FfmpegDescriptionZh();
+        LibVlcDescTextBlock.Text = AboutCopy.LibVlcDescriptionZh();
+        OtherComponentsTextBlock.Text = AboutCopy.OtherComponentsZh();
 
         CacheDescTextBlock.Text = AboutCopy.CacheDescriptionZh();
         ClearCacheButton.Content = UiCopy.ClearCache;
