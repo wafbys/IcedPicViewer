@@ -1,8 +1,8 @@
 # 更新日志
 
-## 未发布
+## v0.22.0 (2026-10-16)
 
-**主题：架构定位收敛（专注 Windows）+ 许可与发布基建**
+**主题：架构定位收敛（专注 Windows）、许可与发布基建、转场与回退修复**
 
 - 文档措辞：AGENTS / README 不再称 Core 为「平台无关库」，改为「共享逻辑库（不引用 WinUI）」——架构不变（Core 零 WinUI 依赖、照常单测），只是不再宣称跨平台支持。
 - `FFmpegBootstrap`：原生库解析收敛为 Windows 打包布局四级（`IPV_FFMPEG_ROOT` → 输出根 → `runtimes\win-x64\native` → `native`）；移除 linux / macOS / win-arm64 探测分支与系统库目录。

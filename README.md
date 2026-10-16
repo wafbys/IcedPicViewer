@@ -133,6 +133,7 @@ FFmpeg 拉取产物在 `src/native/ffmpeg/win-x64/`（**不进 git**）。
 
 当前版本以仓库根 `Directory.Build.props` 的 `<Version>` 为准（解决方案级单一来源，全工程继承）；完整历史见 `CHANGELOG.md`。
 
+- **v0.22.0** - 专注 Windows 的架构定位收敛、MIT 许可与关于页补全（LibVLC/组件署名）、发布流程定型；移除连接动画（回归朴素转场）；修复"回退要点两次"（双击卡片重复入栈查看器）（详见 `CHANGELOG.md`）
 - **v0.21.0** - SVG 查看 + 小图 / 像素画锐利放大（详见 `CHANGELOG.md`）
 - **v0.20.0** - 查看器边缘翻页按钮对齐 Microsoft Photos：圆角方形深色按钮 + 细箭头（白色图片上可读），鼠标在查看器内不自动隐藏、离开后约 0.6 秒隐藏（详见 `CHANGELOG.md`）
 - **v0.19.0** - 视频封面修复与 FFmpeg 声明-实际一致性守卫（`IPV001` / `IPV002`）、About 运行期 FFmpeg 状态行、查看器音量 / 静音随时可用并跨会话记住、左右边缘翻页按钮（详见 `CHANGELOG.md`）
