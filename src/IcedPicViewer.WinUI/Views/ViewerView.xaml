@@ -255,7 +255,6 @@
                 <Image x:Name="FitImage"
                        Source="{x:Bind ViewModel.DisplayImage, Mode=OneWay}"
                        Stretch="Uniform"
-                       ImageOpened="FitImage_ImageOpened"
                        AutomationProperties.Name="{x:Bind ViewModel.SelectedItem.Name, Mode=OneWay}"/>
             </Viewbox>
 
