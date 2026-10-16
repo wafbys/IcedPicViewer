@@ -16,7 +16,6 @@
 | FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` → `src/native/ffmpeg/win-x64/`；构建时 `CopyFFmpegDllsToOutDir` 拷到输出根（即包安装根，`LoadLibrary` 不搜子目录）。运行时：`IPV_FFMPEG_ROOT` → 输出根 → `runtimes\win-x64\native` → `native`（Windows 专用；无跨平台分支）。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`。**声明的 soname 单一来源** = WinUI csproj 的 `<FFmpegExpectedSonames>`（`avutil-61` 那一串）：升级 FFmpeg 时 Core/WinUI **两处 `FFmpeg.AutoGen` 必须同版本**，再同步该属性并重跑 fetch 脚本（脚本解析同一属性做自己的守卫）。构建期比对实际 DLL：整套缺失报 `IPV001`，**版本不符/缺项报 `IPV002`（按项点名 + 给命令）**——旧版本 DLL 留在目录里不会报错，只会让视频封面静默消失 |
 | 视频播放 | `MediaPlayerElement` + 系统编解码；部分容器 FFmpeg remux（`VideoMetadataService`）；LibVLC 软渲染回退（`VlcImageSurface`，无 HWND VideoView） |
 
-- tag `winui-baseline`：历史快照，仅供 diff，**不是**「WinUI 已冻结」。
 - **MasonryPanel**：默认 **3 列铺满**，非虚拟化，勿擅自改成虚拟化列表。
 - **混合加载**：边扫边灌到 200 停 → Load More / 滚底再灌。
 - **不**自动恢复上次打开的文件夹。
@@ -72,6 +71,18 @@ dotnet test IcedPicViewer.slnx -c Debug
 ```
 
 含 Core 测试；WinUI UI 仍以手动验关键路径为主。
+
+### 发布流程（用户说「发布」即执行全套）
+
+1. **升版本**（两处，构建守卫兜底）：`Directory.Build.props` 的 `<Version>` + `Package.appxmanifest` 的 `Identity/@Version`；
+2. **CHANGELOG**：「未发布」段转正为 `## vX.Y.Z (日期)`；README 版本列表同步；
+3. **Release 构建必须验**：`dotnet build IcedPicViewer.slnx -c Release -p:Platform=x64`（0/0）+ `dotnet test`——只验 Debug 不算发布通过；
+4. **提交**（中文，含版本号与内容摘要）并推送 `origin master`；
+5. **远端发布**：`gh release create vX.Y.Z --title "…" --notes "…"`（摘要取 CHANGELOG；**纯说明、无构建产物**——本项目不做打包分发，`dotnet run` 是唯一运行方式）。
+
+### 许可
+
+应用代码 **MIT**（仓库根 `LICENSE`）；捆绑依赖全部为宽松 / 弱 copyleft 且动态链接（FFmpeg / LibVLC 原生 / LibVLCSharp = LGPL 2.1+，SharpCompress / CommunityToolkit.Mvvm / FFmpeg.AutoGen = MIT），不改变应用许可。增删依赖时核对这一条。
 
 ## 核心原则
 
@@ -187,9 +198,9 @@ RunScanAndBatchAsync ── ScanBatchSize/ScanBatchMs ── FlushScanBatch
 
 **不变量**：scanner 在 worker；`batchStartTick`；`_pageFillInFlight` ≠ `IsLoadingMore`；drain gate `Items.Count < PageSize`；缩略图经 UI 线程回写；切目录取消 CTS。
 
-## 定稿架构（终点站）
+## 定稿架构
 
-以下为 **一致性工作的终点**。达到即收手；**不要**再为「更统一」做下列之外的重构。
+以下为**定稿约定**；除非有实际需求，**不要**再为「更统一」做下列之外的重构。
 
 ### 已定稿（必须保持）
 

@@ -2,12 +2,16 @@
 
 ## 未发布
 
-**主题：架构定位收敛——专注 Windows，去除跨平台残留（Core + Shell 结构不变）**
+**主题：架构定位收敛（专注 Windows）+ 许可与发布基建**
 
 - 文档措辞：AGENTS / README 不再称 Core 为「平台无关库」，改为「共享逻辑库（不引用 WinUI）」——架构不变（Core 零 WinUI 依赖、照常单测），只是不再宣称跨平台支持。
 - `FFmpegBootstrap`：原生库解析收敛为 Windows 打包布局四级（`IPV_FFMPEG_ROOT` → 输出根 → `runtimes\win-x64\native` → `native`）；移除 linux / macOS / win-arm64 探测分支与系统库目录。
 - `Fetch-FFmpegNatives.ps1`：`-Rid` 仅接受 `win-x64`（移除 win-arm64 / linux / tar.xz 分支与 Homebrew 注记）；soname 守卫仍读 csproj 的 `<FFmpegExpectedSonames>` 单一来源。
 - Core 测试：移除 `OperatingSystem.IsWindows()` 早退（Windows 专用行为恒可断言）。
+- **许可定为 MIT**（仓库根 `LICENSE`）：依赖逐一核对——FFmpeg / LibVLC 原生 / LibVLCSharp 均为 LGPL 2.1+ **动态链接**，SharpCompress / CommunityToolkit.Mvvm / FFmpeg.AutoGen 均为 MIT——无 copyleft 传染，MIT 为不违背依赖的最宽松可行选择。README 许可段、内嵌 LGPL 文本（补注同时覆盖 LibVLC）与 GitHub About 同步。
+- **关于页补全**：新增「项目源码 (GitHub)」与「MIT 许可证」入口、应用许可说明；新增 **LibVLC 卡片**（版本 / 用途 / 主页 / LGPL 全文）与「其他组件」清单（MIT / LGPL）——此前只署名 FFmpeg，LibVLC 属合规缺口。
+- **发布流程定型**（AGENTS「发布流程」）：用户说「发布」＝ 升版本（两处，守卫兜底）→ CHANGELOG/README 转正 → **Release 构建（0/0 + 测试）** → 提交推送 → `gh release create`（纯说明、无构建产物）全套。
+- 文档清理：README 移除「定稿命名（摘录）」重复表与 `winui-baseline` 时代注记；AGENTS 同步（「定稿架构（终点站）」旧措辞改述为定稿约定）。
 
 ## v0.21.0 (2026-10-16)
 
