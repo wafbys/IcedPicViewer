@@ -27,7 +27,8 @@ tag `winui-baseline`：历史快照，仅供 diff。协作约定与**定稿架�
 - **瀑布流**（3 列铺满宽度，间距 8）
 - **混合加载**：边扫边灌到约 200 张停；滚到底自动继续（查看器翻页亦可续载）
 - 悬停信息：文件名 / 尺寸·时长·大小 / 位置
-- 查看器：Fit / 1:1、幻灯片（间隔 / 循环 / 随机）、删除与打开文件位置；动图 GIF / WebP 播放
+- 查看器：Fit / 1:1、幻灯片（间隔 / 循环 / 随机）、删除与打开文件位置；动图 GIF / WebP 播放；SVG 矢量查看
+- 小图 / 像素画（≤96px）放大保持锐利（最近邻采样）
 - 视频缩略图：FFmpeg 首帧（Core）
 - 目录监控、Refresh、About（含 FFmpeg LGPL 说明）、窗口几何记忆
 - **不**自动打开上次目录
@@ -47,6 +48,7 @@ tag `winui-baseline`：历史快照，仅供 diff。协作约定与**定稿架�
 | 类别 | 扩展名 | 实际能力 |
 |------|--------|----------|
 | **图片（解码）** | `.jpg` `.jpeg` `.png` `.gif` `.bmp` `.webp` `.tiff` `.tif` `.ico` | 系统 WIC |
+| **SVG** | `.svg` | 平台矢量源（`SvgImageSource`），任意缩放清晰 |
 | **图片（扫描会进列表）** | 另含 `.heic` `.avif` | **扩展名会扫到**；需系统/商店 HEIF / AV1 扩展 |
 | **视频** | `.mp4` `.mkv` `.mov` `.avi` `.webm` `.flv` | 缩略图：FFmpeg；播放：见上表 |
 | **压缩包内媒体** | `.zip` `.rar` `.tar` `.tgz` / `tar.gz` 等 | SharpCompress 可读 |
@@ -142,6 +144,7 @@ FFmpeg 拉取产物在 `src/native/ffmpeg/{rid}/`（**不进 git**）。
 
 当前版本以仓库根 `Directory.Build.props` 的 `<Version>` 为准（解决方案级单一来源，全工程继承）；完整历史见 `CHANGELOG.md`。
 
+- **未发布** - SVG 查看 + 小图 / 像素画锐利放大（详见 `CHANGELOG.md`）
 - **v0.20.0** - 查看器边缘翻页按钮对齐 Microsoft Photos：圆角方形深色按钮 + 细箭头（白色图片上可读），鼠标在查看器内不自动隐藏、离开后约 0.6 秒隐藏（详见 `CHANGELOG.md`）
 - **v0.19.0** - 视频封面修复与 FFmpeg 声明-实际一致性守卫（`IPV001` / `IPV002`）、About 运行期 FFmpeg 状态行、查看器音量 / 静音随时可用并跨会话记住、左右边缘翻页按钮（详见 `CHANGELOG.md`）
 - **v0.18.0** - WinUI 规范审计与体验强化：动图 GIF / WebP 播放、FFmpeg 9.0、鼠标侧键、跳转列表、连接动画、搜索进标题栏、SelectorBar 筛选、拖放打开、滚轮 / Home-End、任务栏进度、数据目录归位等（详见 `CHANGELOG.md`）

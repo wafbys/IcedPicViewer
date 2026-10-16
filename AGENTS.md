@@ -171,7 +171,7 @@ dotnet test IcedPicViewer.slnx -c Debug
 | 加载器 | `IMediaLoader` / `MediaLoader` |
 | drain 取尺寸 | `LoadNextPageAsync` + `_sizeFetchSemaphore` |
 | UI marshal | `DispatcherQueue.TryEnqueue` |
-| 解码 / 播放 | WIC / `MediaPlayerElement`（LibVLC 软渲染回退）；动图 WebP 走 FFmpeg 全帧 + 查看器帧时钟（平台栈只出静帧） |
+| 解码 / 播放 | WIC / `MediaPlayerElement`（LibVLC 软渲染回退）；动图 WebP 走 FFmpeg 全帧 + 查看器帧时钟（平台栈只出静帧）；SVG 走平台 `SvgImageSource`；最长边 ≤ `RenderPolicy.PixelCrispMaxEdge`（96）的小图用最近邻放大 |
 | 键盘 / 鼠标侧键 | `WH_KEYBOARD` / `WH_MOUSE` thread-scope hook（同一个 `InstallInputHooks`） |
 | 扫描路径提示 | `CurrentScanningPath` |
 | `ImageItem` 类名 | 表示 `MediaKind.Image` 的子类，不是历史误名 |

@@ -1,5 +1,14 @@
 # 更新日志
 
+## 未发布
+
+**主题：向 2026 版 Microsoft Photos 借鉴（SVG 查看 + 小图/像素画锐利放大）**
+
+### 新能力
+
+- **SVG 查看**：`.svg` 纳入媒体目录；查看器与图库卡片统一用平台矢量源 `SvgImageSource` 渲染（按布局尺寸光栅化，任意缩放都清晰，卡片还能从矢量源自然尺寸得到正确比例）。不落 WIC / 磁盘缩略图缓存（矢量源重建成本极低，且不适配 SoftwareBitmap 缓存格式）。实测矢量形状与颜色渲染正确。
+- **小图 / 像素画锐利放大**：最长边 ≤ 96px 的源（像素画、图标、16×16 / 32×32 动图）改用**最近邻采样**放大——WIC 解码路径（缩略图 + 全图）与 FFmpeg 动图帧路径（整数倍预放大）统一按 Core `RenderPolicy.PixelCrispMaxEdge` 这一个阈值执行（同一数字只写一遍）。借自 Photos Insider 备注："tiny images now zoom in far more to fill the screen and stay crisp instead of looking blurry"。
+
 ## v0.20.0 (2026-10-15)
 
 **主题：查看器边缘翻页按钮对齐 Microsoft Photos（外观 + 显隐行为）**
