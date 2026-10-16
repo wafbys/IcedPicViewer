@@ -734,8 +734,8 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     {
         if (sender is FrameworkElement element && element.DataContext is MediaItem item)
         {
-            PrepareViewerConnectedAnimation(element);
-            OpenViewer(item);
+            var prepared = PrepareViewerConnectedAnimation(element);
+            OpenViewer(item, suppressTransition: prepared);
         }
     }
 
@@ -745,20 +745,28 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
     /// ViewerView can fly it into place once its full image is on screen.
     /// Cards without a laid-out thumbnail (still decoding, zero size) are
     /// skipped — animating a placeholder rectangle reads worse than no
-    /// animation at all.
+    /// animation at all. Video cards are skipped too: the viewer's image
+    /// surface is collapsed for videos, so the animation would never be
+    /// consumed and its snapshot would hang over the player until the
+    /// service's timeout. Returns true when a snapshot was actually
+    /// prepared (the caller then suppresses the page transition so the
+    /// fly-in is the only transition).
     /// </summary>
-    private static void PrepareViewerConnectedAnimation(FrameworkElement card)
+    private static bool PrepareViewerConnectedAnimation(FrameworkElement card)
     {
         try
         {
+            if (card.DataContext is MediaItem { IsVideo: true }) return false;
             var image = FindDescendant<Image>(card);
-            if (image?.Source is null || image.ActualWidth <= 0) return;
+            if (image?.Source is null || image.ActualWidth <= 0) return false;
             ConnectedAnimationService.GetForCurrentView()
                 .PrepareToAnimate(ViewerView.ConnectedAnimationKey, image);
+            return true;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Trace.TraceError($"PrepareViewerConnectedAnimation error: {ex.Message}");
+            return false;
         }
     }
 
@@ -838,7 +846,7 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
         }
     }
 
-    private async void OpenViewer(MediaItem item)
+    private async void OpenViewer(MediaItem item, bool suppressTransition = false)
     {
         if (System.Threading.Interlocked.CompareExchange(ref _isNavigatingToViewer, 1, 0) != 0) return;
 
@@ -859,7 +867,14 @@ public sealed partial class GalleryView : Page, System.ComponentModel.INotifyPro
             // since each visit creates a fresh GalleryView).
             await App.GetService<ViewerViewModel>().OpenItem(item);
 
-            _navigationService.NavigateTo<ViewerView>();
+            // When a connected animation was prepared, suppress the frame's
+            // default page transition: a running page transition swallows
+            // the animation (the thumbnail snapshot never gets picked up
+            // and sits frozen over the viewer until the service times it
+            // out). Without a prepared animation the default transition
+            // stays — an abrupt swap would read worse.
+            _navigationService.NavigateTo<ViewerView>(
+                suppressTransition ? new SuppressNavigationTransitionInfo() : null);
         }
         finally
         {

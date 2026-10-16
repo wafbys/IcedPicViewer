@@ -1,5 +1,6 @@
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Animation;
 
 namespace IcedPicViewer.Services.Implementations;
 
@@ -14,12 +15,19 @@ public sealed class NavigationService : INavigationService
         _frame = frame ?? throw new ArgumentNullException(nameof(frame));
     }
 
-    public void NavigateTo<TPage>() where TPage : Page
+    public void NavigateTo<TPage>(NavigationTransitionInfo? transition = null) where TPage : Page
     {
         if (_frame == null)
             throw new InvalidOperationException("NavigationService has not been initialized with a Frame.");
 
-        _frame.Navigate(typeof(TPage));
+        if (transition is null)
+        {
+            _frame.Navigate(typeof(TPage));
+        }
+        else
+        {
+            _frame.Navigate(typeof(TPage), null, transition);
+        }
     }
 
     public void GoBack()

@@ -29,6 +29,11 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     private double _minimapHeight = 120;
     private Rectangle? _viewportRect;
 
+    // Gallery → viewer connected animation: set once the prepared
+    // animation has been fetched (or proven absent) so the two start
+    // triggers don't fight over it. See TryStartEnterAnimation.
+    private bool _enterAnimationConsumed;
+
     // Fullscreen button bindings. Read from App.MainWindow.IsFullscreen
     // (which is itself a thin wrapper over AppWindow.Presenter.Kind) so
     // the button glyph/label/tooltip reflect whatever the user did last
@@ -958,6 +963,13 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         // existence is discoverable without hunting for the edge.
         ShowEdgeNav(mouseHovering: false);
 
+        // Gallery → viewer connected animation, trigger 1: an image source
+        // that finished decoding before the page loaded never raises
+        // ImageOpened, so try once after the first layout pass has given
+        // the fit image its size. ImageOpened is trigger 2 for sources
+        // that are still decoding — see TryStartEnterAnimation.
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, TryStartEnterAnimation);
+
         // 键盘处理统一在 MainWindow.RootGrid_KeyDown,见 MainWindow.xaml.cs。
     }
 
@@ -1145,23 +1157,51 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     /// Connected-animation key used by the gallery → viewer thumbnail
     /// transition. GalleryView prepares it with the clicked card's image
     /// (see GalleryView.PrepareViewerConnectedAnimation); the destination
-    /// side consumes it in <see cref="FitImage_ImageOpened"/>.
+    /// side consumes it in <see cref="TryStartEnterAnimation"/>.
     /// </summary>
     internal const string ConnectedAnimationKey = "gallery-to-viewer-image";
 
     /// <summary>
-    /// Destination side of the gallery → viewer connected animation: once
-    /// the fit image has actually decoded and is on screen, fly the card's
-    /// thumbnail into place. No-op when the viewer was opened without a
-    /// card click (slideshow, activation, …) — GetAnimation returns null
-    /// and the page simply appears as before.
+    /// Trigger for the gallery → viewer connected animation when the fit
+    /// image finishes decoding after the page appeared. This is the slow
+    /// path; a source that was already decoded before the page loaded never
+    /// raises this event and is handled by the deferred attempt in
+    /// OnLoaded — see <see cref="TryStartEnterAnimation"/>.
     /// </summary>
     private void FitImage_ImageOpened(object sender, RoutedEventArgs e)
     {
+        TryStartEnterAnimation();
+    }
+
+    /// <summary>
+    /// Attempts to start the gallery → viewer connected animation. Two
+    /// triggers call this: a deferred attempt after the page's first layout
+    /// pass (an image source that finished decoding before the page loaded
+    /// never raises ImageOpened) and <see cref="FitImage_ImageOpened"/>
+    /// (sources still decoding when the page appears). Fetching the
+    /// animation consumes it, so the first trigger that finds the fit image
+    /// laid out wins and later triggers no-op.
+    /// </summary>
+    private void TryStartEnterAnimation()
+    {
+        if (_enterAnimationConsumed) return;
         try
         {
             var animation = ConnectedAnimationService.GetForCurrentView().GetAnimation(ConnectedAnimationKey);
-            animation?.TryStart(FitImage);
+            if (animation is null)
+            {
+                _enterAnimationConsumed = true;
+                return;
+            }
+            if (FitImage.ActualWidth <= 0) return; // not laid out yet — the other trigger retries
+            _enterAnimationConsumed = true;
+            if (!animation.TryStart(FitImage))
+            {
+                // A failed start leaves the thumbnail snapshot stuck over
+                // the viewer until the service's timeout drops it; cancel
+                // so it disappears with the start attempt instead.
+                animation.Cancel();
+            }
         }
         catch (Exception ex)
         {
