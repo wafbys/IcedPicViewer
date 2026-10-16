@@ -168,6 +168,14 @@ public class MediaLoader : IMediaLoader
                 return await LoadDirectImageAsync(media, ct);
             }
 
+            // SVG: rendered by the platform vector source (crisp at any
+            // scale); never through the WIC re-encode path, which cannot
+            // decode it at all.
+            if (IsSvg(media))
+            {
+                return await TryLoadSvgSourceAsync(media, ct);
+            }
+
             byte[]? pngBytes;
             if (media.IsInArchive)
             {
@@ -282,9 +290,44 @@ public class MediaLoader : IMediaLoader
     /// the image is displayed, which rules out borrowing the file/entry
     /// stream (that would also keep the file locked on disk).
     /// </summary>
-    private static async Task<WinImageSource?> LoadDirectImageAsync(MediaRef media, CancellationToken ct)
+    public bool IsSvg(MediaRef media)
     {
-        var bytes = await Task.Run(
+        var name = media.ArchiveEntry ?? media.Path;
+        return name.EndsWith(".svg", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task<WinImageSource?> TryLoadSvgSourceAsync(MediaRef media, CancellationToken ct = default)
+    {
+        if (!IsSvg(media)) return null;
+        try
+        {
+            var bytes = await ReadMediaBytesAsync(media, ct);
+            if (bytes is null) return null;
+            ct.ThrowIfCancellationRequested();
+
+            var stream = await CreateMemoryStreamAsync(bytes);
+            var source = new SvgImageSource();
+            await source.SetSourceAsync(stream);
+            return source;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"TryLoadSvgSourceAsync error for {media}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the media's raw bytes (file or archive entry) into memory.
+    /// Shared by the direct-feed image path (GIF / WebP) and the SVG source.
+    /// </summary>
+    private static async Task<byte[]?> ReadMediaBytesAsync(MediaRef media, CancellationToken ct)
+    {
+        return await Task.Run(
             async () =>
             {
                 if (media.IsInArchive)
@@ -298,9 +341,10 @@ public class MediaLoader : IMediaLoader
                 return await File.ReadAllBytesAsync(media.Path, ct);
             },
             ct);
-        if (bytes is null) return null;
-        ct.ThrowIfCancellationRequested();
+    }
 
+    private static async Task<InMemoryRandomAccessStream> CreateMemoryStreamAsync(byte[] bytes)
+    {
         var stream = new InMemoryRandomAccessStream();
         using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
         {
@@ -309,7 +353,16 @@ public class MediaLoader : IMediaLoader
             writer.DetachStream();
         }
         stream.Seek(0);
+        return stream;
+    }
 
+    private static async Task<WinImageSource?> LoadDirectImageAsync(MediaRef media, CancellationToken ct)
+    {
+        var bytes = await ReadMediaBytesAsync(media, ct);
+        if (bytes is null) return null;
+        ct.ThrowIfCancellationRequested();
+
+        var stream = await CreateMemoryStreamAsync(bytes);
         var bitmapImage = new BitmapImage();
         await bitmapImage.SetSourceAsync(stream);
         return bitmapImage;
@@ -331,7 +384,7 @@ public class MediaLoader : IMediaLoader
 
             var transform = new BitmapTransform
             {
-                InterpolationMode = BitmapInterpolationMode.Fant,
+                InterpolationMode = InterpolationFor((int)Math.Max(decoder.PixelWidth, decoder.PixelHeight)),
                 ScaledWidth = scaledWidth,
                 ScaledHeight = scaledHeight
             };
@@ -451,6 +504,17 @@ public class MediaLoader : IMediaLoader
     }
 
     /// <summary>
+    /// Tiny sources upscale with nearest-neighbour so pixel art / icons stay
+    /// crisp instead of turning into blur (<see cref="RenderPolicy.PixelCrispMaxEdge"/>
+    /// is the shared threshold — the FFmpeg frame path applies the same
+    /// rule). Everything else keeps Fant for photo quality.
+    /// </summary>
+    private static BitmapInterpolationMode InterpolationFor(int longestEdge)
+        => longestEdge <= RenderPolicy.PixelCrispMaxEdge
+            ? BitmapInterpolationMode.NearestNeighbor
+            : BitmapInterpolationMode.Fant;
+
+    /// <summary>
     /// Dimensions to hand to <see cref="BitmapTransform.ScaledWidth"/>/<c>ScaledHeight</c>
     /// for the requested longest edge.
     ///
@@ -511,7 +575,7 @@ public class MediaLoader : IMediaLoader
 
             var transform = new BitmapTransform
             {
-                InterpolationMode = BitmapInterpolationMode.Fant,
+                InterpolationMode = InterpolationFor((int)Math.Max(decoder.PixelWidth, decoder.PixelHeight)),
                 ScaledWidth = scaledWidth,
                 ScaledHeight = scaledHeight
             };

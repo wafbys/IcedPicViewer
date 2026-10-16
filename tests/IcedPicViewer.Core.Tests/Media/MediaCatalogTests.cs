@@ -19,6 +19,7 @@ public sealed class MediaCatalogTests
     [InlineData("photo.ico", MediaKind.Image)]
     [InlineData("photo.avif", MediaKind.Image)]
     [InlineData("photo.heic", MediaKind.Image)]
+    [InlineData("vector.svg", MediaKind.Image)]
     [InlineData("video.mp4", MediaKind.Video)]
     [InlineData("video.mkv", MediaKind.Video)]
     [InlineData("video.mov", MediaKind.Video)]
@@ -37,6 +38,7 @@ public sealed class MediaCatalogTests
     [InlineData("readme.txt", false)]
     [InlineData("script.js", false)]
     [InlineData("photo.psd", false)]
+    [InlineData("vector.svg", true)]
     [InlineData("", false)]
     public void IsSupported_ShouldDetectSupportedFormats(string path, bool expected)
     {

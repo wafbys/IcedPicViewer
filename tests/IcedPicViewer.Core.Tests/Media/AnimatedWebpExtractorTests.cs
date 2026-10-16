@@ -148,6 +148,44 @@ public sealed class AnimatedWebpExtractorTests : IDisposable
     }
 
     [Fact]
+    public async Task TryExtractAsync_TinyAnimation_UpscalesToCrispSize()
+    {
+        // 16×16 pixel-art animation ≤ RenderPolicy.PixelCrispMaxEdge → the
+        // extractor upscales it (integer factor, nearest-neighbour), so the
+        // viewer shows crisp blocks instead of interpolated mush.
+        var webp = TryRunFfmpeg("tiny.webp", new[]
+        {
+            "-y", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=c=red:s=16x16:d=0.3",
+            "-f", "lavfi", "-i", "color=c=blue:s=16x16:d=0.3",
+            "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+            "-map", "[v]", "-c:v", "libwebp", "-loop", "0",
+        });
+        if (webp is null) return; // FFmpeg natives unavailable.
+
+        var frames = await AnimatedWebpExtractor.TryExtractAsync(MediaRef.FromFile(webp));
+
+        Assert.NotNull(frames);
+        Assert.True(frames!.Count >= 2);
+        // 16 × 16 upscaled by factor 16 (256 / 16) → 256×256.
+        Assert.Equal(256, frames[0].Width);
+        Assert.Equal(256, frames[0].Height);
+        Assert.Equal(256 * 256 * 4, frames[0].Bgra.Length);
+
+        static (int R, int B) Pixel(AnimatedFrame f, int x, int y)
+        {
+            var i = (y * f.Width + x) * 4;
+            return (f.Bgra[i + 2], f.Bgra[i]);
+        }
+
+        var (midR, midB) = Pixel(frames[0], frames[0].Width / 2, frames[0].Height / 2);
+        Assert.True(midR > 200 && midB < 60, $"first frame should stay solid red after upscale, got R={midR} B={midB}");
+
+        var (lastR, lastB) = Pixel(frames[^1], frames[^1].Width / 2, frames[^1].Height / 2);
+        Assert.True(lastB > 200 && lastR < 60, $"last frame should stay solid blue after upscale, got R={lastR} B={lastB}");
+    }
+
+    [Fact]
     public async Task TryExtractAsync_MissingFile_ReturnsNull()
     {
         var missing = Path.Combine(_dir, "does-not-exist.webp");

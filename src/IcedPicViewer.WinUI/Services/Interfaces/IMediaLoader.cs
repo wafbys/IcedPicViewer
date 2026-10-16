@@ -70,6 +70,19 @@ public interface IMediaLoader
     /// </summary>
     Task<IReadOnlyList<(WinImageSource Frame, int DelayMs)>?> TryLoadAnimatedFramesAsync(MediaRef media, CancellationToken ct = default);
 
+    /// <summary>True when the media is an SVG (rendered via the platform vector source).</summary>
+    bool IsSvg(MediaRef media);
+
+    /// <summary>
+    /// SVG rendered as a platform vector image source (<c>SvgImageSource</c>):
+    /// re-rasterized at layout size, so it stays crisp at any display scale.
+    /// Null for non-SVG media or unreadable files. Serves both the viewer
+    /// (full image) and gallery card thumbnails — no disk-cache entry, the
+    /// vector source does not fit the SoftwareBitmap cache format and is
+    /// cheap to rebuild.
+    /// </summary>
+    Task<WinImageSource?> TryLoadSvgSourceAsync(MediaRef media, CancellationToken ct = default);
+
     /// <summary>
     /// Masonry thumbnail as a <see cref="CachedThumb"/> (SoftwareBitmap +
     /// oriented original size). No PNG re-encode.

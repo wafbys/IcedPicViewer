@@ -15,7 +15,7 @@ public static class MediaCatalog
     private static readonly HashSet<string> ImageExtensionSet = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
-        ".tiff", ".tif", ".ico", ".avif", ".heic",
+        ".tiff", ".tif", ".ico", ".svg", ".avif", ".heic",
     };
 
     private static readonly HashSet<string> VideoExtensionSet = new(StringComparer.OrdinalIgnoreCase)

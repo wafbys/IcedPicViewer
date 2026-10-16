@@ -1946,6 +1946,22 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             await _thumbnailLoadSemaphore.WaitAsync(ct);
             try
             {
+                if (_imageLoader.IsSvg(item.Media))
+                {
+                    // SVG thumbnails: the platform vector source IS the
+                    // displayable — no SoftwareBitmap pipeline, no disk-cache
+                    // entry (see IMediaLoader.TryLoadSvgSourceAsync).
+                    var svgSource = await _imageLoader.TryLoadSvgSourceAsync(item.Media, ct);
+                    if (svgSource is not null)
+                    {
+                        await RunOnUiAsync(() =>
+                        {
+                            if (!ct.IsCancellationRequested) item.Thumbnail = svgSource;
+                        });
+                    }
+                    return;
+                }
+
                 var thumb = item.Media.Kind == MediaKind.Video
                     ? await _videoMetadataService.ExtractVideoThumbnailAsync(item.Media, GalleryMetrics.ThumbMaxEdge, ct)
                     : await _imageLoader.LoadThumbnailAsync(item.Media, GalleryMetrics.ThumbMaxEdge, ct);

@@ -95,7 +95,20 @@ public static class AnimatedWebpExtractor
             if (srcW <= 0 || srcH <= 0) return null;
 
             int outW, outH;
-            if (srcW >= srcH)
+            var nearestNeighbour = false;
+            var srcLongest = Math.Max(srcW, srcH);
+            if (srcLongest <= RenderPolicy.PixelCrispMaxEdge)
+            {
+                // Tiny animations (pixel-art WebP) are upscaled here with a
+                // fixed integer factor + nearest-neighbour, so the viewer
+                // shows crisp blocks instead of interpolated mush (the same
+                // rule the WIC paths apply to still images).
+                var factor = Math.Min(16, Math.Max(2, (int)Math.Ceiling(256.0 / srcLongest)));
+                outW = srcW * factor;
+                outH = srcH * factor;
+                nearestNeighbour = true;
+            }
+            else if (srcW >= srcH)
             {
                 outW = Math.Min(MaxEdge, srcW);
                 outH = Math.Max(1, (int)Math.Round((double)srcH * outW / srcW));
@@ -129,7 +142,7 @@ public static class AnimatedWebpExtractor
                 {
                     if (!TryAppendFrame(
                             frame, ref scaledFrame, ref swsCtx, ref swsSrcFormat,
-                            srcW, srcH, outW, outH, stream,
+                            srcW, srcH, outW, outH, nearestNeighbour, stream,
                             frames, ref totalBytes, ref lastDelayMs))
                     {
                         capped = true;
@@ -146,7 +159,7 @@ public static class AnimatedWebpExtractor
                 {
                     if (!TryAppendFrame(
                             frame, ref scaledFrame, ref swsCtx, ref swsSrcFormat,
-                            srcW, srcH, outW, outH, stream,
+                            srcW, srcH, outW, outH, nearestNeighbour, stream,
                             frames, ref totalBytes, ref lastDelayMs))
                     {
                         capped = true;
@@ -209,6 +222,7 @@ public static class AnimatedWebpExtractor
         int srcH,
         int outW,
         int outH,
+        bool nearestNeighbour,
         AVStream* stream,
         List<AnimatedFrame> frames,
         ref long totalBytes,
@@ -239,7 +253,8 @@ public static class AnimatedWebpExtractor
             swsCtx = ffmpeg.sws_getContext(
                 srcW, srcH, frameFormat,
                 outW, outH, AVPixelFormat.AV_PIX_FMT_BGRA,
-                (int)SwsFlags.SWS_LANCZOS, null, null, null);
+                (int)(nearestNeighbour ? SwsFlags.SWS_POINT : SwsFlags.SWS_LANCZOS),
+                null, null, null);
             if (swsCtx == null) return false;
 
             scaledFrame = ffmpeg.av_frame_alloc();
