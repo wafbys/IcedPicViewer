@@ -17,6 +17,17 @@ public sealed class AnimatedWebpExtractorTests : IDisposable
 {
     private readonly string _dir;
 
+    // CA1861: the CLI args for the tiny-upscale fixture are constant and
+    // never mutated — hoisted so the rule stops flagging the call site.
+    private static readonly string[] TinyUpscaleArgs =
+    {
+        "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "color=c=red:s=16x16:d=0.3",
+        "-f", "lavfi", "-i", "color=c=blue:s=16x16:d=0.3",
+        "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+        "-map", "[v]", "-c:v", "libwebp", "-loop", "0",
+    };
+
     public AnimatedWebpExtractorTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "IcedPicViewer.Tests", Guid.NewGuid().ToString("N"));
@@ -153,14 +164,7 @@ public sealed class AnimatedWebpExtractorTests : IDisposable
         // 16×16 pixel-art animation ≤ RenderPolicy.PixelCrispMaxEdge → the
         // extractor upscales it (integer factor, nearest-neighbour), so the
         // viewer shows crisp blocks instead of interpolated mush.
-        var webp = TryRunFfmpeg("tiny.webp", new[]
-        {
-            "-y", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=red:s=16x16:d=0.3",
-            "-f", "lavfi", "-i", "color=c=blue:s=16x16:d=0.3",
-            "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
-            "-map", "[v]", "-c:v", "libwebp", "-loop", "0",
-        });
+        var webp = TryRunFfmpeg("tiny.webp", TinyUpscaleArgs);
         if (webp is null) return; // FFmpeg natives unavailable.
 
         var frames = await AnimatedWebpExtractor.TryExtractAsync(MediaRef.FromFile(webp));
