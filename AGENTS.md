@@ -70,7 +70,14 @@ dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$
 dotnet test IcedPicViewer.slnx -c Debug
 ```
 
-含 Core 测试；WinUI UI 仍以手动验关键路径为主。
+含 Core 测试；WinUI UI 关键路径可用 UI 驱动验证（见下）。
+
+### UI 验证（MCP 驱动真实窗口）
+
+工具与通用用法见全局 AGENTS「UI 自动化（win MCP）」。本项目特有：
+- 启动走 `./tools/run-release.ps1`（MSIX 身份，`win.app` 不行）；窗口标题带版本与短哈希，可据此确认驱动的是当次构建；
+- 「打开文件夹」选择器可纯键盘驱动：Alt+D → 剪贴板粘贴路径 → Enter → 「Select Image Folder」按钮；
+- 查看器 / 图库关键路径（翻页、箭头显隐、加载耗时）优先自己截图验证，再请用户确认体感。
 
 ### 发布流程（用户说「发布」即执行全套）
 
