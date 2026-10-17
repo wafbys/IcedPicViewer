@@ -119,12 +119,17 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
 
     private CancellationTokenSource? _backfillCts;
 
-    /// <summary>
-    /// Set while playback is running: the backfill walks other files, and on a
-    /// spinning disk that competes with the player's own reads. Workers wait
-    /// here instead of being cancelled, so progress survives a paused video.
-    /// </summary>
-    private volatile bool _backfillPaused;
+    // Two independent holders pause the backfill; the pass waits rather than
+    // being cancelled, so progress survives either hold:
+    //  - playback: the backfill walks other files, and on a spinning disk that
+    //    competes with the player's own reads;
+    //  - the viewer page being open: its own decode work owns the drive while
+    //    the user flips images, and the backfill would otherwise compete for
+    //    CPU and disk exactly when the user is watching a load.
+    private volatile bool _backfillPausedByPlayback;
+    private volatile bool _backfillPausedByViewer;
+
+    private bool IsBackfillPaused => _backfillPausedByPlayback || _backfillPausedByViewer;
 
     /// <summary>Generation of the running backfill; stale workers must not touch the progress properties.</summary>
     private int _backfillRunId;
@@ -1336,9 +1341,10 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 {
                     while (!ct.IsCancellationRequested)
                     {
-                        // Paused while a video plays: wait rather than cancel, so
-                        // the pass keeps its place and its progress.
-                        while (_backfillPaused && !ct.IsCancellationRequested)
+                        // Held by playback or by the open viewer page: wait
+                        // rather than cancel, so the pass keeps its place and
+                        // its progress.
+                        while (IsBackfillPaused && !ct.IsCancellationRequested)
                         {
                             await Task.Delay(250, ct).ConfigureAwait(false);
                         }
@@ -1440,14 +1446,16 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         else UpdateStatus();
     }
 
-    /// <summary>
-    /// Holds the backfill while a video plays (it competes for the drive), without
-    /// losing its place. Called by the viewer.
-    /// </summary>
-    public void SuspendBackfill() => _backfillPaused = true;
+    /// <summary>Video playback holds the backfill while it runs (it competes for the drive).</summary>
+    public void HoldBackfillForPlayback(bool hold) => _backfillPausedByPlayback = hold;
 
-    /// <summary>Lets a suspended backfill continue. Called by the viewer.</summary>
-    public void ResumeBackfill() => _backfillPaused = false;
+    /// <summary>
+    /// The viewer page holds the backfill for as long as it is open on screen:
+    /// flipping images is exactly when the backfill's decode/encode work would
+    /// compete with the load the user is waiting for. Both holds wait rather
+    /// than cancel, so the pass keeps its place and resumes where it stopped.
+    /// </summary>
+    public void HoldBackfillForViewer(bool hold) => _backfillPausedByViewer = hold;
 
     private async Task LoadNextPageAsync(CancellationToken ct, int pageSize = -1)
     {

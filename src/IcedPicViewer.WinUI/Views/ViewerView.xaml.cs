@@ -970,6 +970,11 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         ViewModel.NavigatePreviousCommand.NotifyCanExecuteChanged();
         ViewModel.NavigateNextCommand.NotifyCanExecuteChanged();
 
+        // Hold the gallery's background thumbnail pass while the viewer is on
+        // screen: its decode work should own the drive while the user flips
+        // images (released in OnUnloaded).
+        ViewModel.SetViewerBackfillHold(true);
+
         // Apply Fit/1:1 state after the visual tree is fully constructed and Loaded.
         ApplyImageFitMode(ViewModel.IsFitMode);
 
@@ -1022,6 +1027,10 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         // only: a tick firing after teardown would flip visibility on a
         // defunct page and keep it alive through the timer's delegate.
         StopChromeHideTimer();
+
+        // The viewer is going away: let the gallery's thumbnail backfill run
+        // again (paired with the hold in OnLoaded).
+        ViewModel.SetViewerBackfillHold(false);
 
         // Edge arrows: stop the idle timer before the page goes away. (Their
         // boundary notifications ride on ViewModel.PropertyChanged, which was

@@ -1354,9 +1354,17 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         // thumbnail pass (which reads other files) is held. Hanging this off the
         // flag — rather than the play/stop call sites — means every exit path
         // (stop, navigation, decode failure, app close) releases it.
-        if (value) _galleryViewModel.SuspendBackfill();
-        else _galleryViewModel.ResumeBackfill();
+        _galleryViewModel.HoldBackfillForPlayback(value);
     }
+
+    /// <summary>
+    /// The open viewer page holds the gallery's thumbnail backfill too — while
+    /// the user flips images, the viewer's own decode work should own the drive
+    /// instead of sharing it with background thumbnails. Called from the
+    /// ViewerView's Loaded / Unloaded. The two holds (playback / viewer) are
+    /// independent, so switching image <-> video keeps both correct.
+    /// </summary>
+    public void SetViewerBackfillHold(bool held) => _galleryViewModel.HoldBackfillForViewer(held);
 
     partial void OnDisplayImageChanged(WinImageSource? value)
     {
