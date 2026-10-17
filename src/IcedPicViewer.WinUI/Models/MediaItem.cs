@@ -57,6 +57,15 @@ public abstract partial class MediaItem : ObservableObject, IMediaEntry
     [ObservableProperty]
     public partial WinImageSource? FullImage { get; set; }
 
+    /// <summary>
+    /// True when <see cref="FullImage"/> was decoded at the source's native
+    /// pixel size — either an uncapped (1:1) load or a capped load whose
+    /// source already fit the cap. Written by the viewer's load paths, read
+    /// by the 1:1 cache-reuse check and the preload overwrite guard (WinUI 3
+    /// image sources expose no usable pixel size for this).
+    /// </summary>
+    public bool FullImageIsNative { get; set; }
+
     // True while the thumbnail is being decoded on a worker thread. The
     // gallery template overlays a ProgressRing on top of the empty Image
     // while this is true, replacing what would otherwise be a blank /

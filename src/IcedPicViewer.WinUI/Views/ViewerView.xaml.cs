@@ -152,8 +152,12 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     // Their own visibility state, deliberately NOT wired to the command
     // bar's: the bar only reveals inside the top hot zone, so an arrow
     // reachable only while the bar is up would be useless in practice.
-    // Each arrow additionally requires its command to be executable, so
-    // the first item offers no "previous" and the last none "next".
+    // Each arrow additionally requires a neighbor to exist (the VM's
+    // HasPrevious / HasNext), so the first item offers no "previous" and
+    // the last none "next". That check is the boundary state only —
+    // deliberately NOT Command.CanExecute: an async navigation reports
+    // CanExecute=false for its whole run, which collapsed the arrow the
+    // user just clicked for the entire load of a big image.
     //
     // Show / hide model mirrors Microsoft Photos:
     //   - any pointer activity in the viewer reveals them;
@@ -161,6 +165,10 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     //     fade (Photos does not hide its arrows while the mouse has not
     //     left the window; the old fixed 2 s fade stole them mid-reach);
     //   - a short grace after the mouse leaves the viewer they hide again;
+    //   - a freshly loaded item re-asserts them, so flipping through slow
+    //     big images always ends with the arrows back on screen — no mouse
+    //     wiggle required (mouse still inside → they stay, otherwise the
+    //     idle countdown below);
     //   - touch / pen have no hover, so those reveals keep a plain idle
     //     countdown (a tap must leave the arrow on screen long enough to
     //     tap it again), and first paint uses the same countdown so the
@@ -169,6 +177,12 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     private bool _isEdgeNavVisible;
     private DispatcherQueueTimer? _edgeNavHideTimer;
 
+    // Last known pointer context, for reveals that are not pointer events
+    // themselves (an item finishing its load). Mouse activity inside the
+    // viewer sets it; the viewer's own PointerExited clears it. Touch /
+    // pen never set it — their reveals keep the plain idle countdown.
+    private bool _isMouseInViewer;
+
     /// <summary>Idle fade for reveals without a hovering mouse (touch / pen / first paint).</summary>
     private const int EdgeNavIdleHideMs = 2000;
 
@@ -176,12 +190,12 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     private const int EdgeNavExitHideMs = 600;
 
     public Visibility EdgePrevVisibility =>
-        _isEdgeNavVisible && ViewModel?.NavigatePreviousCommand.CanExecute(null) == true
+        _isEdgeNavVisible && ViewModel?.HasPrevious == true
             ? Visibility.Visible
             : Visibility.Collapsed;
 
     public Visibility EdgeNextVisibility =>
-        _isEdgeNavVisible && ViewModel?.NavigateNextCommand.CanExecute(null) == true
+        _isEdgeNavVisible && ViewModel?.HasNext == true
             ? Visibility.Visible
             : Visibility.Collapsed;
 
@@ -245,26 +259,24 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     }
 
     /// <summary>
-    /// CanExecuteChanged for either navigation command: re-evaluate both
-    /// arrows (the boundary moved, so "previous at the first item" and
-    /// "next at the last item" have to disappear/appear immediately).
-    /// </summary>
-    private void OnEdgeNavCommandStateChanged(object? sender, EventArgs e)
-    {
-        OnPropertyChanged(nameof(EdgePrevVisibility));
-        OnPropertyChanged(nameof(EdgeNextVisibility));
-    }
-
-    /// <summary>
     /// Pointer activity that must reveal the arrows even when a child control
     /// marks the move as handled — the 1:1 image ScrollViewer does exactly that,
     /// and without this hook the arrows would never return while the pointer is
     /// over the scrolled image. Registered with handledEventsToo in the ctor.
     /// Mouse activity cancels the countdown (arrows then stay until the
-    /// pointer leaves); touch / pen keep the idle countdown.
+    /// pointer leaves) and records that the mouse is inside the viewer, so a
+    /// later load-completion re-assert can keep the arrows up without waiting
+    /// for the next pointer event; touch / pen keep the idle countdown.
     /// </summary>
     private void OnGlobalPointerActivity(object sender, PointerRoutedEventArgs e)
-        => ShowEdgeNav(e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Mouse);
+    {
+        var isMouse = e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Mouse;
+        if (isMouse)
+        {
+            _isMouseInViewer = true;
+        }
+        ShowEdgeNav(isMouse);
+    }
 
     /// <summary>
     /// Mouse left the viewer → arm the exit countdown (Photos hides its
@@ -281,6 +293,7 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
     private void OnGlobalPointerExited(object sender, PointerRoutedEventArgs e)
     {
         if (e.Pointer.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Mouse) return;
+        _isMouseInViewer = false;
         ArmEdgeNavHideTimer(EdgeNavExitHideMs);
     }
 
@@ -622,6 +635,29 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
                 ApplyVideoFitMode(ViewModel.IsFitMode);
             }
         }
+        else if (e.PropertyName == nameof(ViewerViewModel.HasPrevious) ||
+                 e.PropertyName == nameof(ViewerViewModel.HasNext))
+        {
+            // Boundary moved (first/last item, item added/removed, more
+            // pages materialised): re-evaluate both arrows immediately.
+            // Both getters are cheap, so the pair is refreshed together.
+            OnPropertyChanged(nameof(EdgePrevVisibility));
+            OnPropertyChanged(nameof(EdgeNextVisibility));
+        }
+        else if (e.PropertyName == nameof(ViewerViewModel.IsLoading) &&
+                 !ViewModel.IsLoading &&
+                 !ViewModel.IsSlideshowActive)
+        {
+            // An item just finished loading: re-assert the arrows, so a slow
+            // big-image flip always ends with them back on screen even if
+            // something hid them while the load ran (a stray pointer-exit
+            // event while the shell treated the busy viewer as hung, or a
+            // missed notification). Hold vs idle countdown follows the last
+            // known pointer context — see _isMouseInViewer.
+            // Skipped during slideshow: unattended playback must not flash
+            // the arrows on every auto-advance.
+            ShowEdgeNav(_isMouseInViewer);
+        }
     }
 
     private void ApplyVideoFitMode(bool isFitMode)
@@ -934,11 +970,6 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         ViewModel.NavigatePreviousCommand.NotifyCanExecuteChanged();
         ViewModel.NavigateNextCommand.NotifyCanExecuteChanged();
 
-        // Edge arrows: visibility follows the commands' executability (dropped
-        // again in OnUnloaded with the same symmetry as DisplayImageChanged).
-        ViewModel.NavigatePreviousCommand.CanExecuteChanged += OnEdgeNavCommandStateChanged;
-        ViewModel.NavigateNextCommand.CanExecuteChanged += OnEdgeNavCommandStateChanged;
-
         // Apply Fit/1:1 state after the visual tree is fully constructed and Loaded.
         ApplyImageFitMode(ViewModel.IsFitMode);
 
@@ -992,10 +1023,9 @@ public sealed partial class ViewerView : Page, System.ComponentModel.INotifyProp
         // defunct page and keep it alive through the timer's delegate.
         StopChromeHideTimer();
 
-        // Edge arrows: same teardown reasoning (drop the command subscriptions
-        // and stop the idle timer before the page goes away).
-        ViewModel.NavigatePreviousCommand.CanExecuteChanged -= OnEdgeNavCommandStateChanged;
-        ViewModel.NavigateNextCommand.CanExecuteChanged -= OnEdgeNavCommandStateChanged;
+        // Edge arrows: stop the idle timer before the page goes away. (Their
+        // boundary notifications ride on ViewModel.PropertyChanged, which was
+        // dropped at the top of this method.)
         StopEdgeNavHideTimer();
     }
 

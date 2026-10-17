@@ -150,7 +150,7 @@ public class MediaLoader : IMediaLoader
         return await GetSizeFromFileAsync(media.Path, ct);
     }
 
-    public async Task<WinImageSource?> LoadFullAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default)
+    public async Task<FullImageLoadResult?> LoadFullAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default)
     {
         try
         {
@@ -161,36 +161,48 @@ public class MediaLoader : IMediaLoader
             // it. Confirmed for GIF. WebP rides the same path: on Windows 11
             // the inbox WebP codec + XAML stack handles animated WebP where
             // available — and where it doesn't, the still first frame shows,
-            // exactly what the PNG re-encode path below produced anyway.
+            // exactly what the WIC decode path below showed anyway.
             // Single-frame images take the same path and simply display.
             if (IsGifOrWebp(media))
             {
-                return await LoadDirectImageAsync(media, ct);
+                // Direct feed: the original payload decodes at its own
+                // native size — nothing is scaled on this path.
+                var direct = await LoadDirectImageAsync(media, ct);
+                return direct is null ? null : new FullImageLoadResult(direct, IsNativeSize: true);
             }
 
             // SVG: rendered by the platform vector source (crisp at any
-            // scale); never through the WIC re-encode path, which cannot
+            // scale); never through the WIC decode path, which cannot
             // decode it at all.
             if (IsSvg(media))
             {
-                return await TryLoadSvgSourceAsync(media, ct);
+                // Vector source: crisp at any display scale — nothing to
+                // size-check, so it always counts as native.
+                var svg = await TryLoadSvgSourceAsync(media, ct);
+                return svg is null ? null : new FullImageLoadResult(svg, IsNativeSize: true);
             }
 
-            byte[]? pngBytes;
+            // WIC decodes (+ scales to the cap + applies EXIF) straight into
+            // a SoftwareBitmap that becomes the display source. The former
+            // pipeline encoded those pixels to PNG and let BitmapImage
+            // decode the PNG again — a lossless round trip through deflate;
+            // measured ~2/3 of the per-image cost on a 48 MP source. Same
+            // pixels, only the packaging went away.
+            (SoftwareBitmap? Bitmap, bool IsNativeSize) decoded;
             if (media.IsInArchive)
             {
-                pngBytes = await Task.Run(
+                decoded = await Task.Run(
                     async () =>
                     {
                         using var entryStream = ArchiveHelper.OpenEntryStream(media.Path, media.ArchiveEntry!);
-                        return await EncodeToPngBytesAsync(entryStream.AsRandomAccessStream(), targetMaxSize, ct);
+                        return await DecodeFullToSoftwareBitmapAsync(entryStream.AsRandomAccessStream(), targetMaxSize, ct);
                     },
                     ct);
             }
             else
             {
                 if (!File.Exists(media.Path)) return null;
-                pngBytes = await Task.Run(
+                decoded = await Task.Run(
                     async () =>
                     {
                         using var fileStream = new FileStream(
@@ -200,24 +212,20 @@ public class MediaLoader : IMediaLoader
                             FileShare.Read,
                             bufferSize: SourceReadBufferSize,
                             FileOptions.Asynchronous);
-                        return await EncodeToPngBytesAsync(fileStream.AsRandomAccessStream(), targetMaxSize, ct);
+                        return await DecodeFullToSoftwareBitmapAsync(fileStream.AsRandomAccessStream(), targetMaxSize, ct);
                     },
                     ct);
             }
-            if (pngBytes == null) return null;
+            if (decoded.Bitmap == null) return null;
 
-            var pngStream = new InMemoryRandomAccessStream();
-            using (var writer = new DataWriter(pngStream.GetOutputStreamAt(0)))
-            {
-                writer.WriteBytes(pngBytes);
-                await writer.StoreAsync();
-                writer.DetachStream();
-            }
-            pngStream.Seek(0);
-
-            var bitmapImage = new BitmapImage();
-            await bitmapImage.SetSourceAsync(pngStream);
-            return bitmapImage;
+            // SoftwareBitmapSource creation is UI-thread bound (same
+            // contract as the animated-WebP frame path). The source owns
+            // the bitmap's pixels as the display storage, so the bitmap is
+            // deliberately not disposed — the gallery's video posters keep
+            // the same pattern.
+            var source = new SoftwareBitmapSource();
+            await source.SetBitmapAsync(decoded.Bitmap);
+            return new FullImageLoadResult(source, decoded.IsNativeSize);
         }
         catch (OperationCanceledException)
         {
@@ -368,7 +376,15 @@ public class MediaLoader : IMediaLoader
         return bitmapImage;
     }
 
-    private static async Task<byte[]?> EncodeToPngBytesAsync(
+    /// <summary>
+    /// Full-image decode: WIC decodes, scales to the cap and applies EXIF
+    /// orientation in a single pass, straight into a SoftwareBitmap (the
+    /// caller wraps it in a SoftwareBitmapSource). The flag reports whether
+    /// no scaling was applied (uncapped request, or source already within
+    /// the cap) — WinUI 3's SoftwareBitmapSource exposes no PixelWidth, so
+    /// the size fact has to travel with the result.
+    /// </summary>
+    private static async Task<(SoftwareBitmap? Bitmap, bool IsNativeSize)> DecodeFullToSoftwareBitmapAsync(
         IRandomAccessStream stream,
         int? targetMaxSize,
         CancellationToken ct)
@@ -377,10 +393,11 @@ public class MediaLoader : IMediaLoader
         try
         {
             var decoder = await BitmapDecoder.CreateAsync(stream);
-            if (decoder.PixelWidth == 0 || decoder.PixelHeight == 0) return null;
+            if (decoder.PixelWidth == 0 || decoder.PixelHeight == 0) return (null, false);
             ct.ThrowIfCancellationRequested();
 
             var (scaledWidth, scaledHeight) = ComputeScaledDimensions(decoder, targetMaxSize);
+            var isNativeSize = scaledWidth == decoder.PixelWidth && scaledHeight == decoder.PixelHeight;
 
             var transform = new BitmapTransform
             {
@@ -389,14 +406,14 @@ public class MediaLoader : IMediaLoader
                 ScaledHeight = scaledHeight
             };
 
-            // GetSoftwareBitmapAsync applies scaling and EXIF orientation in a
-            // single WIC pass and hands back a bitmap whose PixelWidth/Height
-            // already reflect the final (oriented) size. Encoding that bitmap
-            // directly keeps the encoder's declared size in lockstep with the
-            // pixel buffer. The previous GetPixelDataAsync + DetachPixelData
-            // path could not expose the post-rotation size (PixelDataProvider
-            // has no Width/Height), so a 90°-rotated photo was encoded with
-            // swapped width/height and came out sheared / garbled.
+            // GetSoftwareBitmapAsync applies scaling and EXIF orientation in
+            // a single WIC pass and hands back a bitmap whose
+            // PixelWidth/Height already reflect the final (oriented) size.
+            // The older GetPixelDataAsync + DetachPixelData route could not
+            // expose the post-rotation size (PixelDataProvider has no
+            // Width/Height), so a 90°-rotated photo came out sheared /
+            // garbled — this method keeps the GetSoftwareBitmapAsync route
+            // for exactly that reason.
             var sb = await decoder.GetSoftwareBitmapAsync(
                 BitmapPixelFormat.Bgra8,
                 BitmapAlphaMode.Premultiplied,
@@ -404,28 +421,16 @@ public class MediaLoader : IMediaLoader
                 ExifOrientationMode.RespectExifOrientation,
                 ColorManagementMode.DoNotColorManage);
             ct.ThrowIfCancellationRequested();
-            if (sb is null) return null;
-
-            using var pngStream = new InMemoryRandomAccessStream();
-            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, pngStream);
-            encoder.SetSoftwareBitmap(sb);
-            await encoder.FlushAsync();
-
-            using var reader = new DataReader(pngStream.GetInputStreamAt(0));
-            var length = (uint)pngStream.Size;
-            await reader.LoadAsync(length);
-            var pngBytes = new byte[length];
-            reader.ReadBytes(pngBytes);
-            return pngBytes;
+            return (sb, isNativeSize);
         }
         catch (OperationCanceledException)
         {
-            return null;
+            return (null, false);
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"EncodeToPngBytesAsync error: {ex.GetType().Name}: {ex.Message}");
-            return null;
+            Trace.TraceError($"DecodeFullToSoftwareBitmapAsync error: {ex.GetType().Name}: {ex.Message}");
+            return (null, false);
         }
     }
 

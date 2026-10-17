@@ -51,16 +51,15 @@ public interface IMediaLoader
     Task<Stream?> LoadImageStreamAsync(MediaRef media, CancellationToken ct = default);
 
     /// <summary>
-    /// Loads a full-resolution <see cref="BitmapImage"/> for the source,
-    /// with EXIF orientation applied at the pixel level. The returned
-    /// bitmap's <c>PixelWidth</c> / <c>PixelHeight</c> reflect the
-    /// oriented (post-rotation) dimensions, so a 4000x3000 EXIF-6
-    /// portrait photo comes back as a 3000x4000 bitmap — viewer
-    /// layout uses this bitmap. Gallery InfoLine W×H comes from the
-    /// thumbnail decode (oriented original), not this possibly-capped
-    /// bitmap. Returns null if the source can't be opened or decoded.
+    /// Loads the display source for the image, with EXIF orientation and
+    /// scaling applied at the pixel level. The result carries the display
+    /// source plus whether the decode ran at the source's native pixel size
+    /// (an uncapped request, or a capped request whose source already fit
+    /// the cap). Gallery InfoLine W×H still comes from the thumbnail decode
+    /// (oriented original), not this possibly-capped source. Returns null if
+    /// the source can't be opened or decoded.
     /// </summary>
-    Task<WinImageSource?> LoadFullAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default);
+    Task<FullImageLoadResult?> LoadFullAsync(MediaRef media, int? targetMaxSize = 5120, CancellationToken ct = default);
 
     /// <summary>
     /// Frames of an animated WebP for the viewer's own frame clock (the
@@ -109,3 +108,14 @@ public interface IMediaLoader
     /// </summary>
     MediaKind GetKindForFile(string path);
 }
+
+/// <summary>
+/// A full-image load result: the ready-to-display source (EXIF orientation
+/// baked in at the pixel level) plus whether the decode ran at the source's
+/// native pixel size. <see cref="IsNativeSize"/> is true for a capped
+/// request whose source already fit the cap too — nothing was scaled.
+/// The viewer's 1:1 cache-reuse check and its preload overwrite guard read
+/// the flag, because WinUI 3 image sources
+/// (<c>SoftwareBitmapSource</c> in particular) expose no PixelWidth.
+/// </summary>
+public readonly record struct FullImageLoadResult(WinImageSource Source, bool IsNativeSize);

@@ -1863,6 +1863,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         if (!_imageIndex.TryGetValue(id, out var modifiedItem)) return;
         modifiedItem.Thumbnail = null;
         modifiedItem.FullImage = null;
+        modifiedItem.FullImageIsNative = false;
         await LoadThumbnailAsync(modifiedItem, CancellationToken.None);
         if (token.IsCancellationRequested) return;
 
@@ -1912,6 +1913,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
             Items.Add(renamedItem);      // index insertion on NewPath
             renamedItem.Thumbnail = null;
             renamedItem.FullImage = null;
+            renamedItem.FullImageIsNative = false;
             await LoadThumbnailAsync(renamedItem, CancellationToken.None);
             if (token.IsCancellationRequested) return;
         }

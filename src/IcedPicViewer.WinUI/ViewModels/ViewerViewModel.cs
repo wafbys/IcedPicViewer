@@ -621,15 +621,16 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     {
         try
         {
-            var source = await _imageLoader.LoadFullAsync(item.Media, targetMaxSize: null, ct);
+            var result = await _imageLoader.LoadFullAsync(item.Media, targetMaxSize: null, ct);
             if (ct.IsCancellationRequested) return;
 
-            if (source != null)
+            if (result is { } loaded)
             {
-                item.FullImage = source;
+                item.FullImage = loaded.Source;
+                item.FullImageIsNative = loaded.IsNativeSize;
                 if (ReferenceEquals(SelectedItem, item))
                 {
-                    DisplayImage = source;
+                    DisplayImage = loaded.Source;
                 }
             }
         }
@@ -1367,6 +1368,10 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         }
         else
         {
+            // Other sources — SoftwareBitmapSource stills (WinUI 3 exposes
+            // no PixelWidth there) and animated-WebP frames — fall back to
+            // the item's oriented original size, which is exact for the
+            // native 1:1 decodes the minimap runs against.
             DisplayActualWidth = SelectedItem?.OriginalWidth ?? 0;
             DisplayActualHeight = SelectedItem?.OriginalHeight ?? 0;
         }
@@ -1451,6 +1456,8 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         ItemCount = Items.Count;
         NavigatePreviousCommand.NotifyCanExecuteChanged();
         NavigateNextCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(HasPrevious));
+        OnPropertyChanged(nameof(HasNext));
     }
 
     // 监听 Gallery 的增量加载状态变化，以便单图模式下的 Next 按钮和 Load More 按钮能正确启用/显示
@@ -1464,6 +1471,7 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(CanLoadMore));
             OnPropertyChanged(nameof(IsLoadingMore));
             OnPropertyChanged(nameof(LoadMoreVisibility));
+            OnPropertyChanged(nameof(HasNext));
         }
     }
 
@@ -1473,6 +1481,8 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         _galleryViewModel.LastViewedIndex = value;
         NavigatePreviousCommand.NotifyCanExecuteChanged();
         NavigateNextCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(HasPrevious));
+        OnPropertyChanged(nameof(HasNext));
     }
 
     private bool CanNavigatePrevious() => Items.Count > 0 && CurrentIndex > 0;
@@ -1482,6 +1492,19 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
     /// 当到达当前已加载图片的末尾，但 Gallery 还有更多图片时，Next 按钮仍然可用。
     /// </summary>
     private bool CanNavigateNext() => Items.Count > 0 && (CurrentIndex < Items.Count - 1 || _galleryViewModel.CanLoadMore);
+
+    /// <summary>
+    /// Boundary state for the viewer's edge arrows: a neighbor to go to
+    /// exists. Deliberately the boundary half of the commands' CanExecute
+    /// ONLY — an async navigation in flight reports CanExecute=false for
+    /// its whole duration, and gating the arrows on that collapsed the
+    /// arrow the user just clicked for the entire load of a big image.
+    /// Same predicate as the commands, so the two can never diverge.
+    /// </summary>
+    public bool HasPrevious => CanNavigatePrevious();
+
+    /// <inheritdoc cref="HasPrevious"/>
+    public bool HasNext => CanNavigateNext();
 
     [RelayCommand(CanExecute = nameof(CanNavigatePrevious))]
     private async Task NavigatePreviousAsync()
@@ -1673,19 +1696,20 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         IsLoading = true;
         try
         {
-            var source = await _imageLoader.LoadFullAsync(item.Media, targetMaxSize, ct);
+            var result = await _imageLoader.LoadFullAsync(item.Media, targetMaxSize, ct);
 
             if (ct.IsCancellationRequested)
             {
                 return;
             }
 
-            if (source != null)
+            if (result is { } loaded)
             {
-                item.FullImage = source;
+                item.FullImage = loaded.Source;
+                item.FullImageIsNative = loaded.IsNativeSize;
                 if (ReferenceEquals(SelectedItem, item))
                 {
-                    DisplayImage = source;
+                    DisplayImage = loaded.Source;
                     await StartWebpAnimationAsync(item, ct);
                 }
             }
@@ -1705,16 +1729,13 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
 
     private static bool ShouldReuseFullImageCache(MediaItem item, int? targetMaxSize)
     {
-        if (item.FullImage is not BitmapImage) return true;
         if (item.Media.Kind == MediaKind.Video) return true; // Videos reuse the FFmpeg-extracted poster frame (set in gallery); BitmapDecoder path does not work on video files.
         // For Fit (capped request) we happily reuse even a larger (full-res) cache.
         if (targetMaxSize.HasValue) return true;
-        // For 1:1 (native request) only reuse if the cached version is essentially native size.
-        if (item.OriginalWidth <= 0 || item.OriginalHeight <= 0) return true;
-        const double tolerance = 0.99;
-        var bmp = (BitmapImage)item.FullImage;
-        return bmp.PixelWidth >= item.OriginalWidth * tolerance &&
-               bmp.PixelHeight >= item.OriginalHeight * tolerance;
+        // For 1:1 (native request) only reuse a decode that already ran at
+        // the source's native size (uncapped load, or a capped load whose
+        // source fit the cap — the loader reports which).
+        return item.FullImageIsNative;
     }
 
     private async Task ShowSelectedItemAsync()
@@ -1772,21 +1793,18 @@ public partial class ViewerViewModel : ObservableObject, IDisposable
         if (ct.IsCancellationRequested || item.FullImage != null) return;
         try
         {
-            var source = await _imageLoader.LoadFullAsync(item.Media, FullImageMaxSize, ct);
-            if (!ct.IsCancellationRequested && source != null)
+            var result = await _imageLoader.LoadFullAsync(item.Media, FullImageMaxSize, ct);
+            if (!ct.IsCancellationRequested && result is { } loaded)
             {
-                // Do not overwrite a full-res version (from 1:1 visit) with a capped preload result.
-                if (item.FullImage is BitmapImage existing &&
-                    item.OriginalWidth > 0 && item.OriginalHeight > 0)
+                // Do not overwrite a native-size decode that landed while
+                // this preload was running (entering 1:1 loads full res);
+                // a capped preload result may replace another capped one.
+                if (item.FullImageIsNative)
                 {
-                    const double tolerance = 0.99;
-                    if (existing.PixelWidth >= item.OriginalWidth * tolerance &&
-                        existing.PixelHeight >= item.OriginalHeight * tolerance)
-                    {
-                        return;
-                    }
+                    return;
                 }
-                item.FullImage = source;
+                item.FullImage = loaded.Source;
+                item.FullImageIsNative = loaded.IsNativeSize;
             }
         }
         catch (OperationCanceledException)
