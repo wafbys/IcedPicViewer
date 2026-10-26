@@ -1,5 +1,13 @@
 # 更新日志
 
+## v0.24.1 (2026-10-26)
+
+**主题：依赖对齐 .NET 11 RC3（安全 OOB 更新，无代码改动）**
+
+- `Microsoft.Extensions.Hosting` `11.0.0-rc.2.26504.105` → `11.0.0-rc.3.26522.148`，`Microsoft.CodeAnalysis.NetAnalyzers` `11.0.100-rc.2.26504.105` → `11.0.100-rc.3.26522.148`——与共享框架同号（`AGENTS.md` 约定）；SDK 由根 `global.json` 的 `rollForward: latestFeature` 自动选中 `11.0.100-rc.3`，`global.json` 本身未改。
+- 背景：RC3 是 2026-10-25 的计划外安全 OOB 更新（CVE-2026-111497 Brotli 解码器越界写、CVE-2026-114148 Linux tarball 所有权、重发 CVE-2026-70197 / CVE-2026-102870 补丁），不含新特性，原定 GA 仍为 11 月。本应用无 Brotli 与网络代码（源码与 SharpCompress 程序集实测均无 Brotli 使用），升级属「顺手跟上」，不修任何已知缺陷。
+- 验证：Debug / Release 构建 0/0；Core 测试 195 全绿。
+
 ## v0.24.0 (2026-10-17)
 
 **主题：查看器打开期间暂停后台缩略图回填（资源让位，缩略图延后不降质）**

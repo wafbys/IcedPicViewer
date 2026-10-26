@@ -133,6 +133,7 @@ FFmpeg 拉取产物在 `src/native/ffmpeg/win-x64/`（**不进 git**）。
 
 当前版本以仓库根 `Directory.Build.props` 的 `<Version>` 为准（解决方案级单一来源，全工程继承）；完整历史见 `CHANGELOG.md`。
 
+- **v0.24.1** - 依赖对齐 .NET 11 RC3（安全 OOB 更新；Hosting / NetAnalyzers 与共享框架同号，无代码改动）（详见 `CHANGELOG.md`）
 - **v0.24.0** - 查看器打开期间暂停后台缩略图回填（资源让位；缩略图延后不降质）（详见 `CHANGELOG.md`）
 - **v0.23.0** - 查看器大图加载提速（删除 PNG 无损往返，微基准 48MP 下删段 Fit ~2.2 s / 1:1 ~4.7 s）；边缘翻页箭头修复（加载期间不再折叠、新图就绪即复位）（详见 `CHANGELOG.md`）
 - **v0.22.0** - 专注 Windows 的架构定位收敛、MIT 许可与关于页补全（LibVLC/组件署名）、发布流程定型；移除连接动画（回归朴素转场）；修复"回退要点两次"（双击卡片重复入栈查看器）（详见 `CHANGELOG.md`）
