@@ -1,5 +1,13 @@
 # 更新日志
 
+## 未发布
+
+**主题：.NET 11 GA 收尾（RC3 → GA，无代码改动）**
+
+- `global.json`：`11.0.100-rc.1` + `allowPrerelease: true` → `11.0.100`，不再允许预发布 SDK。
+- `Microsoft.Extensions.Hosting` `11.0.0-rc.3.26522.148` → `11.0.0`；`Microsoft.CodeAnalysis.NetAnalyzers` `11.0.100-rc.3.26522.148` → `11.0.100`。
+- 验证：Debug / Release 构建均 0/0；Core 测试 195 全绿；`run-debug.ps1` 启动成功（窗口标题 `IcedPicViewer 0.24.1 (Debug, 9ed3adc)`），未做深度 UI 回归。
+
 ## v0.24.1 (2026-10-26)
 
 **主题：依赖对齐 .NET 11 RC3（安全 OOB 更新，无代码改动）**
