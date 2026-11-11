@@ -2,11 +2,12 @@
 
 ## 未发布
 
-**主题：.NET 11 GA 收尾（RC3 → GA，无代码改动）**
+**主题：依赖对齐 .NET 11 GA 与 WASDK 2.6.5（无代码改动）**
 
 - `global.json`：`11.0.100-rc.1` + `allowPrerelease: true` → `11.0.100`，不再允许预发布 SDK。
 - `Microsoft.Extensions.Hosting` `11.0.0-rc.3.26522.148` → `11.0.0`；`Microsoft.CodeAnalysis.NetAnalyzers` `11.0.100-rc.3.26522.148` → `11.0.100`。
-- 验证：Debug / Release 构建均 0/0；Core 测试 195 全绿；`run-debug.ps1` 启动成功（窗口标题 `IcedPicViewer 0.24.1 (Debug, 9ed3adc)`），未做深度 UI 回归。
+- `Microsoft.WindowsAppSDK` `2.5.1` → `2.6.5`；本机源码运行（`dotnet run`），不做分发。2.6.5 主要是修复（多 GPU/多显示器渲染、System Composition Engine、Win10 透明、MSIX 安装），不含 2.6.6 Experimental 的 TableView/Chart 等新控件。
+- 验证：Debug / Release 构建均 0/0；Core 测试 195 全绿；`run-debug.ps1` 启动成功，窗口标题与构建版本/短哈希一致，截图核对标题栏与空状态渲染正常；未做深度 UI 回归。
 
 ## v0.24.1 (2026-10-26)
 

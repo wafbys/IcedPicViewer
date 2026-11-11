@@ -5,7 +5,7 @@
 | 路径 | 说明 |
 |------|------|
 | `src/IcedPicViewer.Core` | 共享逻辑库（不引用 WinUI）：扫描、归档、设置、FFmpeg 抽帧等（`net11.0`） |
-| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.5，.NET 11，MSIX，**x64 only**） |
+| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.6，.NET 11，MSIX，**x64 only**） |
 | `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit；已进 solution） |
 
 协作约定与定稿架构见 `AGENTS.md`。
@@ -88,7 +88,7 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 ./tools/run-release.ps1
 ```
 
-前置：**已开启 Windows 开发者模式** + .NET 11 runtime + **Windows App Runtime 2.5**。
+前置：**已开启 Windows 开发者模式** + .NET 11 runtime + **Windows App Runtime 2.6**。
 
 - `-p:Platform=x64` **不可省略**：该工程只支持 x64，默认 `AnyCPU` 会失败。
 - **本项目不做发布打包**——`dotnet run` 会注册调试包身份并启动，不需要安装 MSIX。

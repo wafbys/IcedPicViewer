@@ -7,7 +7,7 @@
     等价于在仓库根执行：
         dotnet run --project src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=x64
 
-    前置：Windows 开发者模式 + .NET 11 runtime + Windows App Runtime 2.5。
+    前置：Windows 开发者模式 + .NET 11 runtime + Windows App Runtime 2.6。
     -p:Platform=x64 不可省略（该工程仅支持 x64）。
 
 .NOTES

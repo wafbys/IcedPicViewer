@@ -11,7 +11,7 @@
 | 路径 | 角色 |
 |------|------|
 | `src/IcedPicViewer.Core` | 共享逻辑库（`net11.0`，不引用 WinUI）：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。被 WinUI 引用 |
-| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.5，.NET 11，MSIX，**x64 only**）：图库/查看器、`MediaPlayerElement` 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘、DI Hosting |
+| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.6，.NET 11，MSIX，**x64 only**）：图库/查看器、`MediaPlayerElement` 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘、DI Hosting |
 | `tests/IcedPicViewer.Core.Tests` | Core 的 xUnit 测试（只引 Core）。已进 `IcedPicViewer.slnx` |
 | FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` → `src/native/ffmpeg/win-x64/`；构建时 `CopyFFmpegDllsToOutDir` 拷到输出根（即包安装根，`LoadLibrary` 不搜子目录）。运行时：`IPV_FFMPEG_ROOT` → 输出根 → `runtimes\win-x64\native` → `native`（Windows 专用；无跨平台分支）。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`。**声明的 soname 单一来源** = WinUI csproj 的 `<FFmpegExpectedSonames>`（`avutil-61` 那一串）：升级 FFmpeg 时 Core/WinUI **两处 `FFmpeg.AutoGen` 必须同版本**，再同步该属性并重跑 fetch 脚本（脚本解析同一属性做自己的守卫）。构建期比对实际 DLL：整套缺失报 `IPV001`，**版本不符/缺项报 `IPV002`（按项点名 + 给命令）**——旧版本 DLL 留在目录里不会报错，只会让视频封面静默消失 |
 | 视频播放 | `MediaPlayerElement` + 系统编解码；部分容器 FFmpeg remux（`VideoMetadataService`）；LibVLC 软渲染回退（`VlcImageSurface`，无 HWND VideoView） |
@@ -49,8 +49,8 @@ dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$
 ./tools/run-release.ps1
 ```
 
-- 前置：**Windows 开发者模式**（`dotnet run` 要注册调试包身份，未开启会报 `Developer Mode is not enabled`）+ .NET 11 runtime + Windows App Runtime 2.5。`-p:Platform=x64` 不可省。
-- WASDK **2.5.x** ↔ 目标机 Windows App Runtime **2.5**（MSIX 拉 framework；跨主版本会启动失败）。
+- 前置：**Windows 开发者模式**（`dotnet run` 要注册调试包身份，未开启会报 `Developer Mode is not enabled`）+ .NET 11 runtime + Windows App Runtime 2.6。`-p:Platform=x64` 不可省。
+- WASDK **2.6.x** ↔ 目标机 Windows App Runtime **2.6**（MSIX 拉 framework；跨主版本会启动失败）。
 - 目标框架 **`net11.0-windows10.0.26100.0`**（SDK 版本由仓库根 `global.json` 固定）。**不要**给 `Microsoft.Extensions.Caching.Abstractions` / `Configuration.Abstractions` / `DependencyInjection.Abstractions` / `Diagnostics.Abstractions` / `FileProviders.Abstractions` / `Hosting.Abstractions` / `Logging.Abstractions` / `Options` / `Primitives` 加 `PackageReference`——.NET 11 起这 9 个已在共享框架内，显式引用会 `NU1510`，且版本错配会在运行期抛 `MissingMethodException`。`Microsoft.Extensions.Hosting` 仍需显式引用，版本必须与共享框架同号（当前 `11.0.0`，GA）。
 - WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
 - ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。

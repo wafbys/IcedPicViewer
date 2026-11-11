@@ -73,13 +73,13 @@
   <ItemGroup>
     <!--
       固定版本号 — SDK/runtime 必须严格对应:
-      Microsoft.WindowsAppSDK 2.5.x ↔ 目标机 Windows App Runtime 2.5
+      Microsoft.WindowsAppSDK 2.6.x ↔ 目标机 Windows App Runtime 2.6
       (MSIX 会依赖 framework package；跨主版本会启动失败)
     -->
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="11.0.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
     <!--
       WinApp CLI: hooks `dotnet run` for packaged WinUI (debug package identity).
       Bump when console prints "vX.Y is available" from winappcli.
@@ -266,8 +266,8 @@
 
   <!--
     WinUI 3 app, MSIX-packaged (WindowsPackageType is unset → defaults to MSIX).
-    Package.appxmanifest + WASDK 2.5.x declare the framework dependency on
-    Microsoft.WindowsAppRuntime 2.5, which Windows resolves from the framework
+    Package.appxmanifest + WASDK 2.6.x declare the framework dependency on
+    Microsoft.WindowsAppRuntime 2.6, which Windows resolves from the framework
     package.
 
     Build / Run flow (this project is never packaged for distribution):
