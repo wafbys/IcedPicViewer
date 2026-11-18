@@ -57,7 +57,7 @@ namespace IcedPicViewer.Services.Implementations;
 /// <para>
 /// <b>Archive support:</b> video entries inside archives are handled
 /// by extracting the entry to a fresh temp file in
-/// <c>%LOCALAPPDATA%\IcedPicViewer\TempVideo\</c> for the duration of
+/// <c>&lt;exe&gt;\Data\TempVideo\</c> for the duration of
 /// the call (or for the duration of playback, in the playback path).
 /// FFmpeg needs a real file path or a custom AVIO context — there's
 /// no built-in way to feed it a SharpCompress MemoryStream short of
@@ -93,9 +93,8 @@ public sealed class VideoMetadataService : IVideoMetadataService, IDisposable
     private readonly List<string> _playbackTempFiles = new();
     private readonly object _tempLock = new();
 
-    // <app data>\TempVideo\ — created on first use, cleaned (files deleted)
-    // at construction + Dispose. <app data> is %LOCALAPPDATA%\IcedPicViewer
-    // (AppDataPaths).
+    // <exe>\Data\TempVideo\ — created on first use, cleaned (files deleted)
+    // at construction + Dispose. The directory comes from AppDataPaths.
     private readonly string _tempDir;
 
     public VideoMetadataService(IThumbnailCache thumbnailCache, IThumbnailDiskCache thumbnailDiskCache)

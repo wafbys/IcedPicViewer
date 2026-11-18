@@ -7,7 +7,6 @@ using IcedPicViewer.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.Windows.ApplicationModel.DynamicDependency;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -48,14 +47,19 @@ public partial class App : Application
 
     public App()
     {
+        // Move the old %LOCALAPPDATA% preferences into <exe>\Data before any
+        // service reads settings. Caches are deliberately not migrated; they
+        // are regenerable and can be large.
+        AppDataPaths.MigrateLegacySettings();
+
         // Microsoft official guidance: rely on the auto-generated
-        // WindowsAppSDK bootstrap initializer (driven by csproj's
-        // WindowsAppSdkBootstrapInitialize=true). It pins the runtime to
-        // Microsoft.WindowsAppSDK 2.3.x and the matching WindowsAppRuntime
-        // 2.3 package on the target machine. If the runtime is missing or
-        // the wrong version, the bootstrap throws and the process aborts
-        // BEFORE App() runs — we can't intercept that from here, but the
-        // user gets a system-level error pointing at the package.
+        // WindowsAppSDK bootstrap initializer (enabled by
+        // WindowsPackageType=None). It resolves the installed
+        // Microsoft.WindowsAppRuntime.2 framework package (2.7 or newer) at
+        // process start. If the runtime is missing or too old, the bootstrap
+        // throws and the process aborts BEFORE App() runs — we can't
+        // intercept that from here, but the user gets a system-level error
+        // pointing at the package.
         // https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/use-windows-app-sdk-run-time
         //
         // We also subscribe to UnhandledException so we can show a friendly
@@ -205,7 +209,6 @@ public partial class App : Application
 
         // Single-file picker (gallery "打开文件").
         services.AddTransient<IFilePickerService, FilePickerService>();
-        services.AddSingleton<IJumpListService, JumpListService>();
         services.AddSingleton<ITaskbarProgressService, TaskbarProgressService>();
 
         // Modal dialogs (ContentDialog). Singleton — stateless, just
@@ -266,67 +269,20 @@ public partial class App : Application
         // threw" stack trace they get when the decode fails.
         ProbeAndWarnMissingCodecs();
 
-        // Jump list: replay the persisted recent folders into the shell and
-        // route launch arguments coming from jump-list items to the gallery.
-        ApplyJumpListAndActivation();
-
         // FFmpeg probe (development-only). Runs only when:
-//   - IPV_FFMPEG_PROBE=1 env var (does NOT propagate through MSIX
-//     `winapp.exe launch` — see FFmpegProbeService doc comment), OR
-//   - an ffmpeg-probe.flag file exists in the app data folder
-//     (%LOCALAPPDATA%\IcedPicViewer), OR
-//   - FFmpegProbeService.ForceRunForDiagnostic is flipped at compile time.
-// By default the app boots without touching FFmpeg, so users who don't
-// enable the probe see no behavior change. Results go to
-// ffmpeg-probe.log in the same folder. See FFmpegProbeService.
-// Fire-and-forget — OnLaunched is void and the probe's RunAsync does
-// its own Task.Run to keep decode off the UI thread.
-if (FFmpegProbeService.IsProbeRequested || File.Exists(
-        Path.Combine(AppDataPaths.Root, "ffmpeg-probe.flag")))
-{
-    _ = new FFmpegProbeService().RunAsync();
-}
-    }
-
-    /// <summary>
-    /// Shell jump-list integration: mirror the persisted recent folders into
-    /// the taskbar jump list, and honour launch arguments coming from
-    /// jump-list items — a folder path opens that folder, the
-    /// <see cref="JumpListService.OpenFolderPickerArgument"/> token shows the
-    /// folder picker. Failures are traced, never fatal.
-    /// </summary>
-    private void ApplyJumpListAndActivation()
-    {
-        var settings = GetService<ISettingsService>();
-        var jumpList = GetService<IJumpListService>();
-        _ = jumpList.UpdateRecentFoldersAsync(settings.Current.RecentFolders);
-
-        string? argument = null;
-        try
+        //   - IPV_FFMPEG_PROBE=1 env var (see FFmpegProbeService doc comment), OR
+        //   - an ffmpeg-probe.flag file exists in the app data folder
+        //     (<exe>\Data), OR
+        //   - FFmpegProbeService.ForceRunForDiagnostic is flipped at compile time.
+        // By default the app boots without touching FFmpeg, so users who don't
+        // enable the probe see no behavior change. Results go to
+        // ffmpeg-probe.log in the same folder. See FFmpegProbeService.
+        // Fire-and-forget — OnLaunched is void and the probe's RunAsync does
+        // its own Task.Run to keep decode off the UI thread.
+        if (FFmpegProbeService.IsProbeRequested || File.Exists(
+                Path.Combine(AppDataPaths.Root, "ffmpeg-probe.flag")))
         {
-            var activation = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
-            if (activation.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.Launch &&
-                activation.Data is Windows.ApplicationModel.Activation.LaunchActivatedEventArgs launchArgs)
-            {
-                argument = launchArgs.Arguments;
-            }
-        }
-        catch (Exception ex)
-        {
-            Trace.TraceError($"ApplyJumpListAndActivation: activation args unavailable: {ex.Message}");
-        }
-
-        if (string.IsNullOrEmpty(argument)) return;
-
-        var gallery = GetService<GalleryViewModel>();
-        var dispatcher = _window!.DispatcherQueue;
-        if (string.Equals(argument, JumpListService.OpenFolderPickerArgument, StringComparison.Ordinal))
-        {
-            dispatcher.TryEnqueue(() => gallery.OpenFolderCommand.Execute(null));
-        }
-        else if (Directory.Exists(argument))
-        {
-            dispatcher.TryEnqueue(() => _ = gallery.OpenFolderByPathAsync(argument));
+            _ = new FFmpegProbeService().RunAsync();
         }
     }
 

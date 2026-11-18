@@ -1,5 +1,18 @@
 # 更新日志
 
+## 未发布
+
+**主题：改为 unpackaged 部署，数据目录移到 exe 旁（平台迁移；移除 JumpList）**
+
+- 打包模型：MSIX（`Package.appxmanifest` + 调试包身份）→ unpackaged（`WindowsPackageType=None`）；移除 WinApp CLI、`GuardPackageManifestVersion`、MSIX 图标 PNG 与 `GenerateIconAssets`。
+- 数据目录：`%LOCALAPPDATA%\IcedPicViewer` → `<exe>\Data`（`IPV_DATA_DIR` 可覆盖）；首次启动自动迁移 `settings.json` / `window_settings.txt`，缓存不迁，旧目录不删。
+- 发布：`run-release` 统一为「Release 构建 → 复制到 `%USERPROFILE%\App\IcedPicViewer`（保留 `Data`）→ 开始菜单快捷方式 → 启动」；新增仓库根 `run-release.bat`。
+- 窗口信息：标题与关于页统一为 `v0.24.2 · Debug · 77ef97b · 2026-11-18 09:30`（版本 · 配置 · 短哈希 · 构建时间），构建时间由 `AssemblyMetadata` 注入。
+- 移除任务栏 JumpList（WinRT API 需要 package identity）；最近文件夹仍保存在 `settings.json`。
+- About 页 LGPL 链接改为打开 `<exe>\License\ffmpeg-LGPL.txt`，不再走 `ms-appx:///`。
+- Windows App SDK `2.6.5` → `2.7.0`（2.x 服务线补丁，无破坏性变更）。
+- 验证：Debug/Release 构建 0/0；Core 测试 195 全绿；Debug 与 `%USERPROFILE%\App\IcedPicViewer` 部署均启动成功，标题含构建时间；数据写入 `<exe>\Data`，重复部署保留 `Data`。
+
 ## v0.24.2 (2026-11-11)
 
 **主题：依赖对齐 .NET 11 GA 与 WASDK 2.6.5（无代码改动）**

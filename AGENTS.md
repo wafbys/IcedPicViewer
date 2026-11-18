@@ -11,7 +11,7 @@
 | 路径 | 角色 |
 |------|------|
 | `src/IcedPicViewer.Core` | 共享逻辑库（`net11.0`，不引用 WinUI）：模型/设置、`MediaCatalog`、`ArchiveHelper`、`DirectoryScanner`、`VideoFrameExtractor`、`IShellService` 等。被 WinUI 引用 |
-| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.6，.NET 11，MSIX，**x64 only**）：图库/查看器、`MediaPlayerElement` 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘、DI Hosting |
+| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.7，.NET 11，unpackaged，**x64 only**）：图库/查看器、`MediaPlayerElement` 播放、幻灯片、全屏 chrome、`WH_KEYBOARD` 键盘、DI Hosting |
 | `tests/IcedPicViewer.Core.Tests` | Core 的 xUnit 测试（只引 Core）。已进 `IcedPicViewer.slnx` |
 | FFmpeg | **二进制不进 git**。`tools/Fetch-FFmpegNatives.ps1 -Rid win-x64` → `src/native/ffmpeg/win-x64/`；构建时 `CopyFFmpegDllsToOutDir` 拷到输出根（即包安装根，`LoadLibrary` 不搜子目录）。运行时：`IPV_FFMPEG_ROOT` → 输出根 → `runtimes\win-x64\native` → `native`（Windows 专用；无跨平台分支）。`FFmpegBootstrap` 成功后 `av_log_set_level(AV_LOG_ERROR)`。**声明的 soname 单一来源** = WinUI csproj 的 `<FFmpegExpectedSonames>`（`avutil-61` 那一串）：升级 FFmpeg 时 Core/WinUI **两处 `FFmpeg.AutoGen` 必须同版本**，再同步该属性并重跑 fetch 脚本（脚本解析同一属性做自己的守卫）。构建期比对实际 DLL：整套缺失报 `IPV001`，**版本不符/缺项报 `IPV002`（按项点名 + 给命令）**——旧版本 DLL 留在目录里不会报错，只会让视频封面静默消失 |
 | 视频播放 | `MediaPlayerElement` + 系统编解码；部分容器 FFmpeg remux（`VideoMetadataService`）；LibVLC 软渲染回退（`VlcImageSurface`，无 HWND VideoView） |
@@ -49,20 +49,20 @@ dotnet build src/IcedPicViewer.WinUI/IcedPicViewer.csproj -c Debug -p:Platform=$
 ./tools/run-release.ps1
 ```
 
-- 前置：**Windows 开发者模式**（`dotnet run` 要注册调试包身份，未开启会报 `Developer Mode is not enabled`）+ .NET 11 runtime + Windows App Runtime 2.6。`-p:Platform=x64` 不可省。
-- WASDK **2.6.x** ↔ 目标机 Windows App Runtime **2.6**（MSIX 拉 framework；跨主版本会启动失败）。
+- 前置：.NET 11 runtime + **Windows App Runtime 2.7**。应用是 unpackaged，不需要开发者模式或包身份。`-p:Platform=x64` 不可省。
+- WASDK **2.7.x** ↔ 目标机 Windows App Runtime **2.7**（unpackaged 由 bootstrapper 解析 framework package；Runtime 版本更低会启动失败）。
 - 目标框架 **`net11.0-windows10.0.26100.0`**（SDK 版本由仓库根 `global.json` 固定）。**不要**给 `Microsoft.Extensions.Caching.Abstractions` / `Configuration.Abstractions` / `DependencyInjection.Abstractions` / `Diagnostics.Abstractions` / `FileProviders.Abstractions` / `Hosting.Abstractions` / `Logging.Abstractions` / `Options` / `Primitives` 加 `PackageReference`——.NET 11 起这 9 个已在共享框架内，显式引用会 `NU1510`，且版本错配会在运行期抛 `MissingMethodException`。`Microsoft.Extensions.Hosting` 仍需显式引用，版本必须与共享框架同号（当前 `11.0.0`，GA）。
-- WinApp CLI 经 `Microsoft.Windows.SDK.BuildTools.WinApp` 引入；控制台 “vX.Y is available” 时可升该包。
-- ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`——MSIX 需 package identity，直接跑会 `REGDB_E_CLASSNOTREG`。必须用 `dotnet run`。
+- 部署目录里的 `IcedPicViewer.exe` 可以直接双击启动；Debug 用 `tools/run-debug.ps1`，发布用 `run-release.ps1`。
 - 平台固定 **x64**（`Platform=x64`）；solution 里 WinUI 仅映射 x64。
-- **本项目不做发布打包**：`dotnet run` 是唯一受支持的启动方式（它注册调试包身份）。不要为分发引入打包或自包含发布路径。
+- **发布 = `run-release.ps1`**：Release 构建 → 复制到 `%USERPROFILE%\App\IcedPicViewer`（保留 `Data`）→ 开始菜单快捷方式 → 启动。不做 MSIX 打包。
+- 窗口标题/关于页统一显示 `v<Version> · <Debug|Release> · <短哈希> · <yyyy-MM-dd HH:mm>`；由 `BuildInfo.cs` 从程序集元数据读取，两项目同形，不要手写字符串。
 
 #### 数据与持久化
 
-- 全部可变状态（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\`、`ThumbCache\` 等）都在 **`%LOCALAPPDATA%\IcedPicViewer`**。MSIX 写虚拟化已关闭（manifest `FileSystemWriteVirtualization=disabled` + `unvirtualizedResources`），这些文件确实落在真实路径，不再被重定向进包容器。
-- **新增任何持久化路径必须走 Core `AppDataPaths`**（`Root` / `SettingsFile` / `TempVideoDir` / `CrashLogFile`，或在其上 `Path.Combine`），不要再手写 `LocalApplicationData`。它没有环境变量或 marker 覆盖机制，就是唯一来源。
-- Mica 在 `MainWindow.xaml` 里以 `<MicaBackdrop />` 直接声明（有 package identity，正常生效）。
-- About 页 LGPL 链接走 `ms-appx:///License/ffmpeg-LGPL.txt`，并有 `<exe>\License\ffmpeg-LGPL.txt` 的 loose-file 回退；改该页时别把 fallback 删了。
+- 全部可变状态（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\`、`ThumbCache\`、`ScanCache\` 等）都在 **`<exe>\Data`**。首次启动会把旧 `%LOCALAPPDATA%\IcedPicViewer` 的 `settings.json` / `window_settings.txt` 复制过来（缓存不迁，旧目录不删，`.migrated-from-localappdata` 标记保证只迁一次）。
+- **新增任何持久化路径必须走 Core `AppDataPaths`**（`Root` / `SettingsFile` / `TempVideoDir` / `CrashLogFile`，或在其上 `Path.Combine`），不要再手写 `LocalApplicationData`。默认 `<exe>\Data`，可用 `IPV_DATA_DIR` 覆盖（测试/临时运行）。
+- Mica 在 `MainWindow.xaml` 里以 `<MicaBackdrop />` 直接声明（unpackaged 下同样生效）。
+- About 页 LGPL 链接直接打开 `<exe>\License\ffmpeg-LGPL.txt`；unpackaged 没有 `ms-appx` 包上下文，不要改回 `StorageFile.GetFileFromApplicationUriAsync`。
 
 ### 整 solution
 
@@ -75,17 +75,17 @@ dotnet test IcedPicViewer.slnx -c Debug
 ### UI 验证（MCP 驱动真实窗口）
 
 工具与通用用法见全局 AGENTS「UI 自动化（win MCP）」。本项目特有：
-- 启动走 `./tools/run-release.ps1`（MSIX 身份，`win.app` 不行）；窗口标题带版本与短哈希，可据此确认驱动的是当次构建；
+- 启动走 `./tools/run-release.ps1`（部署到 `%USERPROFILE%\App\IcedPicViewer`）；窗口标题格式 `vX.Y.Z · Debug|Release · 短哈希 · yyyy-MM-dd HH:mm`，可据此确认驱动的是当次构建；
 - 「打开文件夹」选择器可纯键盘驱动：Alt+D → 剪贴板粘贴路径 → Enter → 「Select Image Folder」按钮；
 - 查看器 / 图库关键路径（翻页、箭头显隐、加载耗时）优先自己截图验证，再请用户确认体感。
 
 ### 发布流程（用户说「发布」即执行全套）
 
-1. **升版本**（两处，构建守卫兜底）：`Directory.Build.props` 的 `<Version>` + `Package.appxmanifest` 的 `Identity/@Version`；
+1. **升版本**：只改 `Directory.Build.props` 的 `<Version>`（已无 `Package.appxmanifest`，也不再有两处同步问题）；
 2. **CHANGELOG**：「未发布」段转正为 `## vX.Y.Z (日期)`；README 版本列表同步；
 3. **Release 构建必须验**：`dotnet build IcedPicViewer.slnx -c Release -p:Platform=x64`（0/0）+ `dotnet test`——只验 Debug 不算发布通过；
 4. **提交**（中文，含版本号与内容摘要）并推送 `origin master`；
-5. **远端发布**：`gh release create vX.Y.Z --title "…" --notes "…"`（摘要取 CHANGELOG；**纯说明、无构建产物**——本项目不做打包分发，`dotnet run` 是唯一运行方式）。
+5. **远端发布**：`gh release create vX.Y.Z --title "…" --notes "…"`（摘要取 CHANGELOG；**纯说明、无构建产物**——本地运行用 `run-release.ps1` 部署版或 `dotnet run`）。
 
 ### 许可
 
@@ -99,7 +99,7 @@ dotnet test IcedPicViewer.slnx -c Debug
 4. **验证分层**——
    - **Core**：有真实痛点就写测；`tests/IcedPicViewer.Core.Tests`；`dotnet test` 绿。
    - **WinUI**（含图库 pipeline、播放）：不堆 ViewModel 单测；`dotnet build` 0 warnings + **手动验关键路径**。
-   - 禁止为覆盖率写壳测试（如只测 `Math.Clamp`）；禁止测试写真实 `%LocalAppData%` 配置——用 temp 路径（见 `JsonSettingsService(string settingsPath)`）。
+   - 禁止为覆盖率写壳测试（如只测 `Math.Clamp`）；禁止测试写真实 `<exe>\Data` 配置——用 temp 路径（见 `JsonSettingsService(string settingsPath)`）。
 5. **主动暴露权衡**——需求模糊或有风险直接说，不要硬做。
 6. **Commit 用中文**。
 
@@ -125,16 +125,17 @@ dotnet test IcedPicViewer.slnx -c Debug
 ### WinUI 禁忌
 - 不用 `Window.Current`、`CoreDispatcher` 等已废弃 API。
 - 大列表优先虚拟化（但本项目 MasonryPanel 除外）。
-- **ThemeResource brush 名只认 Fluent 2 命名**。`SubtleFillColorSecondaryBrush` / `SolidBackgroundFillColorBaseBrush` / `ControlStrokeColorDefaultBrush` / `CardStrokeColorDefaultBrush` / `LayerFillColorDefaultBrush` 等真实存在；Fluent 1 旧名（`SystemControlBackgroundChromeMediumLowBrush` 等）在 WinAppSDK 2.2+（本项目 2.5）全不存在，build 不报但运行时 `XamlParseException`。
+- **ThemeResource brush 名只认 Fluent 2 命名**。`SubtleFillColorSecondaryBrush` / `SolidBackgroundFillColorBaseBrush` / `ControlStrokeColorDefaultBrush` / `CardStrokeColorDefaultBrush` / `LayerFillColorDefaultBrush` 等真实存在；Fluent 1 旧名（`SystemControlBackgroundChromeMediumLowBrush` 等）在 WinAppSDK 2.2+（本项目 2.7）全不存在，build 不报但运行时 `XamlParseException`。
 - **键盘事件只用 WH_KEYBOARD hook**（详见下方"键盘导航"子章节）。不用 `AddHandler(KeyDownEvent)` / `KeyboardAccelerator` / `SetWindowSubclass`。
+- **不要加回任务栏 JumpList**：WinRT `Windows.UI.StartScreen.JumpList` 需要 package identity，unpackaged 下 `IsSupported()` 为 false；最近文件夹只保存在 `settings.json`。确需该功能时用 Win32 `ICustomDestinationList` 重写。
 
 #### 键盘导航（`WH_KEYBOARD` thread-scope hook）
 
 最终方案在 `src/IcedPicViewer.WinUI/MainWindow.xaml.cs`（搜索 `WH_KEYBOARD` / `InstallInputHooks` / `KeyboardHookProc` / `MouseHookProc` / `UnhookWindowsHookEx`）。
 
 **为什么继续用 WH_KEYBOARD（不要换）**：
-- `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId` 在 WASDK 文档里仍是 **Experimental**（仅 experimental moniker），**不能**当作生产键盘方案替换 WH_KEYBOARD。2026-09 复核 WASDK 2.5.1 / `windows-app-sdk-2.0` 稳定视图：该方法签名仍带 `[Windows.Foundation.Metadata.Experimental]`，且文档页会从稳定 moniker 回退到 `2.0-experimental`。
-- XAML `KeyDown` / `AddHandler(KeyDownEvent)` / `KeyboardAccelerator` 在 MSIX 下对**不依赖焦点**的查看器快捷键不可靠（焦点在 `Frame.Navigate` 后不稳定；Accelerator 文档写 global 仍常依赖焦点启动路由）。
+- `Microsoft.UI.Input.InputKeyboardSource.GetForWindowId` 在 WASDK 文档里仍是 **Experimental**（仅 experimental moniker），**不能**当作生产键盘方案替换 WH_KEYBOARD。2026-09 复核 WASDK 2.5.1（当时项目版本）/ `windows-app-sdk-2.0` 稳定视图：该方法签名仍带 `[Windows.Foundation.Metadata.Experimental]`，且文档页会从稳定 moniker 回退到 `2.0-experimental`；当前 2.7 未重新复核，换之前先在目标版本实测。
+- XAML `KeyDown` / `AddHandler(KeyDownEvent)` / `KeyboardAccelerator` 在 WinUI 下对**不依赖焦点**的查看器快捷键不可靠（焦点在 `Frame.Navigate` 后不稳定；Accelerator 文档写 global 仍常依赖焦点启动路由）。
 - `SetWindowSubclass` 拿到的 HWND 往往是 XAML island 子窗，不是真正收键盘的顶层 window——注册成功但 `WM_KEYDOWN` 不来。
 - 因此生产路径固定为 thread-scope `WH_KEYBOARD`；窗口关闭时在 `AppWindow_Closing` 里 `UnhookWindowsHookEx` 清理（`_hookHandle != IntPtr.Zero` 才卸，失败 `Trace.TraceError`，禁止空 catch）。
 
@@ -251,9 +252,9 @@ public MainWindow() {
 
 `{x:Bind}` 风格的 page 不设 `DataContext`。拿 VM 走 `page.ViewModel` property，不要用 `page.DataContext is XxxViewModel`（永远 false）。
 
-#### 4. 直接跑 unpackaged `.exe` 会炸
+#### 4. unpackaged 不等于自带运行时
 
-MSIX package identity 缺失 → `REGDB_E_CLASSNOTREG`。只用 `dotnet run` / 正确部署路径。
+部署目录的 `IcedPicViewer.exe` 可以直接双击，但目标机必须装 .NET 11 runtime + Windows App Runtime 2.7；缺任一个启动即失败（bootstrapper 在 `App()` 之前终止进程）。
 
 #### 5. 缩略图 / FullImage 必须 UI 线程赋值
 

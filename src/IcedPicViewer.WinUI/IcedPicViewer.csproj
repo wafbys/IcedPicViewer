@@ -12,13 +12,12 @@
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
-    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <!-- Embed AppIcon.ico as the .exe Win32 icon resource so Windows shows
          this app's icon in the taskbar and Alt+Tab. Without this, the
          .exe ships with a generic icon and the taskbar shows the default
-         app silhouette. Assets\AppIcon.ico is already listed as Content
-         above for MSIX manifest reference; this line additionally
-         embeds it in the PE resource. -->
+         app silhouette. -->
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -49,22 +48,11 @@
     <!-- CA2020 warns that (int)IntPtr cast doesn't throw on overflow in unchecked context.
          MainWindow's WH_KEYBOARD hook explicitly uses this cast to avoid an
          OverflowException from IntPtr.ToInt32() (which DOES throw on .NET 6+ when
-         the IntPtr value is out of int range — observed in practice on Win11 25H2
-         + MSIX packaged, where the OS hands us wParam/lParam with garbage high bits).
+         the IntPtr value is out of int range — observed in practice on Win11 25H2,
+         where the OS hands us wParam/lParam with garbage high bits).
          The unchecked truncation is exactly what we want here. -->
     <NoWarn>$(NoWarn);CA2020</NoWarn>
   </PropertyGroup>
-
-  <ItemGroup>
-    <!--
-      Icon assets under Assets\ are generated at build time by the
-      GenerateIconAssets target below. The SDK's default
-      <EnableDefaultContentItems> already pulls in *.png / *.ico under
-      the project root, so no explicit <Content Include> entries are
-      needed. Designer can replace the generated files directly to ship
-      real art; the target re-creates them on the next build.
-    -->
-  </ItemGroup>
 
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
@@ -72,19 +60,14 @@
 
   <ItemGroup>
     <!--
-      固定版本号 — SDK/runtime 必须严格对应:
-      Microsoft.WindowsAppSDK 2.6.x ↔ 目标机 Windows App Runtime 2.6
-      (MSIX 会依赖 framework package；跨主版本会启动失败)
+      固定版本号 — SDK/runtime 必须对应:
+      Microsoft.WindowsAppSDK 2.7.x ↔ 目标机 Windows App Runtime 2.7
+      (unpackaged 由 bootstrapper 解析 framework package；Runtime 版本更低会启动失败)
     -->
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="11.0.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
-    <!--
-      WinApp CLI: hooks `dotnet run` for packaged WinUI (debug package identity).
-      Bump when console prints "vX.Y is available" from winappcli.
-    -->
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.7.1" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
 
     <!-- Archive via Core (SharpCompress); no direct package needed here. -->
 
@@ -114,6 +97,20 @@
   </ItemGroup>
 
   <!--
+    Build metadata read by BuildInfo.cs at runtime. BuildDateTime is the
+    build start time (local); WindowsAppSdkVersion is the resolved
+    PackageReference version, so the About page can never disagree with
+    the actual dependency. GenerateAssemblyInfo emits these as
+    [assembly: AssemblyMetadata].
+  -->
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildDateTime"
+                      Value="$([System.DateTime]::Now.ToString('yyyy-MM-dd HH:mm'))" />
+    <AssemblyMetadata Include="WindowsAppSdkVersion"
+                      Value="@(PackageReference->WithMetadataValue('Identity', 'Microsoft.WindowsAppSDK')->'%(Version)')" />
+  </ItemGroup>
+
+  <!--
     Declared FFmpeg sonames: the native API set the FFmpeg.AutoGen PackageReference
     above binds to. Single source of truth — consumed by two places:
       * tools/Fetch-FFmpegNatives.ps1 parses this property for its own guard
@@ -131,33 +128,21 @@
   </PropertyGroup>
 
   <!--
-    FFmpeg natives must be declared as <Content>, not just copied by the
-    CopyFFmpegDllsToOutDir target. `dotnet run` for a packaged WinUI app goes
-    through WinApp CLI, whose _WinAppCopyContentToLooseLayout target stages
-    <Content> items into the loose layout at $(OutputPath)AppX\ — and THAT is
-    the directory the app actually executes from (the registered package's
-    InstallLocation). Files that only reach the output root never appear there,
-    FFmpegBootstrap finds no avutil, IsReady stays false and every video
-    thumbnail silently returns null. Verified 2026-09: probing the AppX loose
-    layout found no avutil; the output root did.
+    FFmpeg natives must be declared as <Content> so they land in the build
+    output root next to the exe. FFmpegBootstrap calls LoadLibrary("avcodec-63")
+    without a directory, and Windows does not search subdirectories.
 
-    Link is explicit so the destination is the same flat layout the MSIX package
-    and the build output use. Relying on the default runtimes\{rid}\native\
-    convention would also work (FFmpegBootstrap probes it) but would make the
-    loose layout differ from the packaged one for no gain. MSIX requires
-    LoadLibrary to find these in the package root anyway.
+    Link is explicit so the destination is the same flat layout the build
+    output and the deployed folder use. Relying on the default
+    runtimes\{rid}\native\ convention would also work (FFmpegBootstrap probes
+    it) but would make debug and deployed layouts differ for no gain.
 
-    Note: this is NOT redundant with the Copy target. The Copy target is what
-    puts the DLLs in the output root for the MSIX path; this Content item is what
-    puts them in the loose layout for `dotnet run`. Both are needed.
-
-    Unconditional on purpose: this item's job is to get whatever natives exist on
-    disk into the loose layout, and a missing directory simply expands to zero
-    files. Completeness is not its concern — a stale or partial set is staged but
-    can never bind (FFmpegBootstrap's load fails either way), so this copy cannot
-    mask the mismatch. IPV002 in CopyFFmpegDllsToOutDir is what reports it; the
-    metadata-based completeness check cannot live here because MSBuild rejects
-    metadata references in item-definition conditions during evaluation.
+    Unconditional on purpose: a missing directory simply expands to zero
+    files. Completeness is not its concern — a stale or partial set can never
+    bind, so this copy cannot mask the mismatch. IPV002 in
+    CopyFFmpegDllsToOutDir is what reports it; the metadata-based completeness
+    check cannot live here because MSBuild rejects metadata references in
+    item-definition conditions during evaluation.
   -->
   <ItemGroup>
     <Content Include="$(FFmpegNativeSourceDir)\*.dll"
@@ -166,15 +151,10 @@
   </ItemGroup>
 
   <!--
-    FFmpeg LGPL 2.1 license text. The default .NET SDK content globs
-    do not pick up the License/ folder under this project (WinUI 3
-    projects opt out of the full default glob in some configurations
-    and only include Assets/, Views/, and a few well-known patterns).
-    The About page opens this file via
-    `StorageFile.GetFileFromApplicationUriAsync(new Uri("ms-appx:///License/ffmpeg-LGPL.txt"))`,
-    so the file must be present in the package layout at the same
-    relative path. PreserveNewest is sufficient — the file rarely
-    changes once written and we want a fast incremental build.
+    FFmpeg LGPL 2.1 license text. The default .NET SDK content globs do not
+    pick up the License/ folder under this project, so it is listed explicitly.
+    The About page opens <exe>\License\ffmpeg-LGPL.txt with the shell's default
+    .txt handler, so the folder must be copied next to the exe.
   -->
   <ItemGroup>
     <Content Include="License\**\*.txt">
@@ -183,14 +163,10 @@
   </ItemGroup>
 
   <!--
-    CopyFFmpegDllsToOutDir: WinAppSDK 2.x MSIX packaging does NOT pick up
-    files placed under runtimes/<rid>/native/ as direct package payload.
-    FFmpeg's LoadLibrary("avcodec-63") must find the DLLs at the package
-    install directory root, not in a runtimes/<rid>/native/ subfolder.
-
-    This target copies the FFmpeg DLLs flat into the output root ($(OutDir)),
-    which is also the MSIX install root, so the app's process can
-    LoadLibrary them at startup. Runs AfterBuild (debug + release).
+    CopyFFmpegDllsToOutDir: the <Content> item above already copies the DLLs
+    for `dotnet build`/`dotnet run`; this target repeats the copy into
+    $(OutDir) and, more importantly, validates the set against the declared
+    sonames. Runs AfterBuild (debug + release).
   -->
   <Target Name="CopyFFmpegDllsToOutDir" AfterTargets="Build" Condition="'$(_DesignTimeBuild)' != 'true'">
     <PropertyGroup>
@@ -232,32 +208,6 @@
     <Message Text="CopyFFmpegDllsToOutDir: copied @(_FFmpegDlls) -&gt; $(OutDir)" Importance="high" Condition="@(_FFmpegDlls) != ''" />
   </Target>
 
-  <!--
-    CopyLicenseToOutDir: WinAppSDK 2.x MSIX layout only auto-includes
-    well-known subdirectories (Assets/, Views/, runtimes/, Microsoft.UI.Xaml/).
-    License\ — which holds the LGPL 2.1 text opened from the About page
-    via ms-appx:///License/ffmpeg-LGPL.txt — would be silently dropped
-    from the package payload even though the <Content> item above puts the
-    file in the build output root. Copy it into the output root explicitly
-    so the URI resolves at runtime.
-
-    Without this, the About page's license link throws because
-    StorageFile.GetFileFromApplicationUriAsync can't find the file
-    inside the package install location.
-  -->
-  <Target Name="CopyLicenseToOutDir" AfterTargets="Build" Condition="'$(_DesignTimeBuild)' != 'true'">
-    <PropertyGroup>
-      <_LicenseSourceDir>$(MSBuildProjectDirectory)\License\</_LicenseSourceDir>
-      <_LicenseOutDir>$(OutDir)License\</_LicenseOutDir>
-    </PropertyGroup>
-    <ItemGroup>
-      <_LicenseFiles Include="$(_LicenseSourceDir)**\*" />
-    </ItemGroup>
-    <MakeDir Directories="$(_LicenseOutDir)" Condition="!Exists('$(_LicenseOutDir)')" />
-    <Copy SourceFiles="@(_LicenseFiles)" DestinationFiles="@(_LicenseFiles->'$(_LicenseOutDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
-    <Message Text="CopyLicenseToOutDir: copied @(_LicenseFiles) -&gt; $(_LicenseOutDir)" Importance="high" Condition="@(_LicenseFiles) != ''" />
-  </Target>
-
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
     <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
@@ -265,178 +215,21 @@
   </PropertyGroup>
 
   <!--
-    WinUI 3 app, MSIX-packaged (WindowsPackageType is unset → defaults to MSIX).
-    Package.appxmanifest + WASDK 2.6.x declare the framework dependency on
-    Microsoft.WindowsAppRuntime 2.6, which Windows resolves from the framework
-    package.
+    WinUI 3 app, unpackaged (WindowsPackageType=None). The Windows App SDK
+    bootstrapper resolves Microsoft.WindowsAppRuntime 2.7 from the
+    framework package installed on the machine at launch; there is no MSIX
+    package identity and no Package.appxmanifest.
 
-    Build / Run flow (this project is never packaged for distribution):
+    Build / Run flow:
       - `dotnet build -c Debug -p:Platform=x64` produces the layout at
         bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\
-      - `dotnet run` (via Microsoft.Windows.SDK.BuildTools.WinApp, added above)
-        registers a debug package identity (AUMID) and launches the app.
-        This is the only supported way to start it — see the .exe caveat below.
+      - `dotnet run` launches that exe directly (no package registration).
+      - Release deployment copies the same layout to %USERPROFILE%\App\IcedPicViewer
+        and creates a Start Menu shortcut; see tools/run-release.ps1.
   -->
   <PropertyGroup>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
-    <PublishDir>bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\publish\</PublishDir>
   </PropertyGroup>
-
-  <!--
-    Regenerate placeholder icon assets in Assets\ before every build.
-    Outputs a monogram "I" mark (rounded square + bold white "I") at all
-    sizes required by Package.appxmanifest and the Windows shell (Store
-    Logo 50, Square44x44 base+scale-200+targetsize-24/48, Square150x150
-    base+scale-200, Wide310x150 base+scale-200, SplashScreen base+scale-200,
-    LockScreenLogo scale-200) plus a multi-size AppIcon.ico (16/24/32/48/
-    64/128/256).
-
-    This overwrites the Visual Studio template default placeholders
-    (gray X frame PNGs + the picture-frame blue .ico) so the app has
-    a coherent brand mark from the first build. A designer can replace
-    the generated files directly; the target re-creates them on the next
-    build only if you delete them (a stamp file tracks the last run).
-
-    _DesignTimeBuild skip avoids running during IDE design-time XAML
-    reloads, which would race with file watchers.
-  -->
-  <Target Name="GenerateIconAssets" BeforeTargets="BeforeBuild" Condition="'$(_DesignTimeBuild)' != 'true'">
-    <PropertyGroup>
-      <_IconScript>$(MSBuildProjectDirectory)\Tools\GenerateIconAssets.ps1</_IconScript>
-      <_IconAssetsDir>$(MSBuildProjectDirectory)\Assets\</_IconAssetsDir>
-      <_IconStampDir>$(BaseIntermediateOutputPath)</_IconStampDir>
-      <_IconStamp>$(BaseIntermediateOutputPath)GenerateIconAssets.stamp</_IconStamp>
-    </PropertyGroup>
-    <MakeDir Directories="$(_IconStampDir)" />
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_IconScript)&quot; -AssetsDir &quot;$(_IconAssetsDir)&quot;" />
-    <WriteLinesToFile File="$(_IconStamp)" Lines="" Overwrite="true" WriteOnlyWhenDifferent="false" />
-  </Target>
-
-  <!--
-    GuardPackageManifestVersion: fail the build when Package.appxmanifest's
-    Identity/@Version disagrees with this project's <Version> (the single source
-    of truth). Bumping the version is then a two-line change and the two can no
-    longer drift silently — which they did before <Version> existed at all (the
-    manifest said 0.15.0.0 while the assembly was still 1.0.0.0).
-
-    Deliberately a read-only guard rather than an auto-rewrite. An earlier
-    attempt rewrote the tracked file from an inline PowerShell Exec; MSBuild's
-    attribute escaping mangled the script and it truncated Package.appxmanifest
-    to zero bytes on every build, which then surfaced as a confusing
-    MSB4018/FileNotFoundException inside the SDK's manifest validation task.
-    Never again: this target only reads.
-
-    MSIX requires exactly four version parts; <Version> is normally three, so
-    the expected value is normalised before comparing. Read only the attribute
-    text via a regex — an XPath query would have to deal with the manifest's
-    default XML namespace.
-  -->
-  <Target Name="GuardPackageManifestVersion" BeforeTargets="BeforeBuild">
-    <PropertyGroup>
-      <_ManifestPath>$(MSBuildProjectDirectory)\Package.appxmanifest</_ManifestPath>
-      <_ExpectedManifestVersion>$(Version)</_ExpectedManifestVersion>
-      <_ManifestPartCount>$([System.String]::Copy('$(_ExpectedManifestVersion)').Split('.').Length)</_ManifestPartCount>
-      <_ExpectedManifestVersion Condition="'$(_ManifestPartCount)' == '1'">$(_ExpectedManifestVersion).0.0.0</_ExpectedManifestVersion>
-      <_ExpectedManifestVersion Condition="'$(_ManifestPartCount)' == '2'">$(_ExpectedManifestVersion).0.0</_ExpectedManifestVersion>
-      <_ExpectedManifestVersion Condition="'$(_ManifestPartCount)' == '3'">$(_ExpectedManifestVersion).0</_ExpectedManifestVersion>
-      <_ActualManifestVersion Condition="Exists('$(_ManifestPath)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(_ManifestPath)')), '&lt;Identity\b[^&gt;]*?\bVersion="([^"]+)"').Groups[1].Value)</_ActualManifestVersion>
-      <!--
-        Pad the manifest value too, so "0.16.0" and "0.16.0.0" compare equal.
-        Otherwise a three-part manifest entry would be reported as a mismatch
-        even though MSIX and the assembly both read it as the same version —
-        an easy trap for whoever edits the manifest next.
-      -->
-      <_ActualPartCount>$([System.String]::Copy('$(_ActualManifestVersion)').Split('.').Length)</_ActualPartCount>
-      <_ActualManifestVersion Condition="'$(_ActualPartCount)' == '1'">$(_ActualManifestVersion).0.0.0</_ActualManifestVersion>
-      <_ActualManifestVersion Condition="'$(_ActualPartCount)' == '2'">$(_ActualManifestVersion).0.0</_ActualManifestVersion>
-      <_ActualManifestVersion Condition="'$(_ActualPartCount)' == '3'">$(_ActualManifestVersion).0</_ActualManifestVersion>
-    </PropertyGroup>
-
-    <Error Condition="'$(_ManifestPartCount)' &gt; '4'"
-           Text="&lt;Version&gt; '$(_ExpectedManifestVersion)' has more than four parts, which Package.appxmanifest Identity/@Version cannot express (MSIX allows at most four)." />
-    <Error Condition="!Exists('$(_ManifestPath)')"
-           Text="Package.appxmanifest not found at $(_ManifestPath)." />
-    <Error Condition="'$(_ActualManifestVersion)' == ''"
-           Text="Could not read Identity/@Version from $(_ManifestPath)." />
-    <Error Condition="'$(_ActualManifestVersion)' != '' and '$(_ActualManifestVersion)' != '$(_ExpectedManifestVersion)'"
-           Text="Version mismatch: &lt;Version&gt; is '$(_ExpectedManifestVersion)' but Package.appxmanifest Identity/@Version is '$(_ActualManifestVersion)'. Set Identity/@Version to '$(_ExpectedManifestVersion)' so the MSIX package version matches the assembly, or change &lt;Version&gt;." />
-  </Target>
-
-  <!--
-    Embed the current git short commit hash into the assembly so the window
-    title can display it at runtime. The hash is captured at build time (not
-    at run time) so the displayed version always matches the running binary,
-    and so the app doesn't need a .git directory on the user's machine.
-
-    The generated file is written into the project's Generated/ folder so the
-    SDK's default <Compile Include="**/*.cs" /> picks it up automatically —
-    no need to manually wire it into the Compile item group. .gitignore
-    excludes Generated/ so it never gets tracked.
-
-    The const is used by MainWindow to set AppTitleBar.Title /
-    AppWindow.Title at startup.
-
-    Falls back to "unknown" when git is unavailable or the repo has no
-    commits (e.g. fresh build server clone). _DesignTimeBuild skip avoids
-    running git during IDE design-time XAML reloads.
-  -->
-  <Target Name="GenerateBuildInfo" BeforeTargets="BeforeBuild" Condition="'$(_DesignTimeBuild)' != 'true'">
-    <PropertyGroup>
-      <_GeneratedDir>$(MSBuildProjectDirectory)\Generated\</_GeneratedDir>
-      <_BuildInfoPath>$(_GeneratedDir)BuildInfo.g.cs</_BuildInfoPath>
-    </PropertyGroup>
-    <MakeDir Directories="$(_GeneratedDir)" />
-    <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="_GitShortHash" />
-    </Exec>
-    <PropertyGroup>
-      <_GitShortHash>$(_GitShortHash.Trim())</_GitShortHash>
-      <_GitShortHash Condition="'$(_GitShortHash)' == ''">unknown</_GitShortHash>
-    </PropertyGroup>
-    <ItemGroup>
-      <_BuildInfoLines Include="// Auto-generated by build. Do not edit." />
-      <_BuildInfoLines Include="namespace IcedPicViewer" />
-      <_BuildInfoLines Include="{" />
-      <_BuildInfoLines Include="    internal static class BuildInfo" />
-      <_BuildInfoLines Include="    {" />
-      <!--
-        %3B escapes the trailing semicolon — MSBuild parses attribute values
-        with `;` as list separators, so a literal `;` here would be silently
-        dropped and the file would be syntactically broken.
-      -->
-      <_BuildInfoLines Include="        public const string CommitShort = &quot;$(_GitShortHash)&quot;%3B" />
-      <!--
-        Configuration is emitted from the actual build configuration rather than
-        read from #if DEBUG, so the string can never disagree with the binary.
-      -->
-      <_BuildInfoLines Include="        public const string Configuration = &quot;$(Configuration)&quot;%3B" />
-      <_BuildInfoLines Include="        public const string Version = &quot;$(Version)&quot;%3B" />
-      <!--
-        Pre-composed for the window title / About page so the two never drift.
-        Kept short on purpose: Windows 11 shows AppWindow.Title next to the
-        taskbar icon, so this should stay short enough not to truncate.
-      -->
-      <_BuildInfoLines Include="        public const string DisplayVersion = &quot;$(Version) ($(Configuration))&quot;%3B" />
-      <_BuildInfoLines Include="        public const string FullLabel = &quot;$(Version) ($(Configuration), $(_GitShortHash))&quot;%3B" />
-      <_BuildInfoLines Include="    }" />
-      <_BuildInfoLines Include="}" />
-    </ItemGroup>
-    <WriteLinesToFile File="$(_BuildInfoPath)" Lines="@(_BuildInfoLines)" Overwrite="true" Encoding="UTF-8" />
-  </Target>
-
-  <!--
-    Explicit <Compile Include> for the generated file. The SDK's default
-    **\*.cs glob would normally pick it up, but MSBuild's incremental build
-    caches the glob result — a file that appears after the initial glob
-    evaluation isn't seen by CoreCompile. Listing it explicitly forces a
-    re-evaluation whenever the target runs. The matching Remove first
-    prevents CS2002 "file specified multiple times" from the default glob
-    also picking it up.
-  -->
-  <ItemGroup>
-    <Compile Remove="$(MSBuildProjectDirectory)\Generated\BuildInfo.g.cs" />
-    <Compile Include="$(MSBuildProjectDirectory)\Generated\BuildInfo.g.cs" />
-  </ItemGroup>
 </Project>

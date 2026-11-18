@@ -10,7 +10,7 @@ namespace IcedPicViewer.Services.Implementations;
 
 /// <summary>
 /// JSON-backed implementation of <see cref="ISettingsService"/>. Persists
-/// to <c>{LocalApplicationData}/IcedPicViewer/settings.json</c> with a
+/// to <c>&lt;exe&gt;\Data\settings.json</c> with a
 /// debounced write so dragging a slider doesn't generate dozens of disk writes.
 ///
 /// <para><b>File format</b></para>
@@ -51,7 +51,7 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
 
     public AppSettings Current { get; private set; } = new();
 
-    /// <summary>Production path: <c>%LocalAppData%/IcedPicViewer/settings.json</c>.</summary>
+    /// <summary>Production path: <c>&lt;exe&gt;\Data\settings.json</c>.</summary>
     public JsonSettingsService()
         : this(GetDefaultSettingsPath())
     {
@@ -73,7 +73,7 @@ public sealed class JsonSettingsService : ISettingsService, IDisposable
 
     private static string GetDefaultSettingsPath()
     {
-        // %LOCALAPPDATA%\IcedPicViewer\settings.json (see AppDataPaths).
+        // <exe>\Data\settings.json (see AppDataPaths).
         AppDataPaths.EnsureRoot();
         return AppDataPaths.SettingsFile;
     }

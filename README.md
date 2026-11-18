@@ -5,7 +5,7 @@
 | 路径 | 说明 |
 |------|------|
 | `src/IcedPicViewer.Core` | 共享逻辑库（不引用 WinUI）：扫描、归档、设置、FFmpeg 抽帧等（`net11.0`） |
-| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.6，.NET 11，MSIX，**x64 only**） |
+| `src/IcedPicViewer.WinUI` | Windows 原生 UI（WinUI 3 + WASDK 2.7，.NET 11，unpackaged，**x64 only**） |
 | `tests/IcedPicViewer.Core.Tests` | Core 单元/集成测试（xUnit；已进 solution） |
 
 协作约定与定稿架构见 `AGENTS.md`。
@@ -26,7 +26,7 @@
 
 | 能力 | 实现 |
 |------|------|
-| 平台 | Windows x64（MSIX） |
+| 平台 | Windows x64（unpackaged） |
 | 图片解码 | WIC |
 | 视频播放 | `MediaPlayerElement`（系统编解码；部分容器 FFmpeg remux）；LibVLC 软渲染回退（`VlcImageSurface`） |
 | 键盘全局路径 | `WH_KEYBOARD` hook（见 `AGENTS.md`） |
@@ -83,16 +83,19 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 # 视频/图片原生库，不进 git；缺失时 build 仅警告 IPV001，运行期会静默失去视频缩略图
 ./tools/Fetch-FFmpegNatives.ps1 -Rid win-x64
 
-# 启动（Debug / Release 二选一；脚本等价于 dotnet run ... -c <配置> -p:Platform=x64）
+# Debug：构建并启动（等价于 dotnet run ... -c Debug -p:Platform=x64）
 ./tools/run-debug.ps1
-./tools/run-release.ps1
+
+# Release：构建 → 部署到 %USERPROFILE%\App\IcedPicViewer → 建开始菜单快捷方式 → 启动
+./run-release.bat            # 或 ./tools/run-release.ps1
+./tools/run-release.ps1 -NoLaunch   # 只构建/部署，不启动
 ```
 
-前置：**已开启 Windows 开发者模式** + .NET 11 runtime + **Windows App Runtime 2.6**。
+前置：.NET 11 runtime + **Windows App Runtime 2.7**。应用是 unpackaged，不需要开发者模式或包身份。
 
 - `-p:Platform=x64` **不可省略**：该工程只支持 x64，默认 `AnyCPU` 会失败。
-- **本项目不做发布打包**——`dotnet run` 会注册调试包身份并启动，不需要安装 MSIX。
-- ⚠️ **不要**直接双击 `bin\...\IcedPicViewer.exe`：缺 package identity 会 `REGDB_E_CLASSNOTREG`。
+- Release 输出会复制到 `%USERPROFILE%\App\IcedPicViewer`；复制时保留该目录下已有的 `Data`。
+- 部署目录里的 `IcedPicViewer.exe` 可以直接双击启动；数据写在 exe 旁的 `Data\`。
 
 #### Debug vs Release
 
@@ -106,13 +109,13 @@ dotnet test tests/IcedPicViewer.Core.Tests/IcedPicViewer.Core.Tests.csproj -c De
 #### 排查用环境变量
 
 ```powershell
-# FFmpeg 解码诊断 → <app data>\ffmpeg-probe.log
+# FFmpeg 解码诊断 → <exe>\Data\ffmpeg-probe.log
 $env:IPV_FFMPEG_PROBE='1'
-# 首异常日志（XAML 初始化崩溃排查）→ <app data>\firstchance.log
+# 首异常日志（XAML 初始化崩溃排查）→ <exe>\Data\firstchance.log
 $env:IPV_FIRSTCHANCE_LOG='1'
 ```
 
-数据固定在 `%LOCALAPPDATA%\IcedPicViewer\`；原生库查找顺序 `IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。
+数据固定在 exe 旁的 `Data\`；原生库查找顺序 `IPV_FFMPEG_ROOT` → 输出目录 → 系统路径。`IPV_DATA_DIR` 可覆盖整个数据目录（测试/临时运行用）。
 
 ### 验证约定
 
@@ -124,8 +127,9 @@ $env:IPV_FIRSTCHANCE_LOG='1'
 
 - `IPV_FFMPEG_ROOT` — 含 `avutil` 的目录（Core 抽帧）
 - `IPV_FFMPEG_PROBE` — `1` 时启动 FFmpeg 诊断探针（开发用）
-- `IPV_FIRSTCHANCE_LOG` — `1` 时把 first-chance 异常写入 `<app data>\firstchance.log`（开发用）
-- 所有可变状态固定在 **`%LocalApplicationData%\IcedPicViewer\`**（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\`），统一由 Core `AppDataPaths` 解析
+- `IPV_FIRSTCHANCE_LOG` — `1` 时把 first-chance 异常写入 `<exe>\Data\firstchance.log`（开发用）
+- `IPV_DATA_DIR` — 覆盖数据目录（默认 `<exe>\Data`）
+- 所有可变状态固定在 **`<exe>\Data\`**（`settings.json`、`window_settings.txt`、`crash.log`、`TempVideo\` 等），统一由 Core `AppDataPaths` 解析
 
 FFmpeg 拉取产物在 `src/native/ffmpeg/win-x64/`（**不进 git**）。
 

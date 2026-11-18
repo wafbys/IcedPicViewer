@@ -29,18 +29,6 @@ artifacts/
 *.nuget.targets
 project.lock.json
 
-# MSIX packaging output
-AppPackages/
-BundleArtifacts/
-*.msix
-*.msixupload
-*.appx
-*.appxbundle
-*.appxupload
-
-# Publish output
-publish/
-PublishScripts/
 # Visual Studio publish profiles (per-developer, regenerate on demand)
 *.pubxml
 Properties/PublishProfiles/
@@ -53,12 +41,7 @@ _ReSharper*/
 
 # Generated files
 Generated\ Files/
-IcedPicViewer/Generated/
-src/IcedPicViewer.WinUI/Generated/
 *_wpftmp.csproj
-
-# Single executable deliverable folder (regenerated on publish)
-IcedPicViewer-x64/
 
 # FFmpeg / native video libs — never commit (GitHub 50MB+ warn; avcodec ~67MB)
 # Fetch: tools/Fetch-FFmpegNatives.ps1 -Rid win-x64  →  src/native/ffmpeg/win-x64/

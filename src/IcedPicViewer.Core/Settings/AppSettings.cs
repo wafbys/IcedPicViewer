@@ -20,8 +20,8 @@ namespace IcedPicViewer.Services.Interfaces;
 /// </para>
 ///
 /// <para>
-/// Backed by a plain JSON file under the platform app-data directory
-/// (e.g. <c>%LOCALAPPDATA%\IcedPicViewer\settings.json</c> on Windows).
+/// Backed by a plain JSON file next to the executable
+/// (e.g. <c>&lt;exe&gt;\Data\settings.json</c>).
 /// Inspectable by the user; delete the file to reset to defaults.
 /// </para>
 /// </summary>

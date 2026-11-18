@@ -8,9 +8,9 @@ namespace IcedPicViewer.Core.Media;
 /// <summary>
 /// Locates the FFmpeg shared libraries shipped with the app and points
 /// <see cref="ffmpeg.RootPath"/> at that folder once per process. The
-/// product is Windows-only (x64): the search is limited to the packaged
-/// layout — <c>IPV_FFMPEG_ROOT</c> → the app output root (= MSIX install
-/// root) → <c>runtimes\win-x64\native</c> → <c>native</c>.
+/// product is Windows-only (x64): the search is limited to the unpackaged
+/// layout — <c>IPV_FFMPEG_ROOT</c> → the app output root (next to the exe)
+/// → <c>runtimes\win-x64\native</c> → <c>native</c>.
 /// </summary>
 public static class FFmpegBootstrap
 {
@@ -79,9 +79,9 @@ public static class FFmpegBootstrap
 
         var baseDir = AppContext.BaseDirectory;
 
-        // The packaged/loose layouts put the DLLs flat in the output root
-        // (which is also the MSIX install root). The runtimes\win-x64\native
-        // convention stays as a fallback for framework-style layouts.
+        // The unpackaged layout puts the DLLs flat in the output root
+        // (next to the exe). The runtimes\win-x64\native convention stays as
+        // a fallback for framework-style layouts.
         candidates.Add(baseDir);
         candidates.Add(Path.Combine(baseDir, "runtimes", "win-x64", "native"));
         candidates.Add(Path.Combine(baseDir, "native"));

@@ -19,14 +19,14 @@ namespace IcedPicViewer.Services.Implementations;
 /// This is gated by env var (see <see cref="IsProbeRequested"/>) and runs
 /// only on explicit demand — by default the app boots without touching FFmpeg
 /// at all, so production users are unaffected. Output is written to
-/// %LOCALAPPDATA%\IcedPicViewer\ffmpeg-probe.log for post-mortem inspection.
+/// <exe>\Data\ffmpeg-probe.log for post-mortem inspection.
 ///
 /// Three phases, all best-effort (each catches and logs independently):
 ///   Phase 1 — Library load: call av_version_info() / avformat_version().
 ///   Phase 2 — File probe:   if IPV_FFMPEG_PROBE_VIDEO is set, avformat_open_input
 ///                            + avformat_find_stream_info, log dimensions/duration.
 ///   Phase 3 — Frame decode: if IPV_FFMPEG_PROBE_THUMBNAIL is set, decode one
-///                            frame and save as JPEG to %LOCALAPPDATA%\IcedPicViewer\probe-thumb.jpg.
+///                            frame and save as JPEG to <exe>\Data\probe-thumb.jpg.
 ///
 /// This service is intentionally throw-free — every phase is wrapped in
 /// try/catch because we never want a probe failure to crash the app.
@@ -44,7 +44,7 @@ public sealed class FFmpegProbeService
 
     public FFmpegProbeService()
     {
-        // %LOCALAPPDATA%\IcedPicViewer.
+        // <exe>\Data (AppDataPaths).
         _logDir = AppDataPaths.EnsureRoot();
         _logPath = Path.Combine(_logDir, LogFileName);
     }
@@ -52,13 +52,12 @@ public sealed class FFmpegProbeService
     /// <summary>
     /// True when the user opted in via env var (IPV_FFMPEG_PROBE=1).
     ///
-    /// NOTE: MSIX packaged launch (via `winapp.exe launch`) does NOT inherit
-    /// env vars from the parent `dotnet run` shell. To run the probe in MSIX
-    /// packaged context you must either:
+    /// The unpackaged app inherits the environment of the shell that launched
+    /// it, so `IPV_FFMPEG_PROBE=1` works directly. If that is inconvenient
+    /// (for example when launching from a shortcut), either:
     ///   1. Set the env var inside App.OnLaunched before _window.Activate()
     ///      (compile-time override), or
-    ///   2. Place a flag file at <app data>\ffmpeg-probe.flag
-    ///      (%LOCALAPPDATA%\IcedPicViewer), or
+    ///   2. Place a flag file at <exe>\Data\ffmpeg-probe.flag, or
     ///   3. Temporarily flip _forceRunForDiagnostic below.
     /// </summary>
     public static bool IsProbeRequested =>
@@ -69,8 +68,8 @@ public sealed class FFmpegProbeService
 
     /// <summary>
     /// Compile-time diagnostic override. Set to <c>true</c> to bypass the
-    /// env-var gate when investigating FFmpeg issues in MSIX packaged
-    /// context. Default: <c>false</c> (env-var only).
+    /// env-var gate when investigating FFmpeg issues. Default: <c>false</c>
+    /// (env-var only).
     /// </summary>
     public static bool ForceRunForDiagnostic { get; set; }
 

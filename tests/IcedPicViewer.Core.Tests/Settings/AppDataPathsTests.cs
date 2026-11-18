@@ -7,12 +7,12 @@ namespace IcedPicViewer.Core.Tests.Settings;
 public sealed class AppDataPathsTests
 {
     [Fact]
-    public void Root_IsUnderLocalAppData()
+    public void Root_LivesNextToTheExecutable()
     {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var expected = Path.Combine(AppContext.BaseDirectory, "Data");
 
-        Assert.StartsWith(localAppData, AppDataPaths.Root, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("IcedPicViewer", Path.GetFileName(AppDataPaths.Root));
+        Assert.Equal(expected, AppDataPaths.Root);
+        Assert.Equal("Data", Path.GetFileName(AppDataPaths.Root));
     }
 
     [Fact]

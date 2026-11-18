@@ -2,14 +2,13 @@
 
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading.Tasks;
 using IcedPicViewer.Core.Media;
 using IcedPicViewer.Core.Text;
 using IcedPicViewer.Services.Interfaces;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Windows.Storage;
-using Windows.System;
 
 namespace IcedPicViewer.Views;
 
@@ -19,10 +18,10 @@ public sealed partial class AboutPage : Page
     {
         this.InitializeComponent();
 
-        // Full build label: version, configuration and commit. The window title
-        // carries the shorter `DisplayVersion` form; this page is where you go
-        // to identify an exact binary, so it includes the commit.
-        VersionTextBlock.Text = $"版本：{BuildInfo.FullLabel}";
+        // Full build label: version, configuration, commit and build time.
+        // The window title carries the same string; this page repeats it so a
+        // screenshot of either place identifies the exact binary.
+        VersionTextBlock.Text = $"版本：{BuildInfo.DisplayVersion}";
         IntroTextBlock.Text = AboutCopy.WinUiIntro();
         AppLicenseTextBlock.Text = AboutCopy.AppLicenseZh();
         FfmpegDescTextBlock.Text = AboutCopy.FfmpegDescriptionZh();
@@ -136,52 +135,27 @@ public sealed partial class AboutPage : Page
     }
 
     /// <summary>
-    /// Open the bundled LGPL 2.1 license text in the user's default
-    /// text editor. We resolve the file via <c>ms-appx:///</c> so the
-    /// path is correct regardless of where the AppX package was
-    /// installed (Program Files\WindowsApps\<hash>\ on most machines,
-    /// but MSIX can install to other locations per machine policy).
-    ///
-    /// The LGPL text ships in the package under License\, so it resolves via
-    /// <c>ms-appx:///</c>. If that lookup fails, fall back to the loose file
-    /// next to the exe rather than leaving the link dead.
+    /// Open the bundled LGPL 2.1 license text with the shell's default .txt
+    /// handler. The file ships next to the exe under License\, which is also
+    /// where the deployment copy puts it; there is no package identity or
+    /// ms-appx lookup in an unpackaged app.
     /// </summary>
-    private async void LicenseLink_Click(object sender, RoutedEventArgs e)
+    private void LicenseLink_Click(object sender, RoutedEventArgs e)
     {
+        var path = Path.Combine(AppContext.BaseDirectory, "License", "ffmpeg-LGPL.txt");
+        if (!File.Exists(path))
+        {
+            Trace.TraceError($"AboutPage.LicenseLink_Click: license not found at {path}");
+            return;
+        }
+
         try
         {
-            // StorageFile.GetFileFromApplicationUriAsync handles the
-            // ms-appx scheme lookup and returns a StorageFile pointing
-            // at the actual on-disk path inside the AppX install
-            // location. Launcher.LaunchFileAsync then hands it off to
-            // the shell, which picks the default app for .txt.
-            var file = await StorageFile.GetFileFromApplicationUriAsync(
-                new Uri("ms-appx:///License/ffmpeg-LGPL.txt"));
-            await Launcher.LaunchFileAsync(file);
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
-            Trace.TraceWarning(
-                $"AboutPage.LicenseLink_Click: ms-appx lookup failed ({ex.GetType().Name}: {ex.Message}); " +
-                "falling back to the loose License\\ffmpeg-LGPL.txt next to the exe.");
-
-            try
-            {
-                var loose = Path.Combine(AppContext.BaseDirectory, "License", "ffmpeg-LGPL.txt");
-                if (!File.Exists(loose))
-                {
-                    Trace.TraceError($"AboutPage.LicenseLink_Click: license not found at {loose}");
-                    return;
-                }
-
-                var looseFile = await StorageFile.GetFileFromPathAsync(loose);
-                await Launcher.LaunchFileAsync(looseFile);
-            }
-            catch (Exception fallbackEx)
-            {
-                Trace.TraceError(
-                    $"AboutPage.LicenseLink_Click fallback failed: {fallbackEx.GetType().Name}: {fallbackEx.Message}");
-            }
+            Trace.TraceError($"AboutPage.LicenseLink_Click: {ex.GetType().Name}: {ex.Message}");
         }
     }
 }

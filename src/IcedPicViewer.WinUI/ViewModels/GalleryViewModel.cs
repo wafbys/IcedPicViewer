@@ -29,7 +29,6 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
     private readonly IFilePickerService _filePicker;
     private readonly IDialogService _dialogService;
     private readonly ISettingsService _settingsService;
-    private readonly IJumpListService _jumpListService;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
     // P1: one Trace line per completed scan so scan cost can be attributed
@@ -423,8 +422,7 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         IFolderPickerService folderPicker,
         IFilePickerService filePicker,
         IDialogService dialogService,
-        ISettingsService settingsService,
-        IJumpListService jumpListService)
+        ISettingsService settingsService)
     {
         _scanner = scanner;
         _imageLoader = imageLoader;
@@ -433,7 +431,6 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
         _filePicker = filePicker;
         _dialogService = dialogService;
         _settingsService = settingsService;
-        _jumpListService = jumpListService;
 
         // Hydrate the persisted slideshow interval. The setter is
         // not used here because the backing field is private and the
@@ -556,7 +553,6 @@ public partial class GalleryViewModel : ObservableObject, IDisposable
                 recents.RemoveRange(MaxRecentFolders, recents.Count - MaxRecentFolders);
             }
             _settingsService.ScheduleSave();
-            _ = _jumpListService.UpdateRecentFoldersAsync(recents);
         }
         catch (Exception ex)
         {

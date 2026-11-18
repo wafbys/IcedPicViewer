@@ -34,7 +34,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
 
     private static string GetSettingsPath()
     {
-        // Window geometry lives in %LOCALAPPDATA%\IcedPicViewer (AppDataPaths).
+        // Window geometry lives in <exe>\Data (AppDataPaths).
         var dir = AppDataPaths.EnsureRoot();
         return Path.Combine(dir, SettingsFile);
     }
@@ -94,7 +94,7 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         OnPropertyChanged(nameof(IsFullscreen));
         OnPropertyChanged(nameof(IsAppTitleBarVisible));
         // Defer a second notification by one dispatcher tick. Symptom
-        // we are hunting: in MSIX packaged mode on Win 11 25H2 we
+        // we are hunting: on Win 11 25H2 we
         // observed that AppWindow.SetPresenter returns synchronously
         // but AppWindow.Presenter.Kind doesn't actually flip until
         // the next dispatcher round-trip — so when subscribers
@@ -160,16 +160,18 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
-        // Put version, build configuration and commit hash in the title so the
-        // running binary is unambiguous. This matters because `dotnet run`
-        // launches under a debug package identity — the bin path alone does not
-        // tell you which configuration or commit is on screen, and Debug vs
-        // Release behaves very differently for performance work.
-        var title = $"IcedPicViewer {BuildInfo.FullLabel}";
+        // Put version, build configuration, commit hash and build time in the
+        // title so the running binary is unambiguous. This matters because
+        // Debug vs Release behaves very differently for performance work, and
+        // the bin path alone does not tell you which commit or build is on
+        // screen.
+        var title = BuildInfo.WindowTitle;
         AppTitleBar.Title = title;
         AppWindow.Title = title;
 
-        AppWindow.SetIcon("Assets/AppIcon.ico");
+        // Absolute path: `dotnet run` and shell launches do not guarantee that
+        // the process working directory is the exe directory.
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
 
         // Taskbar scan progress (best-effort; no-op when the shell
         // integration is unavailable — see TaskbarProgressService).
@@ -252,11 +254,11 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         // SetWindowSubclass, …) — all depended on a focused element or
         // on registering the hook on a HWND that the OS actually
         // routes keyboard input to, both of which are unreliable in
-        // MSIX packaged mode on Win11 25H2. WH_KEYBOARD thread scope
+        // WinUI 3 on Win11 25H2. WH_KEYBOARD thread scope
         // sidesteps both: it hooks the UI thread's message queue
         // directly, so every keystroke reaches us regardless of focus
-        // and HWND. WH_KEYBOARD_LL would need an injected DLL that the
-        // MSIX sandbox generally blocks, so this is the right tool.
+        // and HWND. WH_KEYBOARD_LL would require a DLL injected into
+        // every process, which a normal desktop app cannot do.
         //
         // See AGENTS.md "键盘导航" sub-section for the full failed-attempts
         // chronology. The DispatcherQueue.TryEnqueue is a belt-and-
@@ -335,10 +337,10 @@ public sealed partial class MainWindow : Window, System.ComponentModel.INotifyPr
         //   - nCode < 0 → pass through to CallNextHookEx with no work
         //   - Callback must return fast (slow callbacks degrade input latency)
         //   - Exceptions MUST NOT escape (unhandled throw in a hook is undefined;
-        //     on Win11 25H2 + MSIX it silently crashes the process)
+        //     on Win11 25H2 it silently crashes the process)
         //   - (int)IntPtr is unchecked truncate — never throws. IntPtr.ToInt32()
         //     does throw on .NET 6+ when value is out of int range (observed on
-        //     Win11 25H2 + MSIX where wParam/lParam have garbage in the high
+        //     Win11 25H2 where wParam/lParam have garbage in the high
         //     32 bits). The C# `unchecked` keyword does NOT change BCL method
         //     behavior — only the explicit `(int)IntPtr` cast is safe here.
         // The body is try/catch-wrapped and HandleViewerKey is hopped via
