@@ -12,7 +12,7 @@
         also reports configuration, commit hash and build time)
   -->
   <PropertyGroup>
-    <Version>0.24.2</Version>
+    <Version>0.25.0</Version>
   </PropertyGroup>
 
 </Project>
