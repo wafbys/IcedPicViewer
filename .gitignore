@@ -42,6 +42,9 @@ _ReSharper*/
 # Generated files
 Generated\ Files/
 *_wpftmp.csproj
+# Stale output of the retired GenerateBuildInfo target (build metadata now
+# comes from AssemblyMetadata in the csproj)
+/src/IcedPicViewer.WinUI/Generated/
 
 # FFmpeg / native video libs — never commit (GitHub 50MB+ warn; avcodec ~67MB)
 # Fetch: tools/Fetch-FFmpegNatives.ps1 -Rid win-x64  →  src/native/ffmpeg/win-x64/

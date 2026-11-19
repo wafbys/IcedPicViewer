@@ -111,6 +111,17 @@
   </ItemGroup>
 
   <!--
+    Generated\ is build output, not source. The retired GenerateBuildInfo
+    target used to write BuildInfo.g.cs there; long-lived working copies can
+    still hold that stale file, and left in the default Compile glob it
+    collides with BuildInfo.cs (which now reads assembly metadata) as CS0101.
+    Exclude the folder so old artifacts can never break a build.
+  -->
+  <ItemGroup>
+    <Compile Remove="Generated\**\*.cs" />
+  </ItemGroup>
+
+  <!--
     Declared FFmpeg sonames: the native API set the FFmpeg.AutoGen PackageReference
     above binds to. Single source of truth — consumed by two places:
       * tools/Fetch-FFmpegNatives.ps1 parses this property for its own guard
